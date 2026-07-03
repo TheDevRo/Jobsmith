@@ -12,6 +12,7 @@ Run with: uvicorn backend.main:app --port 8888  (see start_server.sh)
 import asyncio
 import logging
 import shutil
+from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -39,6 +40,18 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+# Also log to a rotating file: the desktop app's stdout is invisible, and
+# Settings → Logs tails this file (served by /api/logs/tail).
+state.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+_file_handler = RotatingFileHandler(
+    state.LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+)
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+)
+logging.getLogger().addHandler(_file_handler)
+
 logger = logging.getLogger(__name__)
 
 # Path aliases kept at module level for tests that monkeypatch them.

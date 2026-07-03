@@ -212,7 +212,7 @@ async function inProgressDismiss(jobId) {
 }
 
 async function requeueNeedsAttention(jobId) {
-    if (!confirm('Move this application back to the review queue?')) return;
+    if (!(await appConfirm('Move this application back to the review queue?'))) return;
     try {
         const data = await api('/api/applications/in-progress');
         const app = (data.needs_attention || []).find(a => a.job_id === jobId);
@@ -665,18 +665,18 @@ async function resumeApply(appId) {
 }
 
 async function requeueApplication(appId) {
-    if (!confirm('Move this application back to the review queue?')) return;
+    if (!(await appConfirm('Move this application back to the review queue?'))) return;
     try {
         await api(`/api/applications/${appId}/requeue`, { method: 'POST' });
         document.getElementById(`submitted-${appId}`)?.remove();
         loadReviewQueue();
     } catch (e) {
-        alert('Failed to requeue: ' + e.message);
+        appAlert('Failed to requeue: ' + e.message);
     }
 }
 
 async function retryAutoApply(appId) {
-    if (!confirm('Retry auto-apply for this application?\n\nThis will attempt auto-apply immediately.')) return;
+    if (!(await appConfirm('Retry auto-apply for this application?\n\nThis will attempt auto-apply immediately.'))) return;
     try {
         // Requeue to pending_review first, then trigger apply
         await api(`/api/applications/${appId}/requeue`, { method: 'POST' });
@@ -1027,7 +1027,7 @@ async function approveAndApply(appId) {
 }
 
 async function markAppApplied(appId) {
-    if (!confirm('Mark this application as manually applied?')) return;
+    if (!(await appConfirm('Mark this application as manually applied?'))) return;
     try {
         await api(`/api/applications/${appId}/status`, {
             method: 'PATCH',

@@ -2550,3 +2550,35 @@ body[data-theme="light"] .tour-overlay .tour-dim {
 .ob-diff-vals { flex: 1; font-size: 12.5px; line-height: 1.5; min-width: 0; }
 .ob-diff-old { color: var(--accent-red); text-decoration: line-through; word-break: break-word; opacity: 0.85; }
 .ob-diff-new { color: var(--accent-green); word-break: break-word; }
+
+/* In-page replacements for window.confirm/prompt/alert — the desktop
+   shell's webview doesn't implement native JS dialogs. */
+.app-dialog-overlay {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 10000;
+}
+.app-dialog {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px; max-width: 440px; width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.app-dialog-message {
+    color: var(--text-primary); font-size: 0.95rem; line-height: 1.5;
+    white-space: pre-line; margin-bottom: 16px;
+}
+.app-dialog-input {
+    width: 100%; margin-bottom: 16px; box-sizing: border-box;
+    background: var(--bg-primary); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px;
+}
+.app-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Settings → Logs */
+.logs-output {
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; margin: 0;
+    max-height: 480px; overflow: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px; line-height: 1.45; color: var(--text-primary);
+    white-space: pre-wrap; word-break: break-word;
+}

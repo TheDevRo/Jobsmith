@@ -7,7 +7,7 @@ pipeline     score / tailor / detect-apply-types / estimate-salaries batches
 applications /api/applications/*
 settings     /api/config, /api/settings/*, /api/onboarding/*, stats/activity
 sessions     /api/linkedin/*, /api/indeed/*, /api/sessions/*
-system       /api/health, /api/ai/*, /api/debug/*, /api/resumes/*, notifications
+system       /api/health, /api/ai/*, /api/debug/*, /api/logs/*, /api/resumes/*, notifications
 assist       /api/assist/*, /assist/launch/*, /assist-sidebar
 answer_bank  /api/answer-bank/*, /api/webhooks/*
 """

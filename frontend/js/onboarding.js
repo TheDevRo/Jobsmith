@@ -112,7 +112,7 @@ function obNext() {
 }
 
 async function obSkip() {
-    if (!confirm('Skip first-time setup? You can re-run it anytime from Settings → Profile.')) return;
+    if (!(await appConfirm('Skip first-time setup? You can re-run it anytime from Settings → Profile.'))) return;
     try { await api('/api/onboarding/complete', { method: 'POST', body: '{}' }); } catch (e) {}
     obHide();
     toast('Setup skipped — you can re-run it from Settings.', 'info');
