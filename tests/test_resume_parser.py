@@ -162,6 +162,19 @@ async def test_parse_resume_drops_empty_experience_rows(cfg):
     assert exp[0]["company"] == "Acme"
 
 
+def test_coerce_str_list_flattens_object_items():
+    # Models sometimes return certification objects despite the prompt.
+    certs = resume_parser._coerce_str_list([
+        {"name": "CompTIA Security+", "issuer": "CompTIA", "expires": ""},
+        "Offensive Security: Ethical Hacking",
+        {"name": ""},  # all-empty object dropped
+    ])
+    assert certs == [
+        "CompTIA Security+ — CompTIA",
+        "Offensive Security: Ethical Hacking",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_parse_resume_llm_failure_returns_warning(cfg):
     client = SimpleNamespace()
