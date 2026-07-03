@@ -140,9 +140,19 @@ RÉSUMÉ TEXT:
 Return only the JSON object."""
 
 
+def _flatten_item(v) -> str:
+    """One display string per item; models sometimes return objects
+    (e.g. {"name": "Security+", "issuer": "CompTIA"}) despite the prompt."""
+    if isinstance(v, dict):
+        parts = [str(x).strip() for x in v.values()
+                 if isinstance(x, (str, int, float)) and str(x).strip()]
+        return " — ".join(parts)
+    return str(v).strip()
+
+
 def _coerce_str_list(value) -> list[str]:
     if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
+        return [s for s in (_flatten_item(v) for v in value) if s]
     if isinstance(value, str) and value.strip():
         return [s.strip() for s in re.split(r"[,\n;]", value) if s.strip()]
     return []

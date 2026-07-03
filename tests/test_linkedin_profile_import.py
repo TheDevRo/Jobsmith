@@ -22,7 +22,8 @@ def test_clean_text_collapses_blank_runs():
 
 
 def test_combine_sections_labels_and_caps():
-    long_exp = "x" * 10_000
+    # One 60-char line per row so the cap can cut on a line boundary.
+    long_exp = "\n".join("x" * 60 for _ in range(200))  # 12,200 chars
     text = li.combine_sections([
         ("PROFILE OVERVIEW", "Jane Doe\nSecurity Engineer"),
         ("ALL EXPERIENCE", long_exp),
@@ -31,9 +32,53 @@ def test_combine_sections_labels_and_caps():
     assert "=== PROFILE OVERVIEW ===" in text
     assert "Jane Doe" in text
     assert "=== SKILLS ===" not in text
-    # Experience capped at its configured budget (6500)
+    # Experience capped at its configured budget (7000), on a line boundary
     exp_part = text.split("=== ALL EXPERIENCE ===\n")[1]
-    assert len(exp_part) == 6500
+    assert len(exp_part) <= 7000
+    assert exp_part.endswith("x" * 60)  # no half line at the cut
+
+
+def test_strip_noise_removes_promo_blocks_and_footer():
+    raw = "\n".join([
+        "Jane Doe",
+        "Security Engineer",
+        "Denver Metropolitan Area",
+        "500+ connections",
+        "Open to",                      # noise block: open-to-work card
+        "Boulder, CO +3 more | Hybrid",
+        "Show details",
+        "Suggested for you",            # noise block: premium promo
+        "Try Premium for $0",
+        "Analytics",                    # noise block: profile analytics
+        "38 profile views",
+        "About",                        # content heading ends the skip
+        "I secure infrastructure.",
+        "Show all",                     # standalone UI line
+        "Top skills",
+        "Linux",
+        "Activity",                     # noise block: feed comments
+        "Jane commented on a post",
+        "Profile language",             # footer boundary — drop the rest
+        "English",
+        "Select language",
+        "Deutsch (German)",
+    ])
+    out = li._strip_noise(raw)
+    assert "Jane Doe" in out
+    assert "I secure infrastructure." in out
+    assert "Linux" in out
+    assert "Try Premium" not in out
+    assert "38 profile views" not in out
+    assert "commented on a post" not in out
+    assert "Deutsch" not in out
+    assert "500+ connections" not in out
+    assert "Show all" not in out
+
+
+def test_strip_noise_passes_unknown_text_through():
+    # A redesign must degrade to noisy-but-complete, never to data loss.
+    raw = "Some Brand-New Section\nImportant career fact"
+    assert li._strip_noise(raw) == raw
 
 
 @pytest.mark.parametrize("url,expected", [
