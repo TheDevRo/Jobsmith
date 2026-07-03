@@ -838,26 +838,27 @@
 
                         <div class="section-card">
                             <h2>Install the extension</h2>
-                            <p class="section-hint">Download the packaged extension for your browser, then load it as a permanent extension.</p>
+                            <p class="section-hint">Save the extension to your Downloads folder, then load it in your browser.</p>
                             <div class="form-group">
                                 <div style="display:flex;gap:8px;flex-wrap:wrap">
-                                    <a class="btn btn-primary btn-sm" href="/api/extension/download/chrome" download>Download for Chrome</a>
-                                    <a class="btn btn-primary btn-sm" href="/api/extension/firefox-xpi">Install for Firefox (signed)</a>
+                                    <button class="btn btn-primary btn-sm" onclick="saveExtension('chrome')">Get for Chrome</button>
+                                    <button class="btn btn-primary btn-sm" onclick="saveExtension('firefox')">Get for Firefox</button>
                                     <button class="btn btn-secondary btn-sm" onclick="toggleExtensionInstall()" id="ext-install-toggle">Show install instructions ▾</button>
                                 </div>
+                                <div id="ext-download-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
                             </div>
                             <div id="ext-install-instructions" style="display:none;margin-top:8px;font-size:0.9rem;line-height:1.5">
                                 <p style="margin:8px 0 4px"><strong>Chrome / Edge / Brave (permanent):</strong></p>
                                 <ol style="margin:0 0 8px 18px;padding:0">
-                                    <li>Unzip the downloaded file into a folder you'll keep around (e.g. <code>~/jobsmith-extension</code>).</li>
+                                    <li><em>Get for Chrome</em> saves the unpacked extension folder (<code>jobsmith-extension-chrome</code>) to your Downloads and reveals it. Chrome loads it from disk, so keep the folder around (move it somewhere permanent if you like).</li>
                                     <li>Open <code>chrome://extensions</code>, enable <em>Developer mode</em> (top-right).</li>
                                     <li>Click <em>Load unpacked</em> and pick that folder. The extension persists across restarts.</li>
                                     <li>Open the extension popup and paste the token below.</li>
                                 </ol>
-                                <p style="margin:8px 0 4px"><strong>Firefox (permanent, Mozilla-signed):</strong></p>
+                                <p style="margin:8px 0 4px"><strong>Firefox:</strong></p>
                                 <ol style="margin:0 0 8px 18px;padding:0">
-                                    <li>Click <em>Install for Firefox (signed)</em> above &mdash; Firefox prompts you to add the signed add-on. It persists across restarts.</li>
-                                    <li>If no prompt appears, open <code>about:addons</code> &rarr; the gear icon &#9881; &rarr; <em>Install Add-on From File…</em> &rarr; pick the downloaded <code>.xpi</code>.</li>
+                                    <li><em>Get for Firefox</em> saves a Mozilla-signed <code>jobsmith-assist.xpi</code> to your Downloads when one has been built. Install it via <code>about:addons</code> &rarr; the gear icon &#9881; &rarr; <em>Install Add-on From File…</em> &mdash; it persists across restarts.</li>
+                                    <li>If no signed <code>.xpi</code> exists yet, the unpacked folder is saved instead. Load it via <code>about:debugging</code> &rarr; <em>This Firefox</em> &rarr; <em>Load Temporary Add-on…</em> &rarr; pick its <code>manifest.json</code>. Firefox clears temporary add-ons on restart &mdash; see <code>extension/README.md</code> to build a signed <code>.xpi</code>.</li>
                                     <li>Open the extension popup and paste the token below.</li>
                                 </ol>
                             </div>

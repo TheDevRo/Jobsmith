@@ -23,6 +23,16 @@ Produces:
 - `extension/dist/firefox/` — unsigned dir for quick iteration via `about:debugging#/runtime/this-firefox` → Load Temporary Add-on (cleared on restart).
 - `extension/dist/*.zip`    — packaged artifacts the backend serves at `/api/extension/download/{chrome,firefox}`.
 
+A signed `.xpi` in `extension/dist/firefox/web-ext-artifacts/` survives rebuilds
+(build.sh stashes it) and is excluded from the zips.
+
+In the app, Settings → Applicant Assist → **Get for Chrome / Get for Firefox**
+calls `POST /api/extension/save/{browser}` (loopback only), which copies the
+extension into `~/Downloads` and reveals it — the desktop shell's webview can't
+download files, so the backend writes to disk directly. Chrome gets the
+unpacked folder; Firefox gets the signed `.xpi` when one exists, otherwise the
+unpacked folder for a temporary install.
+
 ## Install (permanent)
 
 **Chrome / Edge / Brave:** `chrome://extensions` → enable Developer Mode → **Load unpacked** → pick `extension/dist/chrome/`. Persists across restarts.

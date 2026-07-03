@@ -7,6 +7,9 @@ backend/extension_api.py; this module is the dashboard-facing surface.
 """
 
 import logging
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -43,7 +46,7 @@ async def rotate_extension_token(request: Request):
     return {"token": extension_api.rotate_token()}
 
 
-_EXT_DIST_DIR = state.PROJECT_ROOT / "extension" / "dist"
+_EXT_DIST_DIR = state.EXT_DIST_DIR
 _EXT_ARTIFACTS = {
     "chrome": "jobsmith-chrome.zip",
     "firefox": "jobsmith-firefox.zip",
@@ -94,6 +97,71 @@ async def download_firefox_xpi():
         media_type="application/x-xpinstall",
         filename="jobsmith-assist.xpi",
     )
+
+
+def _downloads_dir() -> Path:
+    d = Path.home() / "Downloads"
+    return d if d.is_dir() else Path.home()
+
+
+def _reveal_in_file_manager(path: Path) -> bool:
+    """Best-effort: highlight the saved file/folder in Finder/Explorer/etc."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        elif sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", f"/select,{path}"])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+        return True
+    except OSError:
+        return False
+
+
+@router.post("/api/extension/save/{browser}")
+async def save_extension(browser: str, request: Request):
+    """Copy the extension into ~/Downloads and reveal it in the file manager.
+
+    The desktop shell's webview cannot download files, so the backend (a
+    local process) writes them to disk instead. Chrome gets the unpacked
+    directory ready for Load-unpacked; Firefox gets the Mozilla-signed .xpi
+    when one exists, otherwise the unpacked directory for a temporary
+    install.
+    """
+    _require_loopback(request)
+    if browser not in _EXT_ARTIFACTS:
+        raise HTTPException(404, "Unknown browser; use 'chrome' or 'firefox'")
+
+    dest_root = _downloads_dir()
+
+    if browser == "firefox":
+        xpi = _latest_signed_xpi()
+        if xpi:
+            target = dest_root / "jobsmith-assist.xpi"
+            shutil.copyfile(xpi, target)
+            return {
+                "saved_to": str(target),
+                "kind": "xpi",
+                "signed": True,
+                "revealed": _reveal_in_file_manager(target),
+            }
+
+    src = _EXT_DIST_DIR / browser
+    if not src.is_dir():
+        raise HTTPException(
+            503,
+            "Extension artifact missing. Run extension/scripts/build.sh to generate it.",
+        )
+    target = dest_root / f"jobsmith-extension-{browser}"
+    if target.is_dir():
+        shutil.rmtree(target)
+    shutil.copytree(src, target, ignore=shutil.ignore_patterns("web-ext-artifacts"))
+    return {
+        "saved_to": str(target),
+        "kind": "unpacked",
+        "signed": False,
+        "revealed": _reveal_in_file_manager(target),
+    }
 
 
 # In-memory hint: the most recent job whose "Open Job URL" was clicked in the

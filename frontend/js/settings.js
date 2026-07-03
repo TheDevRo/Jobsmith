@@ -157,6 +157,33 @@ async function copyExtensionToken() {
     }
 }
 
+async function saveExtension(browser) {
+    const status = document.getElementById('ext-download-status');
+    status.textContent = 'Saving…';
+    try {
+        const r = await api(`/api/extension/save/${browser}`, { method: 'POST' });
+        const where = r.revealed ? `${r.saved_to} (revealed in your file manager)` : r.saved_to;
+        if (r.kind === 'xpi') {
+            status.textContent = `Signed add-on saved to ${where}. In Firefox: about:addons → ⚙ → "Install Add-on From File…" → pick it.`;
+        } else if (browser === 'firefox') {
+            status.textContent = `No Mozilla-signed .xpi built yet, so the unpacked extension was saved to ${where}. Load it via about:debugging → This Firefox → "Load Temporary Add-on…" → pick its manifest.json. Firefox removes it on restart — see extension/README.md to sign a permanent .xpi.`;
+        } else {
+            status.textContent = `Unpacked extension saved to ${where}. In Chrome: chrome://extensions → enable Developer mode → "Load unpacked" → pick that folder.`;
+        }
+    } catch (e) {
+        // Remote (non-loopback) browsers can't use the save-to-disk path,
+        // but they can download the zip the normal way.
+        if (e.message && e.message.includes('Only served to localhost')) {
+            window.location.href = `/api/extension/download/${browser}`;
+            status.textContent = 'Downloading zip…';
+            return;
+        }
+        let detail = e.message;
+        try { detail = JSON.parse(e.message).detail || detail; } catch {}
+        status.textContent = `Save failed: ${detail}`;
+    }
+}
+
 function toggleExtensionInstall() {
     const panel = document.getElementById('ext-install-instructions');
     const btn = document.getElementById('ext-install-toggle');

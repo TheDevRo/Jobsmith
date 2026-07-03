@@ -19,6 +19,7 @@ datas = [
     # _CODE_ROOT assets — land at _MEIPASS root, where
     # backend/app_state.py's __file__-relative lookups expect them.
     (str(repo_root / "frontend"), "frontend"),
+    (str(repo_root / "extension" / "dist"), "extension/dist"),
     (str(repo_root / "config.example.yaml"), "."),
 ]
 datas += collect_data_files("playwright_stealth")
