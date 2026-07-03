@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobsmith Assist",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Scan, autofill, and attach tailored resumes for the job tab you're on.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "webNavigation", "cookies"],
   "host_permissions": [
