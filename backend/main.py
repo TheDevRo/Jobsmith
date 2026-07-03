@@ -30,6 +30,7 @@ from . import auto_apply
 from . import extension_api
 from . import routers
 from .routers.sessions import _bg_check_linkedin_session
+from .version import APP_VERSION
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -91,7 +92,7 @@ async def lifespan(app: FastAPI):
     logger.info("Server shutting down")
 
 
-app = FastAPI(title="Jobsmith", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Jobsmith", version=APP_VERSION, lifespan=lifespan)
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):

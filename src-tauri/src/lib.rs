@@ -15,15 +15,28 @@ type SidecarChild = (); // dev mode: ./start_server.sh owns the server
 /// Holds the sidecar process so we can kill it on exit.
 struct Backend(Mutex<Option<SidecarChild>>);
 
-const BACKEND_ADDR: &str = "127.0.0.1:8888";
-const BACKEND_URL: &str = "http://127.0.0.1:8888/";
+const DEFAULT_PORT: u16 = 8888;
 
-fn wait_for_backend(timeout: Duration) -> bool {
+/// Prefer 8888; if another Jobsmith (web/Docker) already owns it, let the OS
+/// hand us a free port instead of hard-failing on first launch. The probe
+/// listener is dropped before the sidecar binds — the window for someone
+/// else to steal the port is tiny and the failure mode is the existing one.
+#[cfg(not(debug_assertions))]
+fn pick_port() -> u16 {
+    use std::net::TcpListener;
+    if TcpListener::bind(("127.0.0.1", DEFAULT_PORT)).is_ok() {
+        return DEFAULT_PORT;
+    }
+    TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .unwrap_or(DEFAULT_PORT)
+}
+
+fn wait_for_backend(addr: &str, timeout: Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
-        if TcpStream::connect_timeout(&BACKEND_ADDR.parse().unwrap(), Duration::from_millis(500))
-            .is_ok()
-        {
+        if TcpStream::connect_timeout(&addr.parse().unwrap(), Duration::from_millis(500)).is_ok() {
             return true;
         }
         std::thread::sleep(Duration::from_millis(300));
@@ -37,12 +50,22 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(Backend(Mutex::new(None)))
         .setup(|app| {
-            // Release builds spawn the PyInstaller backend as a sidecar.
-            // Dev builds (`tauri dev`) expect ./start_server.sh to be running
-            // and just point the webview at it via devUrl.
+            // Dev builds (`tauri dev`) expect ./start_server.sh on 8888 and
+            // just point the webview at it via devUrl.
+            #[cfg(debug_assertions)]
+            let port = DEFAULT_PORT;
+
+            // Release builds spawn the PyInstaller backend as a sidecar on a
+            // port we choose; desktop_entry.py honors JOBSMITH_PORT.
+            #[cfg(not(debug_assertions))]
+            let port = pick_port();
+
             #[cfg(not(debug_assertions))]
             {
-                let sidecar = app.shell().sidecar("jobsmith-backend")?;
+                let sidecar = app
+                    .shell()
+                    .sidecar("jobsmith-backend")?
+                    .env("JOBSMITH_PORT", port.to_string());
                 let (mut rx, child) = sidecar.spawn()?;
                 *app.state::<Backend>().0.lock().unwrap() = Some(child);
 
@@ -59,10 +82,12 @@ pub fn run() {
 
             // Once the server answers, swap the splash page for the real app.
             // First launch can take minutes (Chromium download), so poll long.
+            let addr = format!("127.0.0.1:{}", port);
+            let url = format!("http://127.0.0.1:{}/", port);
             let window = app.get_webview_window("main").expect("main window");
             std::thread::spawn(move || {
-                if wait_for_backend(Duration::from_secs(600)) {
-                    let _ = window.eval(&format!("window.location.replace('{}')", BACKEND_URL));
+                if wait_for_backend(&addr, Duration::from_secs(600)) {
+                    let _ = window.eval(&format!("window.location.replace('{}')", url));
                 } else {
                     let _ = window.eval(
                         "document.body.innerHTML = '<h2 style=\"font-family:sans-serif\">\

@@ -4,6 +4,22 @@ A self-hosted job application copilot that uses a local AI (LM Studio) for job s
 
 > **Note:** The fully autonomous `auto_apply` form-filler is on the back burner; the primary workflow is **Apply Assist** — a browser-extension sidebar that injects your tailored resume, cover letter, and pre-filled answers into the live ATS form so you click Submit yourself. The auto-apply code remains in the repo but is no longer the recommended path.
 
+## Download
+
+Grab the [latest release](https://github.com/TheDevRo/Jobsmith/releases/latest):
+
+- **macOS (Apple Silicon)** — `Jobsmith_<version>_aarch64.dmg`. The app is
+  unsigned: after the first blocked launch, use System Settings → Privacy &
+  Security → **Open Anyway** (or `xattr -dr com.apple.quarantine
+  /Applications/Jobsmith.app`). First launch downloads Chromium (~150 MB).
+- **Browser extension** — `jobsmith-extension-{chrome,firefox}-v*.zip`,
+  sideloaded (Chrome: Load unpacked; Firefox: Load Temporary Add-on).
+- **Windows / Linux / Intel macOS** — use Docker:
+  `docker pull ghcr.io/thedevro/jobsmith:latest` (see [Docker](#docker)).
+
+AI features need [LM Studio](https://lmstudio.ai) running locally; everything
+else works without it.
+
 ## Features
 
 - **Multi-source job aggregation** — LinkedIn, Adzuna, RemoteOK, WeWorkRemotely, Greenhouse, Lever, Indeed (Playwright-based, no API key)
@@ -247,6 +263,20 @@ python -m uvicorn backend.main:app --host 0.0.0.0 --port 8888
 ```
 
 Open **http://localhost:8888** in your browser.
+
+### Docker
+
+Instead of the local setup above, run the published image (multi-arch —
+works on Windows, Linux, and Intel macOS; the repo/registry is private, so
+`docker login ghcr.io` with a token first):
+
+```bash
+docker pull ghcr.io/thedevro/jobsmith:latest
+docker compose up -d        # uses the repo's docker-compose.yml
+```
+
+Point it at LM Studio with `JOBSMITH_AI_BASE_URL` (see `docker-compose.yml`
+for the mounts and env overrides).
 
 ## Daily Workflow
 

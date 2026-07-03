@@ -5,7 +5,7 @@
 #   scripts/build_desktop.sh --sidecar-only
 #
 # Prereqs: rustup, `npm install` (brings @tauri-apps/cli), and the project
-# venv with pyinstaller (venv/bin/pip install pyinstaller). See README-DESKTOP.md.
+# venv with pyinstaller (.venv/bin/pip install pyinstaller). See README-DESKTOP.md.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -15,7 +15,7 @@ TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 echo "[build] target triple: $TRIPLE"
 
 echo "[build] Building backend sidecar with PyInstaller…"
-venv/bin/pyinstaller packaging/jobsmith-backend.spec --noconfirm \
+.venv/bin/pyinstaller packaging/jobsmith-backend.spec --noconfirm \
     --distpath build/pyinstaller/dist --workpath build/pyinstaller/work
 
 # Tauri expects the sidecar at src-tauri/binaries/<name>-<target-triple>.

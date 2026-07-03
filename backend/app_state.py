@@ -35,7 +35,7 @@ FRONTEND_DIR = _CODE_ROOT / "frontend"
 RESUMES_DIR = PROJECT_ROOT / "resumes"
 SCREENSHOTS_DIR = PROJECT_ROOT / "data" / "screenshots"
 
-JSONL_LOG_PATH = Path("data") / "auto_apply_log.jsonl"
+JSONL_LOG_PATH = PROJECT_ROOT / "data" / "auto_apply_log.jsonl"
 APPLY_LOG_V2_FIELDS = (
     "ts", "level", "message", "field_id", "value", "source",
     "confidence", "action", "provider", "tier", "status",
