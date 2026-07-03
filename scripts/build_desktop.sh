@@ -14,6 +14,9 @@ cd "$(dirname "$0")/.."
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 echo "[build] target triple: $TRIPLE"
 
+echo "[build] Building browser extension…"
+extension/scripts/build.sh
+
 echo "[build] Building backend sidecar with PyInstaller…"
 .venv/bin/pyinstaller packaging/jobsmith-backend.spec --noconfirm \
     --distpath build/pyinstaller/dist --workpath build/pyinstaller/work

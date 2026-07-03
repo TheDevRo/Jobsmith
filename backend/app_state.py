@@ -32,6 +32,7 @@ _CODE_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 EXAMPLE_CONFIG_PATH = _CODE_ROOT / "config.example.yaml"
 FRONTEND_DIR = _CODE_ROOT / "frontend"
+EXT_DIST_DIR = _CODE_ROOT / "extension" / "dist"
 RESUMES_DIR = PROJECT_ROOT / "resumes"
 SCREENSHOTS_DIR = PROJECT_ROOT / "data" / "screenshots"
 
