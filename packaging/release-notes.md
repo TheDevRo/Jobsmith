@@ -1,7 +1,17 @@
 # Jobsmith __VERSION__
 
-First packaged release: a standalone macOS app (Apple Silicon), the browser
-extension zips, and the existing Docker image — all built from the same tag.
+A standalone macOS app (Apple Silicon), the browser extension zips, and the
+Docker image — all built from the same tag.
+
+## What's new in 0.2.1
+
+- **New app icon** — briefcase with a smithing-hammer cutout, applied to the
+  macOS app, the browser extension, and the dashboard favicon.
+- **LinkedIn profile import overhauled** — the onboarding importer now strips
+  LinkedIn's UI noise before extraction, reads your contact-info panel
+  (email, websites), expands collapsed "…see more" text, and no longer
+  truncates certifications and skills. Imports that previously came back
+  nearly empty now fill the wizard.
 
 ## macOS app (Apple Silicon)
 
