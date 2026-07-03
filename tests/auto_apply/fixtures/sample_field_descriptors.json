@@ -1,0 +1,102 @@
+[
+  {
+    "field_id": "field-0",
+    "label": "First Name",
+    "placeholder": "",
+    "field_type": "text",
+    "name": "first_name",
+    "options": null,
+    "required": true,
+    "extra_context": "Personal Information - First Name"
+  },
+  {
+    "field_id": "field-1",
+    "label": "Last Name",
+    "placeholder": "",
+    "field_type": "text",
+    "name": "last_name",
+    "options": null,
+    "required": true,
+    "extra_context": "Personal Information - Last Name"
+  },
+  {
+    "field_id": "field-2",
+    "label": "Email Address",
+    "placeholder": "you@example.com",
+    "field_type": "email",
+    "name": "email",
+    "options": null,
+    "required": true,
+    "extra_context": "Contact Information"
+  },
+  {
+    "field_id": "field-3",
+    "label": "Phone Number",
+    "placeholder": "555-555-5555",
+    "field_type": "tel",
+    "name": "phone",
+    "options": null,
+    "required": false,
+    "extra_context": "Contact Information"
+  },
+  {
+    "field_id": "field-4",
+    "label": "Years of experience with Python",
+    "placeholder": "",
+    "field_type": "number",
+    "name": "python_years",
+    "options": null,
+    "required": false,
+    "extra_context": "Skills assessment"
+  },
+  {
+    "field_id": "field-5",
+    "label": "Are you authorized to work in the United States?",
+    "placeholder": "",
+    "field_type": "select",
+    "name": "work_auth",
+    "options": ["Yes", "No"],
+    "required": true,
+    "extra_context": "Work Authorization"
+  },
+  {
+    "field_id": "field-6",
+    "label": "Will you now or in the future require sponsorship?",
+    "placeholder": "",
+    "field_type": "select",
+    "name": "sponsorship",
+    "options": ["Yes", "No"],
+    "required": true,
+    "extra_context": "Work Authorization"
+  },
+  {
+    "field_id": "field-7",
+    "label": "Tell us about yourself",
+    "placeholder": "Share your background and what excites you about this role",
+    "field_type": "textarea",
+    "name": "about_yourself",
+    "options": null,
+    "required": false,
+    "extra_context": "Additional Information"
+  },
+  {
+    "field_id": "field-8",
+    "label": "Desired salary",
+    "placeholder": "",
+    "field_type": "number",
+    "name": "salary",
+    "options": null,
+    "required": false,
+    "extra_context": "Compensation"
+  },
+  {
+    "field_id": "field-9",
+    "label": "LinkedIn profile URL",
+    "placeholder": "https://linkedin.com/in/...",
+    "field_type": "url",
+    "name": "linkedin",
+    "options": null,
+    "required": false,
+    "extra_context": "Links"
+  }
+]

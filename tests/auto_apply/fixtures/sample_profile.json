@@ -1,0 +1,55 @@
+{
+  "full_name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "phone": "555-555-5555",
+  "middle_name": "",
+  "location": "Denver, CO",
+  "street_address": "123 Main St",
+  "street_address_2": "",
+  "city": "Denver",
+  "state": "CO",
+  "zip_code": "80202",
+  "desired_salary": "90000",
+  "linkedin": "https://linkedin.com/in/janedoe",
+  "github": "https://github.com/janedoe",
+  "portfolio": "https://janedoe.dev",
+  "summary": "Full-stack engineer with 5 years of experience building scalable web applications.",
+  "skills": ["Python", "TypeScript", "React", "PostgreSQL", "Docker"],
+  "experience": [
+    {
+      "title": "Senior Software Engineer",
+      "company": "Acme Corp",
+      "start_date": "2022-01-01",
+      "end_date": "Present",
+      "bullets": [
+        "Led migration of monolith to microservices, reducing p95 latency by 40%",
+        "Mentored 3 junior engineers"
+      ]
+    },
+    {
+      "title": "Software Engineer",
+      "company": "Beta Inc",
+      "start_date": "2019-06-01",
+      "end_date": "2021-12-31",
+      "bullets": [
+        "Built data pipeline processing 1M events/day"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Bachelor of Science in Computer Science",
+      "school": "University of Colorado",
+      "year": "2019"
+    }
+  ],
+  "certifications": ["AWS Certified Developer"],
+  "gender": "",
+  "race_ethnicity": "",
+  "veteran_status": "",
+  "disability_status": "",
+  "work_authorization": "Yes",
+  "sponsorship_required": "No",
+  "workday_email": "jane.doe@example.com",
+  "workday_password": ""
+}

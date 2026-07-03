@@ -1,0 +1,23 @@
+{
+  "name": "jobsmith-stagehand-service",
+  "version": "1.0.0",
+  "description": "Step 3 auto-apply agent: Stagehand + Playwright accessibility context + Skyvern fallback",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "openai": "^4.52.0",
+    "playwright": "^1.48.0",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  }
+}

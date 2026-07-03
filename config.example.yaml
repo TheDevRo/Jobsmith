@@ -1,0 +1,185 @@
+# Jobsmith — Example Configuration
+# Copy this file to config.yaml and fill in your details:
+#   cp config.example.yaml config.yaml
+
+profile:
+  full_name: Jane Doe
+  email: jane.doe@example.com
+  phone: 555-555-5555
+  middle_name: ''
+  location: Denver, CO
+  street_address: 123 Main St
+  street_address_2: ''
+  city: Denver
+  state: CO
+  zip_code: '80202'
+  desired_salary: '90000'
+  linkedin: https://linkedin.com/in/janedoe
+  github: ''
+  portfolio: https://example.com
+  summary: >
+    Your professional summary here.
+  skills:
+  - Skill 1
+  - Skill 2
+  - Skill 3
+  experience:
+  - title: Job Title
+    company: Company Name
+    start_date: '2023-01-01'
+    end_date: Present
+    bullets:
+    - Accomplishment or responsibility
+  education:
+  - degree: Bachelor of Science in Computer Science
+    school: University Name
+    year: '2020'
+  certifications:
+  - Certification Name
+  # References — appended verbatim to the end of each generated resume.
+  # Never sent to the AI. Each entry: name, position, email, phone.
+  references:
+  - name: ''
+    position: ''
+    email: ''
+    phone: ''
+  gender: ''
+  race_ethnicity: ''
+  veteran_status: ''
+  disability_status: ''
+  work_authorization: 'Yes'
+  sponsorship_required: 'No'
+  workday_email: jane.doe@example.com
+  workday_password: your-password-here
+  ats_login_password: ''    # Generic login password for non-Workday ATS portals
+  # Availability — overrides the hardcoded defaults in the LinkedIn adapter
+  notice_period: '2 weeks'
+  available_start: 'Immediately'
+search:
+  keywords:
+  - software engineer
+  - backend developer
+  locations:
+  - Remote
+  - Denver
+  exclude_keywords:
+  - senior staff
+  - principal
+  - director
+  - VP
+  min_salary: 80000
+  max_age_days: 7
+  greenhouse_boards:
+  - example-company
+  lever_companies:
+  - example-company
+  # Ashby board names — the <board> part of jobs.ashbyhq.com/<board>
+  ashby_boards: []
+  # Workable account slugs — the <account> part of apply.workable.com/<account>
+  workable_accounts: []
+  # Recruitee company subdomains — the <company> part of <company>.recruitee.com
+  recruitee_companies: []
+  indeed:
+    # Indeed scraper uses Playwright (no API key). Set enabled: true to activate.
+    enabled: true
+    max_pages: 5
+ai:
+  base_url: http://localhost:1234/v1
+  api_key: lm-studio
+  temperature: 0.7
+  max_tokens: 16384
+  context_window: 16384
+  models:
+    # Content tier — tailored resumes, cover letters, job-fit scoring,
+    # and AI Edit (Strong mode). Use your highest-quality model.
+    strong:
+      model: mistralai/mistral-7b-instruct-v0.3
+    # Navigator tier — drives auto-apply browser automation and AI Edit
+    # (Fast mode). Needs reliable JSON / tool-call output; latency matters.
+    fast:
+      model: qwen/qwen3.5-9b
+    # Utility tier — short helper calls during job ingestion (salary-estimator
+    # title canonicalization, resume role-pick ranking). A small fast model
+    # is fine. If omitted, falls back to the `fast` tier above.
+    utility:
+      model: qwen/qwen3.5-9b
+api_keys:
+  adzuna_app_id: your-app-id
+  adzuna_app_key: your-app-key
+  usajobs_email: your-email@example.com
+  usajobs_api_key: your-api-key
+auto_apply:
+  enabled: false
+  auto_approve: false
+  headless: true
+  max_daily_applications: 20
+  use_browser_use: false
+  # --- New orchestrator settings ---
+  # mode: autofill fills the form but does NOT click Submit (safe default).
+  # mode: submit clicks Submit only for domains on submit_whitelist.
+  mode: autofill
+  submit_whitelist:
+    - greenhouse.io
+    - lever.co
+  # Max applies to the same domain per day (0 = unlimited)
+  per_domain_rate_limit: 5
+  # Max Playwright actions per page before aborting (0 = unlimited)
+  step_ceiling: 0
+  # Disable stuck-loop detection (useful for debugging slow pages)
+  disable_stuck_detection: false
+  review_required_rules:
+    # Flag applications to unknown ATS sites for human review before submit
+    unknown_ats: true
+    # If the LLM's average field-mapping confidence is below this, require review
+    min_confidence: 0.70
+server:
+  host: 127.0.0.1  # set to 0.0.0.0 to expose the dashboard to your LAN
+  port: 8888
+flaresolverr:
+  url: http://localhost:8191/v1
+linkedin:
+  browser: firefox
+salary_estimator:
+  # Pull salary estimates from real external data (Adzuna histogram primary,
+  # BLS OEWS secondary). The local LLM only canonicalizes the title — it
+  # never invents salary numbers.
+  enabled: true
+  # Auto-estimate during ingestion for jobs without disclosed compensation.
+  # Toggleable from Settings -> Search and from the Fetch page.
+  auto_on_ingest: true
+  # Also estimate jobs that already have real comp, so the UI can show a
+  # "vs market" comparison. Piggybacks on the existing score_job_fit pass.
+  market_compare_on_score: true
+  # LLM tier used for role canonicalization (not for salary numbers).
+  model_tier: fast
+  bls:
+    # Optional BLS Public Data API key (raises rate limits to 500/day).
+    api_key: ''
+  adzuna:
+    # Adzuna credentials live under api_keys: above; this section just sets
+    # which country market to query.
+    country: us
+application_honesty:
+  # Controls how much latitude the AI takes when tailoring applications.
+  # honest: only real profile data | tailored: rephrase/reorder, no fabrication
+  # embellished: stretch scope/impact | fabricated: invent experience/skills
+  honesty_level: honest
+  # Cover letter tone: professional | conversational | enthusiastic
+  cover_letter_tone: professional
+  # Resume visual style:
+  #   standard — Calibri, accent blue, full-width section rules
+  #   minimal  — Times New Roman, no color, max ATS compat
+  #   modern   — Aptos, navy accent, no header rules, 1.15 line spacing (recommended)
+  resume_style: standard
+  # Output format for the generated resume & cover letter:
+  #   docx — Microsoft Word (default)
+  #   pdf  — PDF rendered in pure Python (ReportLab); a DOCX is also kept
+  document_format: docx
+  # Cap how many past roles appear on tailored resumes (1-20, or null = include all).
+  # When set, the local LLM ranks non-pinned roles by relevance to each target job
+  # and selects the top scorers. Pin roles in the Profile tab to force-include them.
+  max_resume_experience_entries: null
+  # Default model used by the AI Edit feature when revising resumes/cover letters.
+  # fast = ai.models.fast (quicker), strong = ai.models.strong (higher quality).
+  # Per-edit override is available in the AI Edit modal.
+  ai_edit_model_tier: strong
