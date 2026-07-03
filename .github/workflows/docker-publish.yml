@@ -1,9 +1,12 @@
 name: Publish Docker image
 
+# Publishing is deliberate, not automatic: it runs only when you push a version
+# tag (git tag v1.0.0 && git push --tags) or trigger it by hand from the Actions
+# tab. This keeps images off GHCR until you actually intend to release one.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
