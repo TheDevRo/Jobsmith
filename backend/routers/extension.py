@@ -8,8 +8,6 @@ backend/extension_api.py; this module is the dashboard-facing surface.
 
 import logging
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +17,7 @@ from pydantic import BaseModel
 
 from .. import app_state as state
 from .. import extension_api
+from ..paths import reveal_in_file_manager
 
 logger = logging.getLogger(__name__)
 
@@ -104,20 +103,6 @@ def _downloads_dir() -> Path:
     return d if d.is_dir() else Path.home()
 
 
-def _reveal_in_file_manager(path: Path) -> bool:
-    """Best-effort: highlight the saved file/folder in Finder/Explorer/etc."""
-    try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", "-R", str(path)])
-        elif sys.platform.startswith("win"):
-            subprocess.Popen(["explorer", f"/select,{path}"])
-        else:
-            subprocess.Popen(["xdg-open", str(path.parent)])
-        return True
-    except OSError:
-        return False
-
-
 @router.post("/api/extension/save/{browser}")
 async def save_extension(browser: str, request: Request):
     """Copy the extension into ~/Downloads and reveal it in the file manager.
@@ -143,7 +128,7 @@ async def save_extension(browser: str, request: Request):
                 "saved_to": str(target),
                 "kind": "xpi",
                 "signed": True,
-                "revealed": _reveal_in_file_manager(target),
+                "revealed": reveal_in_file_manager(target),
             }
 
     src = _EXT_DIST_DIR / browser
@@ -160,7 +145,7 @@ async def save_extension(browser: str, request: Request):
         "saved_to": str(target),
         "kind": "unpacked",
         "signed": False,
-        "revealed": _reveal_in_file_manager(target),
+        "revealed": reveal_in_file_manager(target),
     }
 
 

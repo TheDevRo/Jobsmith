@@ -8,17 +8,49 @@ import logging
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
+from ..paths import reveal_in_file_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---- Logs (Settings → Logs tab) ----
+
+_TAIL_READ_CAP = 2_000_000  # trailing bytes to scan; plenty for 5000 lines
+
+
+@router.get("/api/logs/tail")
+async def tail_logs(request: Request, lines: int = Query(500, ge=10, le=5000)):
+    """Return the last N lines of the backend log. Loopback only — the log
+    can contain sensitive values (the extension token is logged at startup)."""
+    if not state.is_loopback_request(request):
+        raise HTTPException(403, "Only served to localhost")
+    path = state.LOG_FILE
+    if not path.exists():
+        return {"lines": [], "path": str(path), "size": 0}
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        f.seek(max(0, size - _TAIL_READ_CAP))
+        text = f.read().decode("utf-8", errors="replace")
+    return {"lines": text.splitlines()[-lines:], "path": str(path), "size": size}
+
+
+@router.post("/api/logs/reveal")
+async def reveal_log_file(request: Request):
+    """Highlight the log file in the system file manager. Loopback only."""
+    if not state.is_loopback_request(request):
+        raise HTTPException(403, "Only served to localhost")
+    if not state.LOG_FILE.exists():
+        raise HTTPException(404, "No log file yet")
+    return {"revealed": reveal_in_file_manager(state.LOG_FILE)}
 
 
 @router.get("/api/notifications")

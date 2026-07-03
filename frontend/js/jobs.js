@@ -383,7 +383,7 @@ async function tailorJob(jobId) {
 }
 
 async function markApplied(jobId) {
-    if (!confirm('Mark this job as manually applied?')) return;
+    if (!(await appConfirm('Mark this job as manually applied?'))) return;
     try {
         await api(`/api/jobs/${jobId}/status`, {
             method: 'PATCH',

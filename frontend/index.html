@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=27">
+    <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -289,13 +289,16 @@
                                 <option value="">All Sources</option>
                                 <option value="adzuna">Adzuna</option>
                                 <option value="arbeitnow">Arbeitnow</option>
+                                <option value="ashby">Ashby</option>
                                 <option value="greenhouse">Greenhouse</option>
                                 <option value="indeed">Indeed</option>
                                 <option value="lever">Lever</option>
                                 <option value="linkedin">LinkedIn</option>
+                                <option value="recruitee">Recruitee</option>
                                 <option value="remoteok">RemoteOK</option>
                                 <option value="usajobs">USAJobs</option>
                                 <option value="weworkremotely">WeWorkRemotely</option>
+                                <option value="workable">Workable</option>
                             </select>
                             <select id="filter-status" onchange="loadJobs()">
                                 <option value="">All Statuses</option>
@@ -407,6 +410,7 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
                 </div>
 
                 <!-- Profile Tab -->
@@ -546,6 +550,15 @@
                         </div>
                         <div class="section-card">
                             <h2>Company Watchlists</h2>
+                            <p class="section-hint">Follow specific companies' job boards directly. Don't know a company's slug? Use the finder — it checks every supported ATS for you.</p>
+                            <div class="form-group">
+                                <label>Find a company's board</label>
+                                <div style="display:flex;gap:8px">
+                                    <input type="text" id="board-finder-input" placeholder="Company name, e.g. Notion" style="flex:1" onkeydown="if(event.key==='Enter')findCompanyBoards()">
+                                    <button class="btn btn-secondary btn-sm" onclick="findCompanyBoards()" id="board-finder-btn" style="white-space:nowrap">Find boards</button>
+                                </div>
+                                <div id="board-finder-results" style="margin-top:8px"></div>
+                            </div>
                             <div class="form-group">
                                 <label>Greenhouse Companies</label>
                                 <input type="text" id="cfg-greenhouse" placeholder="e.g. stripe, cloudflare, databricks">
@@ -555,6 +568,21 @@
                                 <label>Lever Companies</label>
                                 <input type="text" id="cfg-lever" placeholder="e.g. zapier, netlify, notion-so">
                                 <span class="hint">Slugs from jobs.lever.co/{slug}</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Ashby Boards</label>
+                                <input type="text" id="cfg-ashby" placeholder="e.g. linear, ramp, notion">
+                                <span class="hint">Slugs from jobs.ashbyhq.com/{slug}</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Workable Accounts</label>
+                                <input type="text" id="cfg-workable" placeholder="e.g. joinditto, blueground">
+                                <span class="hint">Slugs from apply.workable.com/{slug}</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Recruitee Companies</label>
+                                <input type="text" id="cfg-recruitee" placeholder="e.g. vandebron, tylko">
+                                <span class="hint">Subdomains from {slug}.recruitee.com</span>
                             </div>
                         </div>
                     </div>
@@ -906,6 +934,31 @@
                     </div>
                 </div>
 
+                <!-- Logs Tab -->
+                <div id="stab-logs" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Backend Logs</h2>
+                            <p class="section-hint">Recent backend activity — job fetching, tailoring, auto-apply, and errors. Useful when something fails silently. The log rotates at 5&nbsp;MB (3 backups kept).</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                                <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                                    <input type="checkbox" id="logs-autorefresh" onchange="toggleLogsAutoRefresh()"> Auto-refresh
+                                </label>
+                                <select id="logs-lines" onchange="loadLogs()" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+                                    <option value="200">Last 200 lines</option>
+                                    <option value="500" selected>Last 500 lines</option>
+                                    <option value="2000">Last 2000 lines</option>
+                                </select>
+                                <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy</button>
+                                <button class="btn btn-secondary btn-sm" onclick="revealLogFile()">Reveal log file</button>
+                            </div>
+                            <pre id="logs-output" class="logs-output">Loading…</pre>
+                            <div id="logs-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="settings-save">
                     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
                 </div>
@@ -1123,13 +1176,13 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=33"></script>
+    <script src="js/core.js?v=35"></script>
     <script src="js/dashboard.js?v=35"></script>
-    <script src="js/jobs.js?v=35"></script>
-    <script src="js/review.js?v=35"></script>
-    <script src="js/settings.js?v=33"></script>
+    <script src="js/jobs.js?v=36"></script>
+    <script src="js/review.js?v=36"></script>
+    <script src="js/settings.js?v=36"></script>
     <script src="js/sessions.js?v=34"></script>
-    <script src="js/jobs-actions.js?v=33"></script>
-    <script src="js/onboarding.js?v=33"></script>
+    <script src="js/jobs-actions.js?v=34"></script>
+    <script src="js/onboarding.js?v=34"></script>
 </body>
 </html>

@@ -35,6 +35,8 @@ FRONTEND_DIR = _CODE_ROOT / "frontend"
 EXT_DIST_DIR = _CODE_ROOT / "extension" / "dist"
 RESUMES_DIR = PROJECT_ROOT / "resumes"
 SCREENSHOTS_DIR = PROJECT_ROOT / "data" / "screenshots"
+LOGS_DIR = PROJECT_ROOT / "data" / "logs"
+LOG_FILE = LOGS_DIR / "jobsmith.log"
 
 JSONL_LOG_PATH = PROJECT_ROOT / "data" / "auto_apply_log.jsonl"
 APPLY_LOG_V2_FIELDS = (

@@ -64,7 +64,7 @@ async function tailorSelectedJobs() {
 }
 
 async function deleteSingleJob(jobId) {
-    if (!confirm('Delete this job posting?')) return;
+    if (!(await appConfirm('Delete this job posting?'))) return;
     try {
         await api(`/api/jobs/${jobId}`, { method: 'DELETE' });
         toast('Job deleted', 'info');
@@ -81,7 +81,7 @@ async function deleteSelectedJobs() {
         toast('No jobs selected', 'info');
         return;
     }
-    if (!confirm(`Delete ${ids.length} selected job${ids.length > 1 ? 's' : ''}?`)) return;
+    if (!(await appConfirm(`Delete ${ids.length} selected job${ids.length > 1 ? 's' : ''}?`))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',
@@ -103,7 +103,7 @@ async function deleteFilteredJobs() {
         return;
     }
     const filterDesc = [source, status].filter(Boolean).join(' / ');
-    if (!confirm(`Delete ALL jobs matching filter: ${filterDesc}? This cannot be undone.`)) return;
+    if (!(await appConfirm(`Delete ALL jobs matching filter: ${filterDesc}? This cannot be undone.`))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',
@@ -118,8 +118,8 @@ async function deleteFilteredJobs() {
 }
 
 async function deleteAllJobs() {
-    if (!confirm('Delete ALL job postings? This cannot be undone.')) return;
-    if (!confirm('Are you sure? This will permanently delete all jobs and pending applications. Applied entries in the Submitted tab will be preserved.')) return;
+    if (!(await appConfirm('Delete ALL job postings? This cannot be undone.'))) return;
+    if (!(await appConfirm('Are you sure? This will permanently delete all jobs and pending applications. Applied entries in the Submitted tab will be preserved.'))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',

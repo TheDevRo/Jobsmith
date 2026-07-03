@@ -84,7 +84,17 @@ def main() -> None:
     import uvicorn
     from backend.main import app  # import AFTER env vars: module-level paths bake at import
 
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("JOBSMITH_PORT", "8888")), log_level="info")
+    # log_config=None: skip uvicorn's dictConfig so its loggers propagate to
+    # the root logger and land in the rotating file (Settings → Logs).
+    # access_log=False: the extension/notification polling would flood it.
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=int(os.environ.get("JOBSMITH_PORT", "8888")),
+        log_level="info",
+        log_config=None,
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":

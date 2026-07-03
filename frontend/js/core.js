@@ -200,6 +200,70 @@ function toast(message, type = 'info') {
     setTimeout(() => el.remove(), 5000);
 }
 
+// ---- Dialogs ----
+// The desktop shell's webview doesn't implement window.confirm/prompt/alert
+// (confirm returns false, prompt returns null, silently), so all
+// confirmations go through this in-page modal instead.
+function _appDialog({ message, input = null, cancelable = true }) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'app-dialog-overlay';
+        const box = document.createElement('div');
+        box.className = 'app-dialog';
+
+        const msg = document.createElement('div');
+        msg.className = 'app-dialog-message';
+        msg.textContent = message;
+        box.appendChild(msg);
+
+        let field = null;
+        if (input !== null) {
+            field = document.createElement('input');
+            field.type = 'text';
+            field.value = input;
+            field.className = 'app-dialog-input';
+            box.appendChild(field);
+        }
+
+        const cancelValue = input !== null ? null : false;
+        const done = (val) => {
+            document.removeEventListener('keydown', onKey, true);
+            overlay.remove();
+            resolve(val);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape' && cancelable) { e.preventDefault(); done(cancelValue); }
+            else if (e.key === 'Enter') { e.preventDefault(); done(input !== null ? field.value : true); }
+        };
+
+        const row = document.createElement('div');
+        row.className = 'app-dialog-buttons';
+        if (cancelable) {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'btn btn-secondary btn-sm';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.onclick = () => done(cancelValue);
+            row.appendChild(cancelBtn);
+        }
+        const okBtn = document.createElement('button');
+        okBtn.className = 'btn btn-primary btn-sm';
+        okBtn.textContent = 'OK';
+        okBtn.onclick = () => done(input !== null ? field.value : true);
+        row.appendChild(okBtn);
+        box.appendChild(row);
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', onKey, true);
+        (field || okBtn).focus();
+        if (field) field.select();
+    });
+}
+
+function appConfirm(message) { return _appDialog({ message }); }
+function appPrompt(message, defaultValue = '') { return _appDialog({ message, input: defaultValue }); }
+function appAlert(message) { return _appDialog({ message, cancelable: false }); }
+
 // ---- Browser & Push Notifications ----
 function requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -362,6 +426,10 @@ const SOURCE_LABELS = {
     weworkremotely: 'WeWorkRemotely',
     adzuna: 'Adzuna',
     greenhouse: 'Greenhouse',
+    lever: 'Lever',
+    ashby: 'Ashby',
+    workable: 'Workable',
+    recruitee: 'Recruitee',
     linkedin: 'LinkedIn',
     arbeitnow: 'Arbeitnow',
     usajobs: 'USAJobs',
@@ -370,7 +438,7 @@ const SOURCE_LABELS = {
 
 async function loadSources() {
     const container = document.getElementById('source-checkboxes');
-    const fallbackSources = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'arbeitnow', 'usajobs', 'indeed'];
+    const fallbackSources = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed'];
     function renderSources(sources) {
         container.innerHTML = sources.map(s => `
             <label><input type="checkbox" value="${s}" checked> ${SOURCE_LABELS[s] || s}</label>

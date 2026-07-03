@@ -39,8 +39,15 @@ async function loadSettings() {
         document.getElementById('cfg-locations').value = (cfg.search?.locations || []).join('\n');
         document.getElementById('cfg-exclude').value = (cfg.search?.exclude_keywords || []).join(', ');
         document.getElementById('cfg-salary').value = cfg.search?.min_salary || 0;
-        document.getElementById('cfg-greenhouse').value = (cfg.search?.greenhouse_companies || []).join(', ');
-        document.getElementById('cfg-lever').value = (cfg.search?.lever_companies || []).join(', ');
+        // greenhouse_boards is the canonical key the fetcher prefers;
+        // greenhouse_companies is the legacy alias.
+        const ghBoards = cfg.search?.greenhouse_boards?.length
+            ? cfg.search.greenhouse_boards : (cfg.search?.greenhouse_companies || []);
+        document.getElementById('cfg-greenhouse').value = ghBoards.filter(s => s !== 'example-company').join(', ');
+        document.getElementById('cfg-lever').value = (cfg.search?.lever_companies || []).filter(s => s !== 'example-company').join(', ');
+        document.getElementById('cfg-ashby').value = (cfg.search?.ashby_boards || []).filter(s => s !== 'example-company').join(', ');
+        document.getElementById('cfg-workable').value = (cfg.search?.workable_accounts || []).filter(s => s !== 'example-company').join(', ');
+        document.getElementById('cfg-recruitee').value = (cfg.search?.recruitee_companies || []).filter(s => s !== 'example-company').join(', ');
 
         const aaEnabled = cfg.auto_apply?.enabled || false;
         document.getElementById('cfg-auto-apply').checked = aaEnabled;
@@ -194,7 +201,7 @@ function toggleExtensionInstall() {
 }
 
 async function rotateExtensionToken() {
-    if (!confirm('Rotate the extension token? The current token will stop working — you\'ll need to paste the new one into the extension popup.')) return;
+    if (!(await appConfirm('Rotate the extension token? The current token will stop working — you\'ll need to paste the new one into the extension popup.'))) return;
     const status = document.getElementById('ext-token-status');
     try {
         const r = await api('/api/extension/token/rotate', { method: 'POST' });
@@ -202,6 +209,116 @@ async function rotateExtensionToken() {
         status.textContent = 'Rotated. Paste the new token into the extension popup.';
     } catch (e) {
         status.textContent = `Rotate failed: ${e.message}`;
+    }
+}
+
+// ---- Company board finder ----
+
+const _BOARD_FIELD_BY_KEY = {
+    greenhouse_boards: 'cfg-greenhouse',
+    lever_companies: 'cfg-lever',
+    ashby_boards: 'cfg-ashby',
+    workable_accounts: 'cfg-workable',
+    recruitee_companies: 'cfg-recruitee',
+};
+
+async function findCompanyBoards() {
+    const input = document.getElementById('board-finder-input');
+    const btn = document.getElementById('board-finder-btn');
+    const results = document.getElementById('board-finder-results');
+    const company = input.value.trim();
+    if (!company) return;
+    btn.disabled = true;
+    results.textContent = 'Checking Greenhouse, Lever, Ashby, Workable, and Recruitee…';
+    try {
+        const r = await api('/api/sources/detect-boards', {
+            method: 'POST',
+            body: JSON.stringify({ company }),
+        });
+        if (!r.matches.length) {
+            results.textContent = `No live boards found for "${company}" (tried slugs: ${r.tried_slugs.join(', ')}). The company may use a different ATS, or its slug doesn't match its name — check its careers page URL.`;
+            return;
+        }
+        results.innerHTML = r.matches.map(m => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.9rem">
+                <span style="flex:1">${SOURCE_LABELS[m.source] || m.source}: <a href="${m.board_url}" target="_blank" rel="noopener"><code>${m.slug}</code></a>${m.company_name ? ` ("${m.company_name}")` : ''} — ${m.jobs} open job${m.jobs === 1 ? '' : 's'}</span>
+                <button class="btn btn-secondary btn-sm" onclick="addBoardSlug('${m.config_key}', '${m.slug}', this)">Add</button>
+            </div>
+        `).join('');
+    } catch (e) {
+        results.textContent = `Lookup failed: ${e.message}`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function addBoardSlug(configKey, slug, btn) {
+    const field = document.getElementById(_BOARD_FIELD_BY_KEY[configKey]);
+    if (!field) return;
+    const existing = field.value.split(',').map(s => s.trim()).filter(Boolean);
+    if (!existing.includes(slug)) {
+        existing.push(slug);
+        field.value = existing.join(', ');
+    }
+    btn.textContent = 'Added ✓';
+    btn.disabled = true;
+    toast('Added to watchlist — click Save Settings to apply', 'info');
+}
+
+// ---- Logs ----
+
+let logsAutoRefreshTimer = null;
+
+async function loadLogs() {
+    const out = document.getElementById('logs-output');
+    const status = document.getElementById('logs-status');
+    const lines = document.getElementById('logs-lines')?.value || 500;
+    try {
+        const r = await api(`/api/logs/tail?lines=${lines}`);
+        // Keep the user's scroll position unless they're already at the
+        // bottom (or this is the first load) — then follow the tail.
+        const firstLoad = !out.dataset.loaded;
+        const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+        out.textContent = r.lines.length ? r.lines.join('\n') : '(log file is empty)';
+        out.dataset.loaded = '1';
+        if (firstLoad || atBottom) out.scrollTop = out.scrollHeight;
+        status.textContent = `${r.path} — ${(r.size / 1024).toFixed(0)} KB`;
+    } catch (e) {
+        status.textContent = `Failed to load logs: ${e.message}`;
+    }
+}
+
+function toggleLogsAutoRefresh() {
+    const on = document.getElementById('logs-autorefresh').checked;
+    if (on && !logsAutoRefreshTimer) {
+        logsAutoRefreshTimer = setInterval(() => {
+            // Skip fetches while the Logs panel isn't visible
+            const panel = document.getElementById('stab-logs');
+            if (panel && panel.offsetParent !== null) loadLogs();
+        }, 3000);
+    } else if (!on && logsAutoRefreshTimer) {
+        clearInterval(logsAutoRefreshTimer);
+        logsAutoRefreshTimer = null;
+    }
+}
+
+async function copyLogs() {
+    const out = document.getElementById('logs-output');
+    const status = document.getElementById('logs-status');
+    try {
+        await navigator.clipboard.writeText(out.textContent);
+        status.textContent = 'Copied to clipboard.';
+    } catch {
+        status.textContent = 'Copy failed — select the text manually.';
+    }
+}
+
+async function revealLogFile() {
+    const status = document.getElementById('logs-status');
+    try {
+        await api('/api/logs/reveal', { method: 'POST' });
+    } catch (e) {
+        status.textContent = `Reveal failed: ${e.message}`;
     }
 }
 
@@ -308,7 +425,7 @@ async function saveCustomAnswerEntry(key, label, keywords) {
 }
 
 async function deleteCustomAnswer(key) {
-    if (!confirm(`Delete custom answer "${key}"?`)) return;
+    if (!(await appConfirm(`Delete custom answer "${key}"?`))) return;
     try {
         await api(`/api/answer-bank/custom/${encodeURIComponent(key)}`, { method: 'DELETE' });
         toast('Deleted', 'success');
@@ -318,10 +435,10 @@ async function deleteCustomAnswer(key) {
     }
 }
 
-function addCustomAnswer() {
-    const label = prompt('Label for this answer (e.g. "Remote work preference"):');
+async function addCustomAnswer() {
+    const label = await appPrompt('Label for this answer (e.g. "Remote work preference"):');
     if (!label) return;
-    const keywordsRaw = prompt('Trigger keywords (comma-separated, e.g. "remote, work from home, hybrid"):');
+    const keywordsRaw = await appPrompt('Trigger keywords (comma-separated, e.g. "remote, work from home, hybrid"):');
     if (!keywordsRaw) return;
     const key = 'custom_' + label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     const keywords = keywordsRaw.split(',').map(s => s.trim()).filter(Boolean);
@@ -397,8 +514,14 @@ async function saveSettings() {
             locations: document.getElementById('cfg-locations').value.split('\n').map(s => s.trim()).filter(Boolean),
             exclude_keywords: splitTrim(document.getElementById('cfg-exclude').value),
             min_salary: parseInt(document.getElementById('cfg-salary').value) || 0,
+            // Write both greenhouse keys: canonical (fetcher prefers it) and
+            // legacy (so a stale legacy list can't shadow a cleared field).
+            greenhouse_boards: splitTrim(document.getElementById('cfg-greenhouse').value),
             greenhouse_companies: splitTrim(document.getElementById('cfg-greenhouse').value),
             lever_companies: splitTrim(document.getElementById('cfg-lever').value),
+            ashby_boards: splitTrim(document.getElementById('cfg-ashby').value),
+            workable_accounts: splitTrim(document.getElementById('cfg-workable').value),
+            recruitee_companies: splitTrim(document.getElementById('cfg-recruitee').value),
         },
         auto_apply: {
             enabled: document.getElementById('cfg-auto-apply').checked,

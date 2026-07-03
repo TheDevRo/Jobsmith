@@ -334,6 +334,129 @@ async def list_sources():
     return {"sources": get_source_names()}
 
 
+# ---------------------------------------------------------------------------
+# ATS board detection — type a company name, find its board slug(s)
+# ---------------------------------------------------------------------------
+
+class DetectBoardsRequest(BaseModel):
+    company: str
+
+
+# Public, unauthenticated board APIs. probe(slug) -> (url, extract_job_count)
+_ATS_PROBES = {
+    "greenhouse": {
+        "url": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+        "count": lambda d: len(d.get("jobs", [])) if isinstance(d, dict) else None,
+        "board_url": "https://boards.greenhouse.io/{slug}",
+        "config_key": "greenhouse_boards",
+    },
+    "lever": {
+        "url": "https://api.lever.co/v0/postings/{slug}?mode=json",
+        "count": lambda d: len(d) if isinstance(d, list) else None,
+        "board_url": "https://jobs.lever.co/{slug}",
+        "config_key": "lever_companies",
+    },
+    "ashby": {
+        "url": "https://api.ashbyhq.com/posting-api/job-board/{slug}",
+        "count": lambda d: len(d.get("jobs", [])) if isinstance(d, dict) else None,
+        "board_url": "https://jobs.ashbyhq.com/{slug}",
+        "config_key": "ashby_boards",
+    },
+    "workable": {
+        "url": "https://apply.workable.com/api/v1/widget/accounts/{slug}",
+        "count": lambda d: len(d.get("jobs", [])) if isinstance(d, dict) else None,
+        "name": lambda d: d.get("name"),
+        "board_url": "https://apply.workable.com/{slug}",
+        "config_key": "workable_accounts",
+    },
+    "recruitee": {
+        "url": "https://{slug}.recruitee.com/api/offers/",
+        "count": lambda d: len(d.get("offers", [])) if isinstance(d, dict) else None,
+        "name": lambda d: (d.get("offers") or [{}])[0].get("company_name"),
+        "board_url": "https://{slug}.recruitee.com",
+        "config_key": "recruitee_companies",
+    },
+}
+
+
+def _slug_candidates(company: str) -> list[str]:
+    """Turn a company name into likely board slugs: 'Notion Labs' →
+    ['notionlabs', 'notion-labs', 'notion']."""
+    import re
+
+    base = re.sub(r"[^a-z0-9 ]", "", company.lower()).strip()
+    if not base:
+        return []
+    words = base.split()
+    candidates = ["".join(words), "-".join(words)]
+    # Common legal/branding suffixes rarely appear in slugs.
+    if len(words) > 1 and words[-1] in {"inc", "labs", "hq", "io", "co", "ai", "gmbh", "ltd", "llc"}:
+        candidates.append("".join(words[:-1]))
+        candidates.append("-".join(words[:-1]))
+    seen, out = set(), []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+@router.post("/api/sources/detect-boards")
+async def detect_boards(body: DetectBoardsRequest):
+    """Probe the public APIs of all supported ATSes with slug guesses derived
+    from a company name. Returns every (source, slug) that answers with a
+    live board so the user never has to know slugs up front."""
+    import json
+
+    import aiohttp
+
+    slugs = _slug_candidates(body.company)
+    if not slugs:
+        raise HTTPException(400, "Give me a company name to look for")
+
+    async def _probe(source: str, spec: dict, slug: str, session) -> Optional[dict]:
+        url = spec["url"].format(slug=slug)
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return None
+                data = json.loads(await resp.text())
+        except Exception:
+            return None
+        count = spec["count"](data)
+        if count is None:
+            return None
+        name = None
+        if "name" in spec:
+            try:
+                name = spec["name"](data)
+            except Exception:
+                name = None
+        return {
+            "source": source,
+            "slug": slug,
+            "jobs": count,
+            "company_name": name,
+            "board_url": spec["board_url"].format(slug=slug),
+            "config_key": spec["config_key"],
+        }
+
+    async with aiohttp.ClientSession(headers={"User-Agent": "Jobsmith/1.0"}) as session:
+        results = await asyncio.gather(*(
+            _probe(source, spec, slug, session)
+            for source, spec in _ATS_PROBES.items()
+            for slug in slugs
+        ))
+
+    # Keep the best hit (most jobs) per source.
+    best: dict = {}
+    for r in results:
+        if r and (r["source"] not in best or r["jobs"] > best[r["source"]]["jobs"]):
+            best[r["source"]] = r
+    matches = sorted(best.values(), key=lambda r: -r["jobs"])
+    return {"matches": matches, "tried_slugs": slugs}
+
+
 @router.post("/api/jobs/refetch-descriptions", status_code=202)
 async def refetch_descriptions():
     """Re-fetch LinkedIn job detail pages for any rows with empty descriptions."""

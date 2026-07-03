@@ -11,6 +11,8 @@ __file__-relative on purpose; only user state keys off project_root().
 """
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -19,3 +21,17 @@ def project_root() -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return Path(__file__).resolve().parent.parent
+
+
+def reveal_in_file_manager(path: Path) -> bool:
+    """Best-effort: highlight a file/folder in Finder/Explorer/etc."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        elif sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", f"/select,{path}"])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+        return True
+    except OSError:
+        return False
