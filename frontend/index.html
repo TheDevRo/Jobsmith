@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jobsmith</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="style.css?v=27">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span>Jobsmith</span>
+        </div>
+        <nav>
+            <a href="#dashboard" class="tab nav-item active" data-tab="dashboard">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="#jobs" class="tab nav-item" data-tab="jobs">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                <span>Job Feed</span>
+            </a>
+            <a href="#review" class="tab nav-item" data-tab="review">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <span>Review</span>
+            </a>
+            <a href="#settings" class="tab nav-item" data-tab="settings">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <h2 id="page-title">Dashboard</h2>
+            </div>
+            <div class="topbar-right">
+                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">&#9790;</button>
+                <div class="notification-wrapper">
+                    <button class="notification-bell" id="notification-bell" onclick="toggleNotificationCenter()">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        <span class="notification-badge" id="notification-badge" style="display:none">0</span>
+                    </button>
+                    <div class="notification-dropdown" id="notification-dropdown" style="display:none">
+                        <div class="notification-header">
+                            <span>Notifications</span>
+                            <button class="btn-link" onclick="clearNotifications()">Clear</button>
+                        </div>
+                        <div class="notification-list" id="notification-list">
+                            <p class="placeholder" style="padding:20px;font-size:13px">No new notifications</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div id="toast-container"></div>
+
+            <!-- Dashboard Tab -->
+            <section id="dashboard" class="tab-content active">
+                <div class="stats-row">
+                    <div class="stat-card stat-card-link" onclick="location.hash='jobs'" title="View all jobs">
+                        <div class="stat-icon stat-icon-blue">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-label">Total Jobs</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-link" onclick="location.hash='review'" title="View pending review">
+                        <div class="stat-icon stat-icon-yellow">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-pending">0</div>
+                            <div class="stat-label">Pending Review</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-link" onclick="goToAppliedToday()" title="View jobs applied today">
+                        <div class="stat-icon stat-icon-green">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-today">0</div>
+                            <div class="stat-label">Applied Today</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-link" onclick="goToSubmittedView()" title="View all submitted applications">
+                        <div class="stat-icon stat-icon-purple">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-applied">0</div>
+                            <div class="stat-label">Total Applied</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-link" onclick="location.hash='fit-breakdown'" title="View fit score breakdown">
+                        <div class="stat-icon stat-icon-orange">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-score">0</div>
+                            <div class="stat-label">Avg Fit Score</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-cards">
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-blue">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </div>
+                            <h3>Fetch Jobs</h3>
+                        </div>
+                        <p class="action-card-desc">Search enabled sources for new job postings</p>
+                        <div class="source-picker">
+                            <div class="source-checkboxes" id="source-checkboxes"></div>
+                            <div class="source-actions">
+                                <button class="btn btn-primary" id="fetch-btn" onclick="fetchNewJobs()">Fetch New Jobs</button>
+                                <button class="btn btn-danger btn-sm" id="fetch-stop-btn" onclick="cancelFetch()" style="display:none">Stop</button>
+                                <button class="btn btn-warning btn-sm" id="fetch-finish-btn" onclick="finishFetch()" style="display:none" title="Stop fetching new sources but save what we've got so far">Finish &amp; Save</button>
+                                <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(true)">All</button>
+                                <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(false)">None</button>
+                            </div>
+                            <div id="fetch-status" style="display:none;margin-top:12px">
+                                <div class="fetch-status-row">
+                                    <span class="loading" id="fetch-spinner"></span>
+                                    <span id="fetch-status-text"></span>
+                                </div>
+                                <div class="progress-track">
+                                    <div class="progress-bar" id="fetch-progress-bar"></div>
+                                </div>
+                                <div id="fetch-indeed-hint" style="margin-top:6px;font-size:0.83em;color:var(--text-muted)">Indeed source can take up to 400s (Cloudflare bypass + per-job description enrichment)</div>
+                            </div>
+                            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                                <label class="remote-toggle" style="display:block;margin-bottom:6px" title="Override the Settings -> Search default for this fetch run"><input type="checkbox" id="fetch-auto-estimate-toggle" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries on ingest</label>
+                                <button class="btn btn-ghost btn-sm" id="refetch-desc-btn" onclick="refetchMissingDescriptions()" title="Re-run LinkedIn detail fetch for jobs whose description is empty (e.g. timed out or 429'd during the last fetch)">Refetch missing descriptions</button>
+                                <button class="btn btn-danger btn-sm" id="refetch-desc-stop-btn" onclick="cancelRefetchDescriptions()" style="display:none">Stop</button>
+                                <div id="refetch-desc-status" style="display:none;margin-top:8px;font-size:0.83em;color:var(--text-muted)"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-blue">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            </div>
+                            <h3>Add Job by URL</h3>
+                        </div>
+                        <p class="action-card-desc">Paste a job posting URL to ingest it manually</p>
+                        <div style="display:flex;flex-direction:column;gap:8px">
+                            <input type="url" id="manual-url-input" placeholder="https://..." class="input" style="width:100%" />
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <button class="btn btn-primary" id="manual-add-btn" onclick="addJobByUrl()">Add Job</button>
+                                <span class="loading" id="manual-add-spinner" style="display:none"></span>
+                            </div>
+                            <div id="manual-add-status" style="display:none;font-size:0.83em;color:var(--text-muted)"></div>
+                        </div>
+                    </div>
+
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-purple">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                            </div>
+                            <h3>Detect Easy Apply</h3>
+                        </div>
+                        <p class="action-card-desc">Classify fetched jobs as Easy Apply, Quick Apply, or External ATS</p>
+                        <div class="action-card-footer">
+                            <button class="btn btn-secondary" id="detect-btn" onclick="detectApplyTypes()">Run Detection</button>
+                            <button class="btn btn-danger btn-sm" id="detect-stop-btn" onclick="cancelDetectApplyTypes()" style="display:none">Stop</button>
+                        </div>
+                        <div id="detect-result" style="display:none;margin-top:8px;font-size:0.83em;color:var(--text-muted)"></div>
+                    </div>
+
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-yellow">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </div>
+                            <h3>Score Jobs</h3>
+                        </div>
+                        <p class="action-card-desc">AI-score all unscored jobs against your profile <span id="score-salary-hint"><button type="button" id="score-salary-toggle" class="badge-estimate" onclick="saveSalaryAutoIngest({toggle:true})" title="Auto-estimate salaries is enabled in Settings -> Search. Each scored job also gets a market salary estimate from Adzuna/BLS.">+ pulls market salaries</button></span></p>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:8px;cursor:pointer" title="Re-score jobs that already have a score — useful after updating your profile">
+                            <input type="checkbox" id="score-rescore-cb" onchange="updateScoreBtnLabel()"> Rescore already-scored jobs too
+                        </label>
+                        <div class="action-card-footer">
+                            <select id="score-limit-select" class="input-sm" style="width:90px;margin-right:6px" title="How many jobs to score">
+                                <option value="">All</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                            <button class="btn btn-secondary" id="score-btn" onclick="scoreAll()">Score Unscored</button>
+                            <button class="btn btn-danger btn-sm" id="score-stop-btn" onclick="cancelScoreBatch()" style="display:none">Stop</button>
+                        </div>
+                    </div>
+
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-yellow">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                            </div>
+                            <h3>Estimate Salaries</h3>
+                        </div>
+                        <p class="action-card-desc">Pull market salary estimates (Adzuna + BLS) for jobs without one</p>
+                        <div class="action-card-footer">
+                            <select id="estimate-salaries-limit-select" class="input-sm" style="width:90px;margin-right:6px" title="How many jobs to estimate">
+                                <option value="">All</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                            <button class="btn btn-secondary" id="estimate-salaries-btn" onclick="estimateSalariesAll()">Estimate Missing</button>
+                            <button class="btn btn-danger btn-sm" id="estimate-salaries-stop-btn" onclick="cancelEstimateSalaries()" style="display:none">Stop</button>
+                        </div>
+                    </div>
+
+                    <div class="action-card">
+                        <div class="action-card-header">
+                            <div class="action-card-icon action-icon-green">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                            </div>
+                            <h3>Tailor Resumes</h3>
+                        </div>
+                        <p class="action-card-desc">Generate tailored resumes and cover letters for matching jobs</p>
+                        <div class="action-card-footer">
+                            <button class="btn btn-secondary" id="tailor-btn" onclick="tailorAll()">Tailor All Unprocessed</button>
+                            <button class="btn btn-danger btn-sm" id="tailor-stop-btn" onclick="cancelTailorBatch()" style="display:none">Stop</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Outcomes</h2>
+                    <div id="outcomes-panel">
+                        <p class="placeholder">Loading outcomes...</p>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h2>Recent Activity</h2>
+                    <div id="activity-feed" class="activity-feed">
+                        <p class="placeholder">Loading activity...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Job Feed Tab -->
+            <section id="jobs" class="tab-content">
+                <div class="filter-bar">
+                    <div class="filter-row filter-primary">
+                        <input type="text" id="filter-search" placeholder="Search title or company..." oninput="debounceSearch()">
+                        <select id="filter-sort" onchange="loadJobs()">
+                            <option value="date_discovered-desc">Newest First</option>
+                            <option value="date_discovered-asc">Oldest First</option>
+                            <option value="fit_score-desc">Highest Score</option>
+                            <option value="fit_score-asc">Lowest Score</option>
+                            <option value="applied_at-desc">Recently Applied</option>
+                            <option value="salary_min-desc">Highest Salary</option>
+                            <option value="quality_score-desc">Best Quality</option>
+                            <option value="title-asc">Title A-Z</option>
+                            <option value="company-asc">Company A-Z</option>
+                        </select>
+                        <button class="btn btn-ghost btn-sm filter-toggle-btn" id="filter-toggle" onclick="toggleAdvancedFilters()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            Filters
+                        </button>
+                        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear</button>
+                    </div>
+                    <div class="filter-advanced" id="filter-advanced" style="display:none">
+                        <div class="filter-row">
+                            <input type="text" id="filter-location" placeholder="Location..." oninput="debounceSearch()">
+                            <input type="text" id="filter-company" placeholder="Company..." oninput="debounceSearch()">
+                            <select id="filter-source" onchange="loadJobs()">
+                                <option value="">All Sources</option>
+                                <option value="adzuna">Adzuna</option>
+                                <option value="arbeitnow">Arbeitnow</option>
+                                <option value="greenhouse">Greenhouse</option>
+                                <option value="indeed">Indeed</option>
+                                <option value="lever">Lever</option>
+                                <option value="linkedin">LinkedIn</option>
+                                <option value="remoteok">RemoteOK</option>
+                                <option value="usajobs">USAJobs</option>
+                                <option value="weworkremotely">WeWorkRemotely</option>
+                            </select>
+                            <select id="filter-status" onchange="loadJobs()">
+                                <option value="">All Statuses</option>
+                                <option value="discovered">Discovered</option>
+                                <option value="tailoring">Tailoring</option>
+                                <option value="review">In Review</option>
+                                <option value="approved">Approved</option>
+                                <option value="applied">Applied</option>
+                                <option value="manual">Manual Apply</option>
+                                <option value="rejected">Rejected</option>
+                            </select>
+                        </div>
+                        <div class="filter-row">
+                            <label class="remote-toggle"><input type="checkbox" id="filter-remote" onchange="loadJobs()"> Remote Only</label>
+                            <label class="remote-toggle"><input type="checkbox" id="filter-easy-apply" onchange="loadJobs()"> Easy Apply Only</label>
+                            <div class="score-filter">
+                                <label>Min Score: <span id="score-val">0</span></label>
+                                <input type="range" id="filter-score" min="0" max="100" value="0" oninput="document.getElementById('score-val').textContent=this.value" onchange="loadJobs()">
+                            </div>
+                            <div class="salary-filter">
+                                <label>Min Salary: $<span id="salary-val">0</span></label>
+                                <input type="range" id="filter-salary" min="0" max="300000" step="10000" value="0" oninput="document.getElementById('salary-val').textContent=Number(this.value).toLocaleString()" onchange="loadJobs()">
+                                <label class="remote-toggle" style="margin-top:4px" title="Also include AI-estimated salaries (Adzuna histogram + BLS data) when filtering by salary"><input type="checkbox" id="filter-include-estimated" onchange="loadJobs()"> Include estimates</label>
+                            </div>
+                            <div class="date-filter">
+                                <label>From</label>
+                                <input type="date" id="filter-date-from" onchange="loadJobs()">
+                            </div>
+                            <div class="date-filter">
+                                <label>To</label>
+                                <input type="date" id="filter-date-to" onchange="loadJobs()">
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="filter-max-score" value="">
+                    <input type="hidden" id="filter-unscored-only" value="">
+                </div>
+
+                <div class="jobs-toolbar">
+                    <div class="toolbar-left">
+                        <button class="btn btn-ghost btn-sm" id="toggle-select-btn" onclick="toggleSelectMode()">Select</button>
+                    </div>
+                    <div class="toolbar-right" id="select-actions" style="display:none">
+                        <label class="select-all-toggle"><input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs(this.checked)"> All on Page</label>
+                        <span id="selected-count" class="selected-count">0 selected</span>
+                        <button class="btn btn-primary btn-sm" onclick="tailorSelectedJobs()">Tailor Selected</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSelectedJobs()">Delete Selected</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteFilteredJobs()">Delete Matching</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteAllJobs()">Delete All</button>
+                    </div>
+                </div>
+
+                <div class="jobs-split-pane">
+                    <div class="jobs-list-pane">
+                        <div id="jobs-list" class="jobs-list">
+                            <p class="placeholder">Loading jobs...</p>
+                        </div>
+                        <div class="pagination" id="jobs-pagination"></div>
+                    </div>
+                    <div class="jobs-detail-pane" id="job-detail-pane">
+                        <div class="detail-empty">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.3"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                            <p>Select a job to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Review Queue Tab -->
+            <section id="review" class="tab-content">
+                <div class="review-tab-bar">
+                    <button class="review-tab-btn active" id="review-tab-pending" onclick="switchReviewView('pending')">Pending Review</button>
+                    <button class="review-tab-btn" id="review-tab-submitted" onclick="switchReviewView('submitted')">Submitted</button>
+                    <button class="review-tab-btn" id="review-tab-failed" onclick="switchReviewView('failed')">Failed</button>
+                    <button class="review-tab-btn" id="review-tab-in-progress" onclick="switchReviewView('in-progress')">In Progress <span id="in-progress-badge" style="display:none;background:var(--accent-red);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:4px;vertical-align:middle"></span></button>
+                </div>
+                <div id="review-pending-view">
+                    <div class="review-actions">
+                        <button class="btn btn-green btn-sm" onclick="bulkApprove()">Approve All</button>
+                        <button class="btn btn-danger btn-sm" onclick="bulkReject()">Reject All</button>
+                    </div>
+                    <div id="review-list" class="review-list">
+                        <p class="placeholder">Loading review queue...</p>
+                    </div>
+                </div>
+                <div id="review-submitted-view" style="display:none">
+                    <div id="submitted-list" class="review-list">
+                        <p class="placeholder">Loading submitted applications...</p>
+                    </div>
+                </div>
+                <div id="review-failed-view" style="display:none">
+                    <div id="failed-list" class="review-list">
+                        <p class="placeholder">Loading failed applications...</p>
+                    </div>
+                </div>
+                <div id="review-in-progress-view" style="display:none">
+                    <div id="in-progress-list" class="review-list">
+                        <p class="placeholder">Loading...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings" class="tab-content">
+                <div class="settings-tabs">
+                    <button class="settings-tab active" onclick="switchSettingsTab(this, 'stab-profile')">Profile</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-search')">Search</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-integrations')">Integrations</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
+                </div>
+
+                <!-- Profile Tab -->
+                <div id="stab-profile" class="settings-tab-panel active">
+                    <div class="setup-relaunch-bar">
+                        <span>Want to redo first-time setup, or import a fresh résumé?</span>
+                        <button class="btn btn-secondary btn-sm" onclick="obRelaunch()">Re-run setup wizard</button>
+                        <button class="btn btn-secondary btn-sm" id="settings-replay-tour" onclick="tourReplay()">Replay product tour</button>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Personal Info</h2>
+                            <div class="form-group"><label>Full Name</label><input type="text" id="cfg-name"></div>
+                            <div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div>
+                            <div class="form-group"><label>Phone</label><input type="text" id="cfg-phone"></div>
+                            <div class="form-group"><label>Middle Name</label><input type="text" id="cfg-middle-name" placeholder="Leave blank if none"></div>
+                            <div class="form-group"><label>Location <span class="hint">(City, State)</span></label><input type="text" id="cfg-location"></div>
+                            <div class="form-group"><label>Street Address</label><input type="text" id="cfg-street-address" placeholder="123 Main St"></div>
+                            <div class="form-group"><label>Address Line 2</label><input type="text" id="cfg-street-address-2" placeholder="Apt, Suite (optional)"></div>
+                            <div class="form-row-3">
+                                <div class="form-group"><label>City</label><input type="text" id="cfg-city"></div>
+                                <div class="form-group"><label>State</label><input type="text" id="cfg-state" placeholder="CO" maxlength="2"></div>
+                                <div class="form-group"><label>Zip Code</label><input type="text" id="cfg-zip" placeholder="80202"></div>
+                            </div>
+                            <div class="form-group"><label>Desired Salary</label><input type="text" id="cfg-desired-salary" placeholder="e.g. 95000"></div>
+                            <div class="form-group"><label>Notice Period</label><input type="text" id="cfg-notice-period" placeholder="e.g. 2 weeks, 1 month, Immediately"></div>
+                            <div class="form-group"><label>Available Start Date</label><input type="text" id="cfg-available-start" placeholder="e.g. Immediately, 2026-04-01"></div>
+                            <div class="form-group"><label>LinkedIn</label><input type="text" id="cfg-linkedin"></div>
+                            <div class="form-group"><label>Summary</label><textarea id="cfg-summary" rows="4"></textarea></div>
+                            <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="cfg-skills"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Experience</h2>
+                            <div id="experience-list"></div>
+                            <button class="btn btn-primary btn-sm" onclick="addExperience()" style="margin-top:10px">+ Add Position</button>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Education</h2>
+                            <div id="education-list"></div>
+                            <button class="btn btn-primary btn-sm" onclick="addEducation()" style="margin-top:10px">+ Add Education</button>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Certifications</h2>
+                            <div class="form-group">
+                                <label>Certifications (one per line)</label>
+                                <textarea id="cfg-certifications" rows="4" placeholder="CompTIA Security+&#10;AWS Solutions Architect"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>References</h2>
+                            <p class="section-hint">Appended verbatim to the end of every generated resume. Never sent to the AI.</p>
+                            <div id="references-list"></div>
+                            <button class="btn btn-primary btn-sm" onclick="addReference()" style="margin-top:10px">+ Add Reference</button>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>EEO / Compliance</h2>
+                            <p class="section-hint">Used to auto-fill voluntary self-identification questions. All fields are optional.</p>
+                            <div class="form-group"><label>Gender</label>
+                                <select id="cfg-gender">
+                                    <option value="">Prefer not to say</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Non-binary">Non-binary</option>
+                                    <option value="Decline to self-identify">Decline to self-identify</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Race / Ethnicity</label>
+                                <select id="cfg-race">
+                                    <option value="">Prefer not to say</option>
+                                    <option value="American Indian or Alaska Native">American Indian or Alaska Native</option>
+                                    <option value="Asian">Asian</option>
+                                    <option value="Black or African American">Black or African American</option>
+                                    <option value="Hispanic or Latino">Hispanic or Latino</option>
+                                    <option value="Native Hawaiian or Other Pacific Islander">Native Hawaiian or Other Pacific Islander</option>
+                                    <option value="White">White</option>
+                                    <option value="Two or More Races">Two or More Races</option>
+                                    <option value="Decline to self-identify">Decline to self-identify</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Veteran Status</label>
+                                <select id="cfg-veteran">
+                                    <option value="">Prefer not to say</option>
+                                    <option value="I am not a protected veteran">I am not a protected veteran</option>
+                                    <option value="I identify as one or more of the classifications of a protected veteran">I identify as a protected veteran</option>
+                                    <option value="I don't wish to answer">I don't wish to answer</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Disability Status</label>
+                                <select id="cfg-disability">
+                                    <option value="">Prefer not to say</option>
+                                    <option value="Yes, I have a disability (or previously had a disability)">Yes, I have a disability</option>
+                                    <option value="No, I do not have a disability">No, I do not have a disability</option>
+                                    <option value="I don't wish to answer">I don't wish to answer</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Authorized to work in US?</label>
+                                <select id="cfg-work-auth"><option value="">--</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                            </div>
+                            <div class="form-group"><label>Require sponsorship?</label>
+                                <select id="cfg-sponsorship"><option value="">--</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search Tab -->
+                <div id="stab-search" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Job Search</h2>
+                            <div class="form-group"><label>Keywords (comma-separated)</label><input type="text" id="cfg-keywords">
+                                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="openTitleSuggest('cfg-keywords', false)">&#10024; Suggest titles with AI</button>
+                                    <span class="hint">Answers a few questions, then recommends search titles based on your profile.</span>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Locations (one per line)</label>
+                                <textarea id="cfg-locations" rows="4" placeholder="Denver, CO&#10;Remote&#10;Boulder, CO"></textarea>
+                                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="verifyLinkedinLocations()">Verify LinkedIn locations</button>
+                                    <span class="hint">One location per line. Include state/country (e.g. <em>Denver, CO</em>) — bare city names can resolve to a different city on LinkedIn. Click "preview on LinkedIn" after verifying to confirm.</span>
+                                </div>
+                                <div id="linkedin-loc-results" style="margin-top:8px"></div>
+                            </div>
+                            <div class="form-group"><label>Exclude Keywords (comma-separated)</label><input type="text" id="cfg-exclude"></div>
+                            <div class="form-group"><label>Min Salary</label><input type="number" id="cfg-salary" min="0"></div>
+                            <div class="form-group">
+                                <label class="remote-toggle"><input type="checkbox" id="cfg-salary-auto-ingest" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries during job ingestion</label>
+                                <span class="hint">When enabled, jobs without disclosed compensation get an AI-aided market estimate (real data from Adzuna + BLS) at ingest time. Estimates are clearly labeled and never confused with real comp.</span>
+                            </div>
+                        </div>
+                        <div class="section-card">
+                            <h2>Company Watchlists</h2>
+                            <div class="form-group">
+                                <label>Greenhouse Companies</label>
+                                <input type="text" id="cfg-greenhouse" placeholder="e.g. stripe, cloudflare, databricks">
+                                <span class="hint">Slugs from boards.greenhouse.io/{slug}</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Lever Companies</label>
+                                <input type="text" id="cfg-lever" placeholder="e.g. zapier, netlify, notion-so">
+                                <span class="hint">Slugs from jobs.lever.co/{slug}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Integrations Tab -->
+                <div id="stab-integrations" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>AI Connection</h2>
+                            <div class="form-group" style="display:flex;gap:8px;align-items:flex-end">
+                                <div style="flex:1"><label>LM Studio URL</label><input type="text" id="cfg-ai-url" placeholder="http://localhost:1234/v1"></div>
+                                <button class="btn btn-secondary btn-sm" style="white-space:nowrap;margin-bottom:0" onclick="loadAiModels()">Load Models</button>
+                            </div>
+                            <div class="ai-tier-group">
+                                <div class="ai-tier">
+                                    <div class="ai-tier-header">
+                                        <span class="ai-tier-badge strong">CONTENT</span>
+                                        <span class="ai-tier-label">Resumes, cover letters &amp; job-fit scoring</span>
+                                    </div>
+                                    <p class="ai-tier-hint">Writes tailored resumes and cover letters, scores how well each job matches your profile, and handles AI Edit revisions (Strong mode). Use your highest-quality model — prompts are long and the output is what employers read.</p>
+                                    <div class="form-group"><label>Content Model</label>
+                                        <select id="cfg-ai-model-strong"><option value="">— load models first —</option></select>
+                                    </div>
+                                </div>
+                                <div class="ai-tier">
+                                    <div class="ai-tier-header">
+                                        <span class="ai-tier-badge fast">NAVIGATOR</span>
+                                        <span class="ai-tier-label">Auto-apply browser navigation</span>
+                                    </div>
+                                    <p class="ai-tier-hint">Drives auto-apply: classifies pages, picks form fields, decides which button to click. Also used for AI Edit revisions (Fast mode). Needs reliable JSON/tool-call output; latency matters more than prose quality.</p>
+                                    <div class="form-group"><label>Navigator Model</label>
+                                        <select id="cfg-ai-model-fast"><option value="">— load models first —</option></select>
+                                    </div>
+                                </div>
+                                <div class="ai-tier">
+                                    <div class="ai-tier-header">
+                                        <span class="ai-tier-badge fast">UTILITY</span>
+                                        <span class="ai-tier-label">Background ingestion helpers</span>
+                                    </div>
+                                    <p class="ai-tier-hint">Short helper calls during job ingestion: canonicalizing job titles for the salary estimator and ranking which past roles to include on a tailored resume. A small fast model is fine. Falls back to the Navigator model if left blank.</p>
+                                    <div class="form-group"><label>Utility Model</label>
+                                        <select id="cfg-ai-model-utility"><option value="">— load models first —</option></select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top:8px">
+                                <label>Scoring Tier</label>
+                                <select id="cfg-scoring-tier" style="width:100%">
+                                    <option value="strong">Content (highest-quality scores)</option>
+                                    <option value="utility">Utility (avoids model swap during ingestion)</option>
+                                    <option value="fast">Navigator</option>
+                                </select>
+                                <p class="ai-tier-hint" style="margin-top:4px">Which tier's model judges job-fit. Set to <strong>Utility</strong> so scoring and the salary-estimator share one model — keeps LM Studio from swapping models on every ingested job. Switch back to <strong>Content</strong> for the most accurate scores.</p>
+                            </div>
+                            <div class="form-group" style="margin-top:8px">
+                                <label>Context Window</label>
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <select id="cfg-context-window" style="flex:1">
+                                        <option value="4096">4K tokens (4096)</option>
+                                        <option value="8192">8K tokens (8192)</option>
+                                        <option value="12288">12K tokens (12288)</option>
+                                        <option value="16384">16K tokens (16384)</option>
+                                        <option value="24576">24K tokens (24576)</option>
+                                        <option value="32768">32K tokens (32768)</option>
+                                        <option value="65536">64K tokens (65536)</option>
+                                        <option value="131072">128K tokens (131072)</option>
+                                    </select>
+                                    <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="loadNavigatorModel()">Load Model</button>
+                                    <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="applyContextWindow()">Apply to LM Studio</button>
+                                </div>
+                                <p class="ai-tier-hint" style="margin-top:4px">Reloads the model in LM Studio with this context length. Higher values use more VRAM. Steps of 4096 (≈1 GB each).</p>
+                            </div>
+                            <button class="btn btn-secondary" onclick="testAI()">Test Connection</button>
+                            <div id="ai-status" class="ai-status"></div>
+                            <div id="ctx-reload-status" class="ai-status" style="margin-top:6px"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>LinkedIn Session</h2>
+                            <p class="section-hint">Sign into LinkedIn so auto-apply can access authenticated job pages.</p>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="linkedin-login-btn" onclick="linkedinLogin()">Sign in to LinkedIn</button>
+                                <button class="btn btn-secondary btn-sm" id="linkedin-check-btn" style="display:none" onclick="checkLinkedInSessionValidity()">Check Connection</button>
+                                <button class="btn btn-danger btn-sm" id="linkedin-logout-btn" style="display:none" onclick="linkedinLogout()">Disconnect</button>
+                            </div>
+                            <div id="linkedin-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Indeed Session</h2>
+                            <p class="section-hint">Sign into Indeed so auto-apply can access authenticated job pages.</p>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="indeed-login-btn" onclick="indeedLogin()">Connect Indeed Account</button>
+                                <button class="btn btn-danger btn-sm" id="indeed-logout-btn" style="display:none" onclick="indeedLogout()">Disconnect</button>
+                            </div>
+                            <div id="indeed-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Import Browser Cookies</h2>
+                            <p class="section-hint">Skip interactive sign-in by importing cookies from the browser you're already logged in with. Export them with an extension like Cookie-Editor (JSON) or as a Netscape <code>cookies.txt</code>, then upload the file here.</p>
+                            <div class="form-group">
+                                <label>Target Site</label>
+                                <div style="display:flex;gap:8px">
+                                    <select id="cookie-import-site" style="flex:1" onchange="cookieImportSiteChanged()">
+                                        <option value="auto">Auto-detect from cookies</option>
+                                        <option value="linkedin">LinkedIn</option>
+                                        <option value="indeed">Indeed</option>
+                                        <option value="other">Other domain…</option>
+                                    </select>
+                                    <input type="text" id="cookie-import-domain" placeholder="e.g. glassdoor.com" style="flex:1;display:none">
+                                </div>
+                            </div>
+                            <div class="btn-row">
+                                <input type="file" id="cookie-import-file" accept=".json,.txt" style="display:none" onchange="importCookies(this)">
+                                <button class="btn btn-primary" id="cookie-import-btn" onclick="document.getElementById('cookie-import-file').click()">Choose Cookie File &amp; Import</button>
+                            </div>
+                            <div id="cookie-import-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>ATS Login Credentials</h2>
+                            <p class="section-hint">Password used when the tool needs to log into a non-Workday ATS portal. The login email is your profile email above.</p>
+                            <div class="form-group"><label>ATS Login Password</label><input type="password" id="cfg-ats-login-password" placeholder="Password for non-Workday job portals" autocomplete="off"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Workday Credentials</h2>
+                            <p class="section-hint">Email and password for Workday candidate accounts.</p>
+                            <div class="form-group"><label>Workday Email</label><input type="email" id="cfg-workday-email" placeholder="your@email.com"></div>
+                            <div class="form-group"><label>Workday Password</label><input type="password" id="cfg-workday-password" placeholder="Use a strong, unique password"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Adzuna</h2>
+                            <p class="section-hint">Register at <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">developer.adzuna.com</a> to get a free App ID and App Key.</p>
+                            <div class="form-group"><label>App ID</label><input type="password" id="cfg-adzuna-app-id" placeholder="Your Adzuna App ID" autocomplete="off"></div>
+                            <div class="form-group"><label>App Key</label><input type="password" id="cfg-adzuna-app-key" placeholder="Your Adzuna App Key" autocomplete="off"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>BLS (Bureau of Labor Statistics)</h2>
+                            <p class="section-hint">Optional. Used as a fallback for the salary estimator when Adzuna doesn't have data. Register for a free key at <a href="https://data.bls.gov/registrationEngine/" target="_blank" rel="noopener">data.bls.gov</a> (raises rate limit from 25/day to 500/day). Leave blank to skip BLS lookups entirely.</p>
+                            <div class="form-group"><label>API Key</label><input type="password" id="cfg-bls-api-key" placeholder="Optional — leave blank to disable BLS" autocomplete="off"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>USAJobs</h2>
+                            <p class="section-hint">Free API -- register at <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">developer.usajobs.gov</a></p>
+                            <div class="form-group"><label>Email (User-Agent)</label><input type="email" id="cfg-usajobs-email" placeholder="your@email.com"></div>
+                            <div class="form-group"><label>API Key</label><input type="text" id="cfg-usajobs-key" placeholder="Your USAJobs API key"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>FlareSolverr</h2>
+                            <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
+                            <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Auto-Apply Tab -->
+                <div id="stab-autoapply" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Auto-Apply Settings</h2>
+                            <div class="form-group toggle-group"><label>Enable Auto-Apply</label><input type="checkbox" id="cfg-auto-apply"></div>
+                            <div id="auto-apply-subsettings">
+                            <div class="form-group toggle-group"><label>Auto-Approve (skip review)</label><input type="checkbox" id="cfg-auto-approve"></div>
+                            <div class="form-group toggle-group"><label>Headless Mode (hide browser)</label><input type="checkbox" id="cfg-headless"></div>
+                            <div class="form-group toggle-group"><label>Use Browser-Use Agent</label><input type="checkbox" id="cfg-browser-use"></div>
+                            <p class="section-hint" style="margin-top:-8px">When enabled, an autonomous AI agent drives the browser instead of the built-in Playwright adapters. Recommended for LinkedIn.</p>
+                            <div class="form-group"><label>Max Daily Applications</label><input type="number" id="cfg-max-daily" min="1" max="100"></div>
+                            <div class="form-group"><label>Step Ceiling (per application)</label>
+                                <select id="cfg-step-ceiling">
+                                    <option value="20">20 steps</option>
+                                    <option value="40">40 steps</option>
+                                    <option value="60" selected>60 steps (default)</option>
+                                    <option value="80">80 steps</option>
+                                    <option value="100">100 steps</option>
+                                    <option value="0">Unlimited</option>
+                                </select>
+                                <p class="section-hint">Max actions the AI navigator takes per application. Unlimited disables the safety limit.</p>
+                            </div>
+                            <div class="form-group toggle-group"><label>Disable Stuck Detection</label><input type="checkbox" id="cfg-disable-stuck-detection"></div>
+                            <p class="section-hint" style="margin-top:-8px">When enabled, the navigator will not give up if no page progress is detected. Useful for slow ATSes or manual intervention mid-apply.</p>
+                            <div class="form-group"><label>Rate limit per domain (seconds between applies)</label><input type="number" id="cfg-per-domain-rate-limit" min="0" step="1"></div>
+                            <div class="form-group toggle-group"><label>Send unknown ATS applications to Needs Review</label><input type="checkbox" id="cfg-review-unknown-ats"></div>
+                            <div class="form-group"><label>Minimum confidence threshold (below this → Needs Review)</label><input type="number" id="cfg-min-confidence" min="0" max="1" step="0.05"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Application Honesty Tab -->
+                <div id="stab-honesty" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Application Honesty Level</h2>
+                            <div class="honesty-warning-banner">
+                                &#9888; Warning: Settings above &ldquo;Tailored&rdquo; may generate false information. You are responsible for the accuracy of submitted applications.
+                            </div>
+                            <div class="honesty-segmented" role="group" aria-label="Honesty Level">
+                                <button class="honesty-stop" data-level="honest" onclick="setHonestyLevel('honest')">Honest</button>
+                                <button class="honesty-stop" data-level="tailored" onclick="setHonestyLevel('tailored')">Tailored</button>
+                                <button class="honesty-stop" data-level="embellished" onclick="setHonestyLevel('embellished')">Embellished</button>
+                                <button class="honesty-stop honesty-stop-fabricated" data-level="fabricated" onclick="setHonestyLevel('fabricated')">Fabricated</button>
+                            </div>
+                            <div id="honesty-inline-warning" class="honesty-inline-warning" style="display:none">
+                                &#9888; This setting will modify your resume content.
+                            </div>
+                            <div class="section-hint" style="margin-top:16px">
+                                <strong>Honest</strong> — reorder and reword only; no changes to facts.<br>
+                                <strong>Tailored</strong> — rephrase using the job&rsquo;s exact keywords; no fabrication.<br>
+                                <strong>Embellished</strong> — expand scope, upgrade impact, add plausible skills.<br>
+                                <strong>Fabricated</strong> — invent achievements and fill gaps; review before interviewing.
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Resume Visual Style</h2>
+                            <p class="section-hint">Controls fonts, colors, and layout of generated resume DOCX files. All styles stay single-column and ATS-safe.</p>
+                            <div class="honesty-segmented" role="group" aria-label="Resume Style">
+                                <button class="honesty-stop resume-style-stop" data-style="standard" onclick="setResumeStyle('standard')">Standard</button>
+                                <button class="honesty-stop resume-style-stop" data-style="minimal" onclick="setResumeStyle('minimal')">Minimal</button>
+                                <button class="honesty-stop resume-style-stop" data-style="modern" onclick="setResumeStyle('modern')">Modern</button>
+                            </div>
+                            <div class="section-hint" style="margin-top:16px">
+                                <strong>Standard</strong> — Calibri, accent blue, full-width section rules.<br>
+                                <strong>Minimal</strong> — Times New Roman, no color; maximum ATS compatibility.<br>
+                                <strong>Modern</strong> — Aptos, navy accent, no header rules, 1.15 line spacing, inline title/company (recommended).
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Document Format</h2>
+                            <p class="section-hint">Choose whether the generated resume and cover letter come out as Word (DOCX) or PDF. PDF is rendered in pure Python &mdash; no extra software needed. A DOCX is always kept for autofill.</p>
+                            <div class="honesty-segmented" role="group" aria-label="Document Format">
+                                <button class="honesty-stop document-format-stop" data-fmt="docx" onclick="setDocumentFormat('docx')">Word (DOCX)</button>
+                                <button class="honesty-stop document-format-stop" data-fmt="pdf" onclick="setDocumentFormat('pdf')">PDF</button>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Max Experience Entries</h2>
+                            <p class="section-hint">Cap the number of past roles shown on tailored resumes. The local LLM picks the most relevant non-pinned roles for the target job. Pin a role in the Profile tab to force it onto every resume.</p>
+                            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                                    <input type="checkbox" id="max-exp-all" onchange="onMaxExpAllToggle()"> Include all roles
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                                    Cap:
+                                    <input type="number" id="max-exp-entries" min="1" max="20" step="1" style="width:70px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px" onchange="onMaxExpEntriesChange()">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>AI Edit Model</h2>
+                            <p class="section-hint">Default model used by the AI Edit feature when revising resumes and cover letters. Per-edit override available in the modal.</p>
+                            <div class="honesty-segmented" role="group" aria-label="AI Edit Model">
+                                <button class="honesty-stop ai-edit-tier-stop" data-tier="fast" onclick="setAiEditModelTier('fast')">Fast</button>
+                                <button class="honesty-stop ai-edit-tier-stop" data-tier="strong" onclick="setAiEditModelTier('strong')">Strong</button>
+                            </div>
+                            <div class="section-hint" style="margin-top:16px">
+                                <strong>Fast</strong> — Quicker revisions using the Navigator model (<code>ai.models.fast</code>).<br>
+                                <strong>Strong</strong> — Higher-quality revisions using the Content model (<code>ai.models.strong</code>, recommended).
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Applicant Assist Tab -->
+                <div id="stab-assist" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Apply Assist</h2>
+                            <p class="section-hint">Apply Assist runs inside your normal Chrome or Firefox via the Jobsmith browser extension. When you click "Apply Assist" on a job, the extension injects a sidebar with your tailored resume, cover letter, and pre-filled answers right into the live ATS page. No separate browser is launched.</p>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Install the extension</h2>
+                            <p class="section-hint">Download the packaged extension for your browser, then load it as a permanent extension.</p>
+                            <div class="form-group">
+                                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                    <a class="btn btn-primary btn-sm" href="/api/extension/download/chrome" download>Download for Chrome</a>
+                                    <a class="btn btn-primary btn-sm" href="/api/extension/firefox-xpi">Install for Firefox (signed)</a>
+                                    <button class="btn btn-secondary btn-sm" onclick="toggleExtensionInstall()" id="ext-install-toggle">Show install instructions ▾</button>
+                                </div>
+                            </div>
+                            <div id="ext-install-instructions" style="display:none;margin-top:8px;font-size:0.9rem;line-height:1.5">
+                                <p style="margin:8px 0 4px"><strong>Chrome / Edge / Brave (permanent):</strong></p>
+                                <ol style="margin:0 0 8px 18px;padding:0">
+                                    <li>Unzip the downloaded file into a folder you'll keep around (e.g. <code>~/jobsmith-extension</code>).</li>
+                                    <li>Open <code>chrome://extensions</code>, enable <em>Developer mode</em> (top-right).</li>
+                                    <li>Click <em>Load unpacked</em> and pick that folder. The extension persists across restarts.</li>
+                                    <li>Open the extension popup and paste the token below.</li>
+                                </ol>
+                                <p style="margin:8px 0 4px"><strong>Firefox (permanent, Mozilla-signed):</strong></p>
+                                <ol style="margin:0 0 8px 18px;padding:0">
+                                    <li>Click <em>Install for Firefox (signed)</em> above &mdash; Firefox prompts you to add the signed add-on. It persists across restarts.</li>
+                                    <li>If no prompt appears, open <code>about:addons</code> &rarr; the gear icon &#9881; &rarr; <em>Install Add-on From File…</em> &rarr; pick the downloaded <code>.xpi</code>.</li>
+                                    <li>Open the extension popup and paste the token below.</li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Extension token</h2>
+                            <p class="section-hint">The extension authenticates to your local Jobsmith instance with this token. Paste it into the extension popup's "Extension token" field after install.</p>
+                            <div class="form-group">
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <input type="text" id="ext-token" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem" onclick="this.select()">
+                                    <button class="btn btn-secondary btn-sm" onclick="copyExtensionToken()">Copy</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="rotateExtensionToken()">Rotate</button>
+                                </div>
+                                <div id="ext-token-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Answer Bank Tab -->
+                <div id="stab-answerbank" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Answer Bank</h2>
+                            <p class="section-hint">Pre-written answers for common application questions. The auto-apply system uses these instead of asking the AI to generate fresh answers every time. Fill in the placeholders with your real answers.</p>
+
+                            <div style="margin-bottom:16px">
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                                    <input type="text" id="ab-test-input" placeholder="Type a job application question to test matching..." style="flex:1;min-width:200px">
+                                    <button class="btn btn-secondary btn-sm" onclick="testAnswerBankMatch()">Test Match</button>
+                                </div>
+                                <div id="ab-test-result" style="margin-top:8px;font-size:0.85rem;color:var(--text-secondary)"></div>
+                            </div>
+
+                            <div id="answer-bank-list"></div>
+                        </div>
+
+                        <div class="section-card">
+                            <h2>Custom Answers</h2>
+                            <p class="section-hint">Add your own question/answer pairs. Set trigger keywords that match specific questions on application forms.</p>
+                            <div id="custom-answer-list"></div>
+                            <button class="btn btn-primary btn-sm" onclick="addCustomAnswer()" style="margin-top:12px">+ Add Custom Answer</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-save">
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                </div>
+            </section>
+
+            <!-- Fit Score Breakdown -->
+            <section id="fit-breakdown" class="tab-content">
+                <div class="fit-breakdown-page">
+                    <div class="fit-breakdown-header">
+                        <button class="btn btn-secondary btn-sm" onclick="location.hash='dashboard'">&larr; Back to Dashboard</button>
+                    </div>
+
+                    <div class="fit-breakdown-grid">
+                        <!-- Pie Chart Card -->
+                        <div class="fit-chart-card">
+                            <h3 class="fit-section-title">Score Distribution</h3>
+                            <div class="fit-chart-wrap">
+                                <canvas id="fit-pie-canvas" width="240" height="240"></canvas>
+                                <div class="fit-pie-center" id="fit-pie-center">
+                                    <div class="fit-pie-avg" id="fit-pie-avg">--</div>
+                                    <div class="fit-pie-avg-label">avg score</div>
+                                </div>
+                            </div>
+                            <div class="fit-legend" id="fit-legend"></div>
+                        </div>
+
+                        <!-- Stats Summary Card -->
+                        <div class="fit-stats-card">
+                            <h3 class="fit-section-title">Score Summary</h3>
+                            <div class="fit-stat-list" id="fit-stat-list"></div>
+
+                            <h3 class="fit-section-title" style="margin-top:28px">Jobs by Status</h3>
+                            <div class="fit-status-bars" id="fit-status-bars"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ First-run Onboarding Wizard ============ -->
+    <!-- AI job-title suggester modal (used from Settings → Search and the wizard) -->
+    <div id="ts-modal" class="ts-modal" style="display:none">
+        <div class="ts-modal-backdrop" onclick="tsClose()"></div>
+        <div class="ts-modal-content">
+            <div class="ts-modal-header">
+                <span class="ts-modal-title">&#10024; AI job-title suggestions</span>
+                <button class="screenshot-modal-close" onclick="tsClose()">&times;</button>
+            </div>
+            <div class="ts-modal-body" id="ts-body"></div>
+        </div>
+    </div>
+
+    <div id="onboarding-overlay" class="ob-overlay" style="display:none">
+        <div class="ob-card">
+            <div class="ob-head">
+                <div class="ob-brand">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    <span>Welcome to Jobsmith</span>
+                </div>
+                <button class="ob-skip" onclick="obSkip()">Skip for now &rarr;</button>
+            </div>
+
+            <div class="ob-stepper" id="ob-stepper">
+                <div class="ob-step" data-step="0"><span class="ob-dot">1</span><span class="ob-step-label">Connect AI</span></div>
+                <div class="ob-step" data-step="1"><span class="ob-dot">2</span><span class="ob-step-label">R&eacute;sum&eacute;</span></div>
+                <div class="ob-step" data-step="2"><span class="ob-dot">3</span><span class="ob-step-label">Profile</span></div>
+                <div class="ob-step" data-step="3"><span class="ob-dot">4</span><span class="ob-step-label">Job Search</span></div>
+                <div class="ob-step" data-step="4"><span class="ob-dot">5</span><span class="ob-step-label">Finish</span></div>
+                <div class="ob-step" data-step="5" id="ob-step-review" style="display:none"><span class="ob-dot">6</span><span class="ob-step-label">Review</span></div>
+            </div>
+
+            <div class="ob-body">
+                <!-- Step 0: AI -->
+                <div class="ob-panel active" data-panel="0">
+                    <h2>Connect your local AI</h2>
+                    <p class="ob-lead">Jobsmith runs entirely on your own machine. Point it at your LM Studio server, then pick the models to use.</p>
+                    <div class="form-group"><label>LM Studio base URL</label><input type="text" id="ob-ai-url" placeholder="http://localhost:1234/v1"></div>
+                    <div style="display:flex;gap:10px;align-items:center;margin:8px 0 4px">
+                        <button class="btn btn-primary btn-sm" onclick="obTestAI()">Test connection</button>
+                        <span id="ob-ai-status" class="ob-status">Not tested yet</span>
+                    </div>
+                    <div class="form-row-3" style="margin-top:14px">
+                        <div class="form-group"><label>Content model <span class="hint">(strong)</span></label><select id="ob-ai-model-strong"><option value="">—</option></select></div>
+                        <div class="form-group"><label>Navigator model <span class="hint">(fast)</span></label><select id="ob-ai-model-fast"><option value="">—</option></select></div>
+                        <div class="form-group"><label>Utility model</label><select id="ob-ai-model-utility"><option value="">—</option></select></div>
+                    </div>
+                    <p class="ob-hint">No server yet? You can continue and configure AI later in Settings &rarr; Integrations.</p>
+                </div>
+
+                <!-- Step 1: Resume / LinkedIn -->
+                <div class="ob-panel" data-panel="1">
+                    <h2>Import your r&eacute;sum&eacute; or LinkedIn profile</h2>
+                    <p class="ob-lead">Upload a PDF or DOCX (or paste the text) and your local AI will fill in your profile. Nothing is sent to the cloud.</p>
+                    <div class="ob-dropzone" id="ob-dropzone" onclick="document.getElementById('ob-resume-file').click()">
+                        <input type="file" id="ob-resume-file" accept=".pdf,.docx,.txt,.md" style="display:none" onchange="obFileChosen(this)">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span id="ob-file-label">Click to choose a PDF / DOCX / TXT file</span>
+                    </div>
+                    <div class="ob-or">or paste r&eacute;sum&eacute; text</div>
+                    <div class="form-group"><textarea id="ob-resume-text" rows="6" placeholder="Paste your full résumé here…"></textarea></div>
+                    <div style="display:flex;gap:10px;align-items:center">
+                        <button class="btn btn-primary" id="ob-parse-btn" onclick="obParseResume()">Extract with AI</button>
+                        <button class="btn btn-ghost btn-sm" onclick="obGoto(2)">Skip — I'll fill it in manually</button>
+                        <span id="ob-parse-status" class="ob-status"></span>
+                    </div>
+                    <div class="ob-or">or import from LinkedIn</div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                        <button class="btn btn-secondary" id="ob-linkedin-btn" onclick="obImportLinkedIn()">Import from LinkedIn</button>
+                        <span id="ob-linkedin-status" class="ob-status"></span>
+                    </div>
+                    <p class="ob-hint">Reads your own LinkedIn profile through your saved session, locally. If LinkedIn isn't connected yet, a sign-in window opens first.</p>
+                </div>
+
+                <!-- Step 2: Profile review -->
+                <div class="ob-panel" data-panel="2">
+                    <h2>Review your profile</h2>
+                    <p class="ob-lead">Double-check what we pulled in. Edit anything that looks off — nothing here was invented, only extracted.</p>
+                    <div class="form-row-2">
+                        <div class="form-group"><label>Full name *</label><input type="text" id="ob-name"></div>
+                        <div class="form-group"><label>Email *</label><input type="email" id="ob-email"></div>
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group"><label>Phone</label><input type="text" id="ob-phone"></div>
+                        <div class="form-group"><label>Location <span class="hint">(City, ST)</span></label><input type="text" id="ob-location"></div>
+                    </div>
+                    <div class="form-group"><label>LinkedIn</label><input type="text" id="ob-linkedin"></div>
+                    <div class="form-group"><label>Professional summary</label><textarea id="ob-summary" rows="3"></textarea></div>
+                    <div class="form-group"><label>Skills <span class="hint">(comma-separated)</span></label><input type="text" id="ob-skills"></div>
+                    <div class="ob-subhead"><span>Experience</span><button class="btn btn-sm" onclick="obAddExperience()">+ Add</button></div>
+                    <div id="ob-experience-list"></div>
+                    <div class="ob-subhead"><span>Education</span><button class="btn btn-sm" onclick="obAddEducation()">+ Add</button></div>
+                    <div id="ob-education-list"></div>
+                    <div class="form-group" style="margin-top:14px"><label>Certifications <span class="hint">(one per line)</span></label><textarea id="ob-certifications" rows="3"></textarea></div>
+                    <div id="ob-validation" class="ob-validation" style="display:none"></div>
+                </div>
+
+                <!-- Step 3: Job search -->
+                <div class="ob-panel" data-panel="3">
+                    <h2>What jobs should we look for?</h2>
+                    <p class="ob-lead">These drive the job feed. You can refine them anytime in Settings &rarr; Search.</p>
+                    <div class="form-group"><label>Keywords <span class="hint">(comma-separated)</span></label><input type="text" id="ob-keywords" placeholder="software engineer, backend developer">
+                        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openTitleSuggest('ob-keywords', true)">&#10024; Suggest titles with AI</button>
+                            <span class="hint">Uses the profile from the previous step.</span>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Locations <span class="hint">(one per line)</span></label><textarea id="ob-locations" rows="3" placeholder="Remote&#10;Denver, CO"></textarea></div>
+                    <div class="form-row-2">
+                        <div class="form-group"><label>Minimum salary</label><input type="number" id="ob-salary" placeholder="80000"></div>
+                        <div class="form-group"><label>Exclude keywords <span class="hint">(comma-separated)</span></label><input type="text" id="ob-exclude" placeholder="senior staff, principal, director"></div>
+                    </div>
+                </div>
+
+                <!-- Step 4: Optional -->
+                <div class="ob-panel" data-panel="4">
+                    <h2>Optional extras</h2>
+                    <p class="ob-lead">All optional — skip any of these and add them later from Settings.</p>
+                    <div class="section-card" style="margin-bottom:14px">
+                        <h3 style="margin:0 0 10px;font-size:14px">Salary estimator</h3>
+                        <div class="form-row-2">
+                            <div class="form-group"><label>Adzuna App ID</label><input type="text" id="ob-adzuna-app-id"></div>
+                            <div class="form-group"><label>Adzuna App Key</label><input type="text" id="ob-adzuna-app-key"></div>
+                        </div>
+                        <div class="form-group"><label>BLS API key <span class="hint">(optional)</span></label><input type="text" id="ob-bls-key"></div>
+                    </div>
+                    <div class="section-card">
+                        <h3 style="margin:0 0 10px;font-size:14px">Workday credentials <span class="hint">(used for auto-apply on Workday portals)</span></h3>
+                        <div class="form-row-2">
+                            <div class="form-group"><label>Workday email</label><input type="text" id="ob-workday-email"></div>
+                            <div class="form-group"><label>Workday password</label><input type="password" id="ob-workday-password"></div>
+                        </div>
+                    </div>
+                    <p class="ob-hint">Tip: connect LinkedIn from Settings &rarr; Integrations for the widest job coverage.</p>
+                </div>
+
+                <!-- Step 5: Review changes (re-run with existing profile only) -->
+                <div class="ob-panel" data-panel="5">
+                    <h2>Review changes</h2>
+                    <p class="ob-lead">You re-ran setup with an existing profile, so nothing is overwritten blindly. Check the changes you want to apply &mdash; unchecked rows keep their current value. Fields you didn't change aren't listed.</p>
+                    <div id="ob-diff-list"></div>
+                </div>
+            </div>
+
+            <div class="ob-foot">
+                <button class="btn btn-ghost" id="ob-back" onclick="obBack()" style="visibility:hidden">&larr; Back</button>
+                <button class="btn btn-primary" id="ob-next" onclick="obNext()">Next &rarr;</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Post-setup product tour overlay -->
+    <div id="tour-overlay" class="tour-overlay" style="display:none" aria-hidden="true">
+        <svg class="tour-mask" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+            <defs>
+                <mask id="tour-cutout">
+                    <rect class="tour-mask-bg" x="0" y="0" width="100%" height="100%" fill="white"/>
+                    <rect class="tour-mask-hole" x="0" y="0" width="0" height="0" rx="8" ry="8" fill="black"/>
+                </mask>
+            </defs>
+            <rect class="tour-dim" x="0" y="0" width="100%" height="100%" mask="url(#tour-cutout)"/>
+        </svg>
+        <div class="tour-popover" role="dialog" aria-labelledby="tour-title">
+            <div class="tour-popover-header">
+                <span class="tour-step-indicator">1 / 7</span>
+                <button class="tour-close" onclick="tourSkip()" aria-label="Skip tour">&times;</button>
+            </div>
+            <h3 class="tour-popover-title" id="tour-title"></h3>
+            <p class="tour-popover-body"></p>
+            <div class="tour-popover-actions">
+                <button class="btn btn-ghost tour-skip-btn" onclick="tourSkip()">Skip</button>
+                <button class="btn btn-ghost tour-prev-btn" onclick="tourPrev()">&larr; Back</button>
+                <button class="btn btn-primary tour-next-btn" onclick="tourNext()">Next &rarr;</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/core.js?v=33"></script>
+    <script src="js/dashboard.js?v=35"></script>
+    <script src="js/jobs.js?v=35"></script>
+    <script src="js/review.js?v=35"></script>
+    <script src="js/settings.js?v=33"></script>
+    <script src="js/sessions.js?v=34"></script>
+    <script src="js/jobs-actions.js?v=33"></script>
+    <script src="js/onboarding.js?v=33"></script>
+</body>
+</html>

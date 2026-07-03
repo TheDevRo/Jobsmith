@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Jobsmith</title>
+<link rel="icon" type="image/png" sizes="48x48" href="icons/icon-48.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --bg-elev: #181828;
+    --bg-card: #161624;
+    --bg-input: #1f1f30;
+    --border: #2a2a3e;
+    --border-strong: #3a3a52;
+    --text: #e4e6f1;
+    --text-dim: #8b8fa8;
+    --text-faint: #5a5e75;
+    --accent: #8b7cff;
+    --accent-2: #5eb3ff;
+    --accent-grad: linear-gradient(135deg, #8b7cff 0%, #5eb3ff 100%);
+    --ok: #6ee7b7;
+    --warn: #fcd34d;
+    --err: #fb7185;
+    --cyan: #67e8f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .header {
+    padding: 14px 16px 12px;
+    background:
+      radial-gradient(circle at 0% 0%, rgba(139,124,255,0.16), transparent 55%),
+      radial-gradient(circle at 100% 0%, rgba(94,179,255,0.10), transparent 55%);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+  h1 {
+    display: flex; align-items: center; gap: 9px;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .logo {
+    width: 22px; height: 22px; border-radius: 6px;
+    display: block;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.35);
+  }
+
+  .content { padding: 14px 16px 18px; }
+
+  /* Job loader */
+  .job-bar {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+    margin-bottom: 8px;
+  }
+  .job-bar input {
+    flex: 1;
+    padding: 7px 10px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font: inherit;
+    font-size: 12px;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .job-bar input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139,124,255,0.18);
+  }
+  .job-bar input::placeholder { color: var(--text-faint); }
+
+  .job-context {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    min-height: 16px;
+    padding: 0 2px;
+  }
+  .job-context a {
+    color: var(--cyan);
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+    transition: border-color 120ms ease;
+  }
+  .job-context a:hover { border-bottom-color: var(--cyan); }
+
+  /* Attachment tiles */
+  .tiles {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .attachment {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tile {
+    position: relative;
+    padding: 14px 10px;
+    background: var(--bg-card);
+    border: 1px dashed var(--border-strong);
+    border-radius: 9px;
+    text-align: center;
+    cursor: grab;
+    user-select: none;
+    font-size: 12px;
+    transition: all 140ms ease;
+    overflow: hidden;
+  }
+  .tile::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--accent-grad);
+    opacity: 0;
+    transition: opacity 140ms ease;
+    pointer-events: none;
+  }
+  .tile[draggable="true"]:hover {
+    border-color: var(--accent);
+    border-style: solid;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(139,124,255,0.18);
+  }
+  .tile[draggable="true"]:hover::before { opacity: 0.06; }
+  .tile[draggable="true"]:active { cursor: grabbing; transform: translateY(0); }
+  .tile.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-style: dashed;
+  }
+  .tile .name {
+    font-weight: 600;
+    color: var(--text);
+    position: relative;
+  }
+  .tile .hint {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 5px;
+    position: relative;
+  }
+  .dl-btn {
+    padding: 6px 8px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .dl-btn:hover:not(:disabled) {
+    background: var(--bg-elev);
+    border-color: var(--border-strong);
+  }
+  .dl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Action row */
+  .row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  button {
+    flex: 1;
+    padding: 8px 10px;
+    background: var(--accent-grad);
+    color: #fff;
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    font-size: 12px;
+    transition: transform 80ms ease, box-shadow 120ms ease, filter 120ms ease;
+    box-shadow: 0 2px 8px rgba(139,124,255,0.22);
+  }
+  button:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: 0 4px 14px rgba(139,124,255,0.32);
+  }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+  button.secondary {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    box-shadow: none;
+  }
+  button.secondary:hover:not(:disabled) {
+    background: var(--bg-elev);
+    filter: none;
+    box-shadow: none;
+  }
+  .job-bar button { flex: 0 0 auto; padding: 7px 14px; }
+
+  /* Auto-scan toggle */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 7px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .toggle-row .label-wrap { display: flex; flex-direction: column; gap: 1px; }
+  .toggle-row .t-label { font-size: 12px; font-weight: 600; color: var(--text); }
+  .toggle-row .t-hint  { font-size: 10px; color: var(--text-dim); }
+  .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+  .switch .slider::before {
+    content: ''; position: absolute;
+    height: 16px; width: 16px; left: 2px; top: 2px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform 140ms ease, background 140ms ease;
+  }
+  .switch input:checked + .slider {
+    background: var(--accent-grad);
+    border-color: transparent;
+  }
+  .switch input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+  /* Status pill */
+  #status {
+    font-size: 12px;
+    min-height: 1.2em;
+    margin-bottom: 10px;
+    padding: 0;
+    transition: padding 120ms ease;
+  }
+  #status:not(:empty) {
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .ok   { color: var(--ok); }
+  .err  { color: var(--err); }
+  .warn { color: var(--warn); }
+
+  /* Field cards */
+  #fields { display: flex; flex-direction: column; gap: 7px; }
+  .field {
+    position: relative;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px 10px;
+    background: var(--bg-card);
+    transition: transform 100ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  }
+  .field:hover {
+    transform: translateX(1px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+  }
+  .field .label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .field .meta {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    margin-top: 3px;
+    letter-spacing: 0.01em;
+  }
+  .field .value {
+    font-size: 12px;
+    margin-top: 5px;
+    word-break: break-word;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--cyan);
+    background: rgba(103,232,249,0.06);
+    padding: 4px 7px;
+    border-radius: 5px;
+    display: inline-block;
+    max-width: 100%;
+  }
+
+  /* Click-to-copy fields */
+  .field.copyable { cursor: copy; }
+  .field.copyable::after {
+    content: '⧉ copy';
+    position: absolute;
+    top: 8px; right: 10px;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--text-faint);
+    opacity: 0;
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+  .field.copyable:hover::after { opacity: 1; }
+  .field.copyable:active { transform: translateX(0) scale(0.997); }
+  .field.copied { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+  .field.copied::after { content: '✓ copied'; color: var(--ok); opacity: 1; }
+
+  /* Toast notifier */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translate(-50%, 16px);
+    background: var(--bg-elev);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100;
+    transition: opacity 160ms ease, transform 160ms ease;
+    max-width: 88%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast .tick { color: var(--ok); margin-right: 6px; font-weight: 700; }
+
+  /* Source accent (left border + a tiny dot before label) */
+  .src-answer_bank   { border-left-color: var(--ok); }
+  .src-profile       { border-left-color: var(--accent-2); }
+  .src-llm_generated { border-left-color: var(--warn); }
+  .src-skip          { border-left-color: var(--text-faint); opacity: 0.65; }
+
+  /* Status text styled like pills */
+  [class^="status-"] {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .status-filled         { color: var(--ok);   background: rgba(110,231,183,0.12); }
+  .status-low_confidence { color: var(--warn); background: rgba(252,211,77,0.12); }
+  .status-skipped        { color: var(--text-faint); background: rgba(90,94,117,0.18); }
+  .status-not_found,
+  .status-failed         { color: var(--err); background: rgba(251,113,133,0.12); }
+
+  .empty {
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 18px 0;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1><img class="logo" src="icons/icon-48.png" alt="">Jobsmith</h1>
+</div>
+
+<div class="content">
+  <div class="job-bar">
+    <input id="jobId" type="text" placeholder="Job ID">
+    <button id="loadJob">Load</button>
+  </div>
+  <div id="jobContext" class="job-context"></div>
+
+  <div class="tiles">
+    <div class="attachment">
+      <div id="resumeTile" class="tile disabled" draggable="false">
+        <div class="name">Resume</div>
+        <div class="hint">load a job</div>
+      </div>
+      <button id="resumeDownload" class="dl-btn" disabled>↓ Download</button>
+    </div>
+    <div class="attachment">
+      <div id="coverTile" class="tile disabled" draggable="false">
+        <div class="name">Cover Letter</div>
+        <div class="hint">load a job</div>
+      </div>
+      <button id="coverDownload" class="dl-btn" disabled>↓ Download</button>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <div class="label-wrap">
+      <span class="t-label">Auto-scan</span>
+      <span class="t-hint">Scan &amp; poll in the background</span>
+    </div>
+    <label class="switch">
+      <input id="autoScanToggle" type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="row">
+    <button id="scan">Scan</button>
+    <button id="autofill">Autofill</button>
+    <button id="clear" class="secondary">Clear</button>
+    <button id="markApplied" class="secondary">Mark Applied</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="fields"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="common/api.js"></script>
+<script src="sidepanel.js"></script>
+</body>
+</html>

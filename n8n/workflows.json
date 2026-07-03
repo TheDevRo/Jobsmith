@@ -1,0 +1,309 @@
+{
+  "workflows": [
+    {
+      "name": "Jobsmith - Scheduled Job Fetch & Tailor",
+      "nodes": [
+        {
+          "parameters": {
+            "rule": {
+              "interval": [
+                {
+                  "field": "hours",
+                  "hoursInterval": 6
+                }
+              ]
+            }
+          },
+          "id": "cron-1",
+          "name": "Every 6 Hours",
+          "type": "n8n-nodes-base.scheduleTrigger",
+          "typeVersion": 1.1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "http://localhost:8888/api/jobs/fetch",
+            "options": {}
+          },
+          "id": "fetch-jobs",
+          "name": "Fetch Jobs",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [470, 300]
+        },
+        {
+          "parameters": {
+            "amount": 60,
+            "unit": "seconds"
+          },
+          "id": "wait-fetch",
+          "name": "Wait for Fetch",
+          "type": "n8n-nodes-base.wait",
+          "typeVersion": 1.1,
+          "position": [690, 300]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "http://localhost:8888/api/jobs/tailor-batch",
+            "sendBody": true,
+            "bodyParameters": {
+              "parameters": [
+                {
+                  "name": "min_score",
+                  "value": 50
+                }
+              ]
+            },
+            "options": {}
+          },
+          "id": "tailor-batch",
+          "name": "Tailor Batch",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [910, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://localhost:8888/api/config",
+            "options": {}
+          },
+          "id": "get-config",
+          "name": "Get Config",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [1130, 300]
+        },
+        {
+          "parameters": {
+            "conditions": {
+              "boolean": [
+                {
+                  "value1": "={{ $json.auto_apply.auto_approve }}",
+                  "value2": true
+                }
+              ]
+            }
+          },
+          "id": "if-auto-approve",
+          "name": "Auto-Approve Enabled?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "position": [1350, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://localhost:8888/api/applications/pending",
+            "options": {}
+          },
+          "id": "get-pending",
+          "name": "Get Pending Apps",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [1570, 200]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "http://localhost:8888/api/jobs/approve-batch",
+            "sendBody": true,
+            "bodyParameters": {
+              "parameters": [
+                {
+                  "name": "application_ids",
+                  "value": "={{ $json.map(a => a.id) }}"
+                }
+              ]
+            },
+            "options": {}
+          },
+          "id": "approve-all",
+          "name": "Approve All",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [1790, 200]
+        },
+        {
+          "parameters": {},
+          "id": "noop",
+          "name": "End (Manual Review)",
+          "type": "n8n-nodes-base.noOp",
+          "typeVersion": 1,
+          "position": [1570, 400]
+        }
+      ],
+      "connections": {
+        "Every 6 Hours": { "main": [[{ "node": "Fetch Jobs", "type": "main", "index": 0 }]] },
+        "Fetch Jobs": { "main": [[{ "node": "Wait for Fetch", "type": "main", "index": 0 }]] },
+        "Wait for Fetch": { "main": [[{ "node": "Tailor Batch", "type": "main", "index": 0 }]] },
+        "Tailor Batch": { "main": [[{ "node": "Get Config", "type": "main", "index": 0 }]] },
+        "Get Config": { "main": [[{ "node": "Auto-Approve Enabled?", "type": "main", "index": 0 }]] },
+        "Auto-Approve Enabled?": {
+          "main": [
+            [{ "node": "Get Pending Apps", "type": "main", "index": 0 }],
+            [{ "node": "End (Manual Review)", "type": "main", "index": 0 }]
+          ]
+        },
+        "Get Pending Apps": { "main": [[{ "node": "Approve All", "type": "main", "index": 0 }]] }
+      },
+      "settings": {
+        "executionOrder": "v1"
+      }
+    },
+    {
+      "name": "Jobsmith - Daily Digest",
+      "nodes": [
+        {
+          "parameters": {
+            "rule": {
+              "interval": [
+                {
+                  "field": "cronExpression",
+                  "expression": "0 9 * * *"
+                }
+              ]
+            }
+          },
+          "id": "daily-cron",
+          "name": "Daily 9 AM",
+          "type": "n8n-nodes-base.scheduleTrigger",
+          "typeVersion": 1.1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://localhost:8888/api/stats",
+            "options": {}
+          },
+          "id": "get-stats",
+          "name": "Get Stats",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [470, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://localhost:8888/api/applications/pending?limit=5",
+            "options": {}
+          },
+          "id": "get-top-pending",
+          "name": "Get Top Pending",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [690, 300]
+        },
+        {
+          "parameters": {
+            "conditions": {
+              "number": [
+                {
+                  "value1": "={{ $('Get Stats').item.json.pending_review }}",
+                  "operation": "larger",
+                  "value2": 0
+                }
+              ]
+            }
+          },
+          "id": "if-pending",
+          "name": "Has Pending?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "position": [910, 300]
+        },
+        {
+          "parameters": {
+            "message": "=Jobsmith Daily Digest\n\nPending review: {{ $('Get Stats').item.json.pending_review }}\nApplied today: {{ $('Get Stats').item.json.applied_today }}\nTotal applied: {{ $('Get Stats').item.json.total_applied }}\nAvg fit score: {{ $('Get Stats').item.json.avg_fit_score }}\n\nVisit http://localhost:8888/#review to review applications."
+          },
+          "id": "notification",
+          "name": "Send Notification",
+          "type": "n8n-nodes-base.noOp",
+          "typeVersion": 1,
+          "position": [1130, 200]
+        },
+        {
+          "parameters": {},
+          "id": "noop-2",
+          "name": "No Pending",
+          "type": "n8n-nodes-base.noOp",
+          "typeVersion": 1,
+          "position": [1130, 400]
+        }
+      ],
+      "connections": {
+        "Daily 9 AM": { "main": [[{ "node": "Get Stats", "type": "main", "index": 0 }]] },
+        "Get Stats": { "main": [[{ "node": "Get Top Pending", "type": "main", "index": 0 }]] },
+        "Get Top Pending": { "main": [[{ "node": "Has Pending?", "type": "main", "index": 0 }]] },
+        "Has Pending?": {
+          "main": [
+            [{ "node": "Send Notification", "type": "main", "index": 0 }],
+            [{ "node": "No Pending", "type": "main", "index": 0 }]
+          ]
+        }
+      },
+      "settings": {
+        "executionOrder": "v1"
+      }
+    },
+    {
+      "name": "Jobsmith - Auto-Apply Executor",
+      "nodes": [
+        {
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "auto-apply",
+            "options": {}
+          },
+          "id": "webhook-trigger",
+          "name": "Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 1.1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "fieldToSplitOut": "body.application_ids",
+            "options": {}
+          },
+          "id": "split-ids",
+          "name": "Split IDs",
+          "type": "n8n-nodes-base.splitOut",
+          "typeVersion": 1,
+          "position": [470, 300]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "=http://localhost:8888/api/applications/{{ $json }}/apply",
+            "options": {}
+          },
+          "id": "apply-each",
+          "name": "Apply",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [690, 300],
+          "continueOnFail": true
+        },
+        {
+          "parameters": {
+            "amount": "={{ Math.floor(Math.random() * 90) + 30 }}",
+            "unit": "seconds"
+          },
+          "id": "random-wait",
+          "name": "Human-like Delay",
+          "type": "n8n-nodes-base.wait",
+          "typeVersion": 1.1,
+          "position": [910, 300]
+        }
+      ],
+      "connections": {
+        "Webhook": { "main": [[{ "node": "Split IDs", "type": "main", "index": 0 }]] },
+        "Split IDs": { "main": [[{ "node": "Apply", "type": "main", "index": 0 }]] },
+        "Apply": { "main": [[{ "node": "Human-like Delay", "type": "main", "index": 0 }]] }
+      },
+      "settings": {
+        "executionOrder": "v1"
+      }
+    }
+  ]
+}

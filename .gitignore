@@ -1,0 +1,55 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+stagehand-service/node_modules/
+
+# Desktop build (Tauri + PyInstaller)
+/build/
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/schemas/
+
+# Docker seeded config dir
+/config/
+
+# Extension build output
+extension/dist/
+
+# Runtime data
+data/
+resumes/
+
+# Personal config (copy config.example.yaml to config.yaml and fill in your details)
+config.yaml
+config.yaml.bak
+config.yaml.local
+
+# Environment
+.env
+
+# Browser-Use runtime directories
+.browser-profile/
+sessions/
+failed_screenshots/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code local settings (may contain local paths)
+.claude/
+
+# Local session notes
+SESSION_CHANGES.md
+AUTO_APPLY_RELIABILITY_REPORT.md

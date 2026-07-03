@@ -1,0 +1,46 @@
+services:
+  jobsmith:
+    build: .
+    image: jobsmith:latest
+    container_name: jobsmith
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+      # noVNC (headed browser view). Loopback-only by default — the VNC
+      # session holds logged-in job-site cookies, so don't expose it to the
+      # LAN unless you mean to (set NOVNC_BIND=0.0.0.0 in .env, and consider
+      # VNC_PASSWORD).
+      - "${NOVNC_BIND:-127.0.0.1}:6080:6080"
+    # Defaults below let the container boot with no .env present. If a
+    # .env exists alongside this compose file, Compose auto-reads it and
+    # those values win via the ${VAR:-default} substitution.
+    environment:
+      JOBSMITH_AI_BASE_URL: ${JOBSMITH_AI_BASE_URL:-http://host.docker.internal:1234/v1}
+      JOBSMITH_AI_API_KEY: ${JOBSMITH_AI_API_KEY:-lm-studio}
+      JOBSMITH_FLARESOLVERR_URL: ${JOBSMITH_FLARESOLVERR_URL:-}
+      BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
+      VNC_PASSWORD: ${VNC_PASSWORD:-}
+      USE_BROWSER_USE: ${USE_BROWSER_USE:-false}
+      BROWSER_USE_MAX_STEPS: ${BROWSER_USE_MAX_STEPS:-50}
+      BROWSER_PROFILE_DIR: ${BROWSER_PROFILE_DIR:-.browser-profile}
+      SESSIONS_DIR: ${SESSIONS_DIR:-sessions}
+      FAILED_SCREENSHOTS_DIR: ${FAILED_SCREENSHOTS_DIR:-failed_screenshots}
+    # Chromium crashes without enough shared memory.
+    shm_size: "1gb"
+    extra_hosts:
+      # Lets the container resolve the Docker host as host.docker.internal on
+      # Linux (already supported on Mac/Win). Useful if LM Studio runs on the
+      # same host as the container. For LAN/Tailscale LM Studio, set
+      # JOBSMITH_AI_BASE_URL in .env instead.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Directory-mount (NOT file-mount) for config — the entrypoint seeds
+      # config/config.yaml from the example on first run and symlinks it
+      # into /app/config.yaml. Directory mounts don't hit the
+      # "Docker auto-creates the host file as an empty dir" gotcha.
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./resumes:/app/resumes
+      - ./sessions:/app/sessions
+      - ./failed_screenshots:/app/failed_screenshots
+      - ./.browser-profile:/app/.browser-profile

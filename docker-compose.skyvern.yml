@@ -1,0 +1,91 @@
+# docker-compose.skyvern.yml
+#
+# Add Skyvern (self-hosted visual fallback for Step 3 auto-apply) to your
+# Jobsmith stack.
+#
+# Usage:
+#   docker compose -f docker-compose.skyvern.yml up -d
+#
+# Skyvern is configured to call your LM Studio instance for inference.
+# Set the env vars below to match your LM Studio setup before starting.
+#
+# Once running, Skyvern is reachable at http://localhost:8000
+# The stagehand-service .env SKYVERN_BASE_URL should point here.
+
+services:
+  skyvern-db:
+    image: postgres:16-alpine
+    container_name: skyvern-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: skyvern
+      POSTGRES_USER: skyvern
+      POSTGRES_PASSWORD: skyvern
+    volumes:
+      - skyvern-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skyvern"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  skyvern:
+    image: public.ecr.aws/skyvern/skyvern:latest
+    container_name: skyvern
+    restart: unless-stopped
+    depends_on:
+      skyvern-db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      # ── Database ───────────────────────────────────────────────────────────
+      DATABASE_STRING: "postgresql+psycopg://skyvern:skyvern@skyvern-db:5432/skyvern"
+
+      # ── LM Studio (OpenAI-compatible) ──────────────────────────────────────
+      # host.docker.internal resolves to the host machine from inside Docker
+      # Change to your LM Studio server IP if it's on another machine
+      LLM_KEY: "CUSTOM_OPENAI"
+      CUSTOM_OPENAI_API_KEY: "lm-studio"
+      CUSTOM_OPENAI_API_BASE: "http://host.docker.internal:1234/v1"
+      # Set this to the model name loaded in LM Studio
+      CUSTOM_OPENAI_MODEL_NAME: "qwen2.5-7b-instruct-1m"
+
+      # ── Skyvern API key ────────────────────────────────────────────────────
+      # Must match SKYVERN_API_KEY in stagehand-service/.env
+      SKYVERN_API_KEY: "skyvern-key"
+
+      # ── Browser ────────────────────────────────────────────────────────────
+      BROWSER_TYPE: "chromium"
+      BROWSER_HEADLESS: "true"
+
+      # ── Max steps per task ─────────────────────────────────────────────────
+      MAX_STEPS_PER_RUN: "50"
+
+    extra_hosts:
+      # Allows containers to reach the host machine (LM Studio)
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      - skyvern-artifacts:/app/artifacts
+      - skyvern-videos:/app/videos
+      - skyvern-har:/app/har
+
+  # Optional: Skyvern UI at http://localhost:8080
+  skyvern-ui:
+    image: public.ecr.aws/skyvern/skyvern-ui:latest
+    container_name: skyvern-ui
+    restart: unless-stopped
+    depends_on:
+      - skyvern
+    ports:
+      - "8080:8080"
+    environment:
+      VITE_WSS_BASE_URL: "ws://localhost:8000"
+      VITE_API_BASE_URL: "http://localhost:8000"
+
+volumes:
+  skyvern-db-data:
+  skyvern-artifacts:
+  skyvern-videos:
+  skyvern-har:
