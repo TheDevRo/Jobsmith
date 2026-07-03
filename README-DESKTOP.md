@@ -32,7 +32,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # 2. Tauri CLI + PyInstaller
 npm install                       # brings @tauri-apps/cli (devDependency)
-venv/bin/pip install pyinstaller
+.venv/bin/pip install pyinstaller
 ```
 
 ## Run in the desktop window (dev)
@@ -56,19 +56,49 @@ scripts/build_desktop.sh
 This PyInstaller-builds the sidecar, stages it at
 `src-tauri/binaries/jobsmith-backend-<target-triple>` (the name Tauri
 requires), then runs `tauri build`. Output lands in
-`src-tauri/target/release/bundle/`.
+`src-tauri/target/release/bundle/` — both `macos/Jobsmith.app` and
+`dmg/Jobsmith_<version>_aarch64.dmg`.
 
 Use `scripts/build_desktop.sh --sidecar-only` to rebuild just the Python binary
 (fast) without recompiling the Rust shell.
 
+## Port selection
+
+Release builds prefer `127.0.0.1:8888`; if it's taken (e.g. a Docker Jobsmith
+is running), the shell picks a free port and passes it to the sidecar via
+`JOBSMITH_PORT`. Dev mode (`tauri dev`) always uses 8888 to match `devUrl`.
+
+## Versioning
+
+`package.json` is the single source of truth. `src-tauri/tauri.conf.json`
+points its `version` field at it; `src-tauri/Cargo.toml` and
+`backend/version.py` mirror it (release.sh checks the Python one matches
+before tagging).
+
+## Cutting a release
+
+Releases are built locally and published with the `gh` CLI (private repo —
+macOS CI minutes bill at 10x and the audience is us):
+
+```bash
+scripts/release.sh --dry-run   # build everything, stage assets, no publish
+scripts/release.sh             # tag v<version>, push, create draft release
+```
+
+The script guards on a clean tree and matching versions, builds the desktop
+app and the extension zips, stages the dmg / app.tar.gz / extension zips /
+SHA256SUMS under `build/release-assets/`, tags (which also fires the GHCR
+Docker publish workflow), and creates a **draft** GitHub release with notes
+rendered from `packaging/release-notes.md`. Review the draft and publish it.
+
 ## Known gaps (out of scope for now)
 
 - **Unsigned build.** macOS Gatekeeper will refuse to open it on first
-  double-click — right-click → Open, or `xattr -dr com.apple.quarantine
-  "Jobsmith.app"`. Signing/notarization needs an Apple Developer account
-  and is deliberately not wired up yet.
+  double-click — System Settings → Privacy & Security → "Open Anyway", or
+  `xattr -dr com.apple.quarantine "Jobsmith.app"`. Signing/notarization needs
+  an Apple Developer account and is deliberately not wired up yet.
 - **No auto-update.** No update server is configured.
-- **macOS only so far.** The scaffold is cross-platform in principle, but only
-  the macOS build has been exercised.
-- **Port 8888 must be free.** If the web/Docker version is already running on
-  8888, the desktop sidecar can't bind. Stop the other one first.
+- **macOS Apple Silicon only so far.** The scaffold is cross-platform in
+  principle, but only the aarch64 macOS build has been exercised. Windows,
+  Linux, and Intel macOS notes live in the release plan; Docker covers them
+  meanwhile.

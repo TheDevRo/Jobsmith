@@ -1,7 +1,7 @@
 # PyInstaller spec for the desktop sidecar backend.
 #
 # Build (from repo root):
-#   venv/bin/pyinstaller packaging/jobsmith-backend.spec --distpath src-tauri/binaries-build
+#   .venv/bin/pyinstaller packaging/jobsmith-backend.spec --distpath src-tauri/binaries-build
 #
 # Then rename dist/jobsmith-backend to
 #   src-tauri/binaries/jobsmith-backend-<target-triple>
