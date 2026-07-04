@@ -26,6 +26,40 @@ function applyAutoApplyVisibility(enabled) {
     document.body.classList.toggle('auto-apply-disabled', !enabled);
 }
 
+// ---- Desktop shell link handling ----
+// The Tauri webview (WKWebView) silently ignores target="_blank" anchors and
+// window.open(). The desktop window ships a "JobsmithDesktop" UA token; when
+// present, route external opens through the backend, which hands the URL to
+// the system browser.
+const IS_DESKTOP_SHELL = navigator.userAgent.includes('JobsmithDesktop');
+
+async function openExternal(url) {
+    if (!url) return;
+    if (IS_DESKTOP_SHELL) {
+        try {
+            await api('/api/system/open-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            return;
+        } catch (e) {
+            console.error('Backend open-url failed, falling back to window.open', e);
+        }
+    }
+    window.open(url, '_blank', 'noopener');
+}
+
+// In the desktop shell, intercept every target="_blank" anchor (including ones
+// rendered later) and open via the backend instead of the dead default.
+document.addEventListener('click', (ev) => {
+    if (!IS_DESKTOP_SHELL) return;
+    const a = ev.target && ev.target.closest && ev.target.closest('a[target="_blank"]');
+    if (!a || !a.href || !/^https?:/i.test(a.href)) return;
+    ev.preventDefault();
+    openExternal(a.href);
+});
+
 // Notification center state
 let _notificationItems = [];
 const MAX_NOTIFICATION_ITEMS = 30;
@@ -98,7 +132,10 @@ function handleHash() {
         case 'jobs': loadJobs(); break;
         case 'review': switchReviewView('pending'); break;
         case 'settings': loadSettings(); break;
-        case 'fit-breakdown': loadFitBreakdown(); break;
+        case 'fit-breakdown':
+            loadFitBreakdown();
+            statsInterval = setInterval(() => { if (!document.hidden) loadFitBreakdown(); }, 5000);
+            break;
     }
 }
 

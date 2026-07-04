@@ -53,6 +53,28 @@ async def reveal_log_file(request: Request):
     return {"revealed": reveal_in_file_manager(state.LOG_FILE)}
 
 
+class OpenUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/api/system/open-url")
+async def open_url(body: OpenUrlRequest, request: Request):
+    """Open a URL in the system default browser. Loopback only — used by the
+    desktop shell, whose webview cannot open new windows itself."""
+    if not state.is_loopback_request(request):
+        raise HTTPException(403, "Only served to localhost")
+    url = body.url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(400, "Only http(s) URLs can be opened")
+    import webbrowser
+    try:
+        opened = webbrowser.open(url, new=2)
+    except Exception as exc:
+        logger.warning("open-url failed for %s: %s", url, exc)
+        raise HTTPException(500, "Could not open the URL")
+    return {"opened": opened}
+
+
 @router.get("/api/notifications")
 async def get_notifications(since_id: int = Query(0, ge=0)):
     """Return notification events newer than since_id."""

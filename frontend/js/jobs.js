@@ -420,7 +420,7 @@ async function launchAssist(jobId) {
             return;
         }
         if (data && data.launch_url) {
-            window.open(data.launch_url, '_blank', 'noopener');
+            openExternal(data.launch_url);
             toast('Opening launch page in a new tab', 'info');
             return;
         }

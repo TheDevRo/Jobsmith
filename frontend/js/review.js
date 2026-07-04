@@ -231,7 +231,7 @@ async function openJobUrl(jobId) {
         if (job && job.url) {
             // Fire-and-forget: signal the browser extension which job is now active.
             signalActiveJobToExtension(jobId);
-            window.open(job.url, '_blank', 'noopener');
+            openExternal(job.url);
         } else {
             toast('No URL available for this job', 'warning');
         }
