@@ -1976,6 +1976,8 @@ main {
 
 .fit-breakdown-header {
     margin-bottom: 24px;
+    display: flex;
+    align-items: center;
 }
 
 .fit-breakdown-grid {

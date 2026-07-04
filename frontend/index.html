@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=29">
+    <link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -977,6 +977,10 @@
                 <div class="fit-breakdown-page">
                     <div class="fit-breakdown-header">
                         <button class="btn btn-secondary btn-sm" onclick="location.hash='dashboard'">&larr; Back to Dashboard</button>
+                        <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+                            <span class="hint">Auto-refreshes every 5s</span>
+                            <button class="btn btn-secondary btn-sm" onclick="loadFitBreakdown()">&#x21bb; Refresh</button>
+                        </span>
                     </div>
 
                     <div class="fit-breakdown-grid">
@@ -1184,10 +1188,10 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=35"></script>
+    <script src="js/core.js?v=36"></script>
     <script src="js/dashboard.js?v=35"></script>
-    <script src="js/jobs.js?v=36"></script>
-    <script src="js/review.js?v=36"></script>
+    <script src="js/jobs.js?v=37"></script>
+    <script src="js/review.js?v=37"></script>
     <script src="js/settings.js?v=37"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=34"></script>
