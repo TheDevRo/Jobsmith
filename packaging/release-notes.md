@@ -5,6 +5,12 @@ Docker image — all built from the same tag.
 
 ## What's new in 0.2.2
 
+- **Bring your own AI + API key support** — the AI connection now works with
+  any OpenAI-compatible server, not just LM Studio: Ollama locally, or hosted
+  providers like OpenRouter and OpenAI. Set the server URL and (for hosted
+  providers) an API key in **Settings → Integrations → AI Connection** or the
+  setup wizard; **Load Models** and **Test connection** pick up freshly typed
+  values immediately.
 - **Editable AI prompts** — every prompt Jobsmith sends to your local model
   (job scoring, resume tailoring, cover letters, revisions, parsing,
   auto-apply…) is now viewable and editable from **Settings → Prompts**.
@@ -50,9 +56,10 @@ dashboard appears — expect a few minutes on the splash screen. Later launches
 are fast. App data (config, database, browsers) lives in
 `~/Library/Application Support/Jobsmith`.
 
-**Prerequisite:** AI features need [LM Studio](https://lmstudio.ai) running a
-local server on `http://localhost:1234` (configurable in Settings). The app
-starts and browses jobs fine without it.
+**Prerequisite:** AI features need an OpenAI-compatible server —
+[LM Studio](https://lmstudio.ai) on `http://localhost:1234` by default, or
+Ollama / a hosted provider with an API key (configurable in Settings). The app
+starts and browses jobs fine without one.
 
 If port 8888 is busy (e.g. a Docker Jobsmith is running), the app picks
 another port automatically.
