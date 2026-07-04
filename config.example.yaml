@@ -84,7 +84,11 @@ search:
     enabled: true
     max_pages: 5
 ai:
+  # Any OpenAI-compatible server works: LM Studio (default), Ollama
+  # (http://localhost:11434/v1), OpenRouter, OpenAI, vLLM, etc.
   base_url: http://localhost:1234/v1
+  # Sent as the Bearer token. Local servers ignore it; hosted providers
+  # need a real key. Blank falls back to the "lm-studio" placeholder.
   api_key: lm-studio
   temperature: 0.7
   max_tokens: 16384

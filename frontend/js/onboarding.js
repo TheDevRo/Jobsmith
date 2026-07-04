@@ -48,6 +48,7 @@ async function obLoadPrefill() {
         const reviewChip = document.getElementById('ob-step-review');
         if (reviewChip) reviewChip.style.display = _obState.rerun ? '' : 'none';
         document.getElementById('ob-ai-url').value = cfg.ai?.base_url || 'http://localhost:1234/v1';
+        document.getElementById('ob-ai-api-key').value = cfg.ai?.api_key || '';
         const models = cfg.ai?.models || {};
         document.getElementById('ob-ai-model-strong').dataset.preferred = models.strong?.model || '';
         document.getElementById('ob-ai-model-fast').dataset.preferred = models.fast?.model || '';
@@ -123,10 +124,11 @@ function obRelaunch() { obOpen(); }
 // --- AI step ---
 async function obTestAI(silent) {
     const url = document.getElementById('ob-ai-url').value.trim();
+    const apiKey = document.getElementById('ob-ai-api-key').value.trim();
     const statusEl = document.getElementById('ob-ai-status');
     statusEl.className = 'ob-status busy';
     statusEl.textContent = silent ? 'Checking…' : 'Testing…';
-    try { await api('/api/config', { method: 'POST', body: JSON.stringify({ ai: { base_url: url } }) }); } catch (e) {}
+    try { await api('/api/config', { method: 'POST', body: JSON.stringify({ ai: { base_url: url, api_key: apiKey } }) }); } catch (e) {}
     try {
         const s = await api('/api/ai/status');
         obApplyAIStatus({ ok: s.ok, models: s.models || [], error: s.error });
@@ -440,6 +442,7 @@ function obBuildPayload() {
         },
         ai: {
             base_url: document.getElementById('ob-ai-url').value.trim(),
+            api_key: document.getElementById('ob-ai-api-key').value.trim(),
             models: {
                 strong: { model: document.getElementById('ob-ai-model-strong').value },
                 fast: { model: document.getElementById('ob-ai-model-fast').value },
@@ -501,7 +504,8 @@ const OB_DIFF_FIELDS = [
     { label: 'Minimum salary', path: ['search', 'min_salary'],
       eq: (a, b) => Number(a || 0) === Number(b || 0) },
     { label: 'Exclude keywords', path: ['search', 'exclude_keywords'] },
-    { label: 'LM Studio URL', path: ['ai', 'base_url'] },
+    { label: 'AI server URL', path: ['ai', 'base_url'] },
+    { label: 'AI API key', path: ['ai', 'api_key'], secret: true },
     { label: 'AI models', path: ['ai', 'models'], skipIfEmptyNew: true,
       // Tier-wise merge so applying model picks keeps per-tier base_url/api_key overrides
       merge: (cur, nxt) => {

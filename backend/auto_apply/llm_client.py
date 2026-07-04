@@ -42,7 +42,7 @@ class LLMClient:
         self._config = config  # kept for prompt_registry override lookups
         ai = config.get("ai", {})
         self.base_url   = ai.get("base_url", "http://localhost:1234/v1").rstrip("/")
-        self.api_key    = ai.get("api_key", "lm-studio")
+        self.api_key    = ai.get("api_key") or "lm-studio"
         self.model      = (
             ai.get("models", {}).get("fast", {}).get("model", "local-model")
         )

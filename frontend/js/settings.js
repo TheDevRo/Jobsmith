@@ -55,6 +55,7 @@ async function loadSettings() {
         applyAutoApplyVisibility(cfg.auto_apply?.enabled || false);
 
         document.getElementById('cfg-ai-url').value = cfg.ai?.base_url || '';
+        document.getElementById('cfg-ai-api-key').value = cfg.ai?.api_key || '';
         // Context window — snap to nearest option, defaulting to 8192
         const savedCtx = cfg.ai?.context_window || 8192;
         const ctxSel = document.getElementById('cfg-context-window');
@@ -560,6 +561,7 @@ async function saveSettings() {
         // so existing config.json values are preserved.
         ai: {
             base_url: document.getElementById('cfg-ai-url').value,
+            api_key: document.getElementById('cfg-ai-api-key').value.trim(),
             scoring_tier: document.getElementById('cfg-scoring-tier').value || 'strong',
             models: {
                 fast: { model: document.getElementById('cfg-ai-model-fast').value || '' },
@@ -893,7 +895,20 @@ async function loadEmbTab(jobId, containerId) {
     }
 }
 
-async function loadAiModels({ preselect = {} } = {}) {
+async function loadAiModels({ preselect = {}, persistConnection = false } = {}) {
+    // When triggered from the Load Models button, persist the URL + API key
+    // first — /api/ai/models reads the saved config, not the form.
+    if (persistConnection) {
+        try {
+            await api('/api/config', {
+                method: 'POST',
+                body: JSON.stringify({ ai: {
+                    base_url: document.getElementById('cfg-ai-url').value.trim(),
+                    api_key: document.getElementById('cfg-ai-api-key').value.trim(),
+                } }),
+            });
+        } catch (e) { /* fall through — listing will surface the error */ }
+    }
     const fastSel = document.getElementById('cfg-ai-model-fast');
     const strongSel = document.getElementById('cfg-ai-model-strong');
     const utilitySel = document.getElementById('cfg-ai-model-utility');
