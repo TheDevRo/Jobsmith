@@ -654,27 +654,27 @@ const TOUR_STEPS = [
         hash: '#settings',
         selector: '.settings-tabs',
         title: 'Settings, tab by tab',
-        body: 'Configuration is grouped into seven tabs. The next stops walk through each one so nothing feels like a mystery toggle.',
+        body: 'Settings opens in Basic mode — six tabs cover everything you need day-to-day. The Save Settings button at the top right saves every tab at once. The next stops walk through each one so nothing feels like a mystery toggle.',
     },
     {
         hash: '#settings',
         selector: '#stab-search',
         title: 'Search',
-        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, exclusion terms, which sources to scrape, and whether to auto-estimate salary on ingest. Tighten these if your feed is too noisy; loosen them if you\'re not seeing enough.',
+        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, and exclusion terms — plus company watchlists that follow specific Greenhouse, Lever, Ashby, Workable, and Recruitee boards. Use the board finder or AI company suggestions to build the list. Tighten these if your feed is too noisy; loosen them if you\'re not seeing enough.',
         before: () => _tourSwitchSettingsTab('stab-search'),
     },
     {
         hash: '#settings',
         selector: '#stab-integrations',
         title: 'Integrations',
-        body: 'External services: LM Studio AI endpoint + model selection (Strong / Fast / Utility), LinkedIn login for richer scraping, Adzuna and BLS API keys for salary data, FlareSolverr URL for Cloudflare-protected boards, and n8n webhook URLs if you wire up scheduling. None are required — connect what you have.',
+        body: 'External services: LM Studio AI endpoint + model picks (Content / Navigator / Utility), LinkedIn and Indeed sign-in for authenticated scraping, and Adzuna / USAJobs API keys for more job sources. None are required — connect what you have. Advanced mode adds more here: scoring tier, context window, cookie import, ATS/Workday credentials, BLS, and FlareSolverr.',
         before: () => _tourSwitchSettingsTab('stab-integrations'),
     },
     {
         hash: '#settings',
         selector: '#stab-honesty',
         title: 'Honesty levels',
-        body: 'Pick how much latitude the AI takes when tailoring: honest (only restate facts), tailored (rephrase for emphasis), embellished (stretch a bit), or fabricated (invent — generally avoid). You can override this per generation. This setting shapes every resume, cover letter, and answer the AI produces.',
+        body: 'Pick how much latitude the AI takes when tailoring: honest (only restate facts), tailored (rephrase for emphasis), embellished (stretch a bit), or fabricated (invent — generally avoid). You can override this per generation. This tab also sets the resume visual style and DOCX/PDF output format.',
         before: () => _tourSwitchSettingsTab('stab-honesty'),
     },
     {
@@ -693,6 +693,20 @@ const TOUR_STEPS = [
     },
     {
         hash: '#settings',
+        selector: '.settings-mode-toggle',
+        title: 'Basic vs. Advanced',
+        body: 'This toggle controls how much of Settings you see. Basic keeps it to the essentials; Advanced (shown now) reveals the Auto-Apply, Prompts, and Logs tabs plus deeper knobs on the other tabs. Anything you set in Advanced stays in effect when you switch back.',
+        before: () => setSettingsMode('advanced'),
+    },
+    {
+        hash: '#settings',
+        selector: '#stab-prompts',
+        title: 'Edit the AI\'s prompts',
+        body: 'Every prompt Jobsmith sends to your local AI — scoring, resume tailoring, cover letters, parsing — is editable here. Placeholders like {profile_summary} are filled in automatically at run time. Customized prompts are saved to your config; Reset to Default brings any of them back.',
+        before: () => { setSettingsMode('advanced'); _tourSwitchSettingsTab('stab-prompts'); loadPrompts(); },
+    },
+    {
+        hash: '#settings',
         selector: '#settings-replay-tour',
         title: 'Replay anytime',
         body: 'Done! You can re-run this tour anytime from this button under Settings → Profile. Happy applying.',
@@ -705,12 +719,14 @@ function _tourSwitchSettingsTab(panelId) {
     if (btn) switchSettingsTab(btn, panelId);
 }
 
-let _tourState = { step: 0, open: false, target: null, rafId: 0 };
+let _tourState = { step: 0, open: false, target: null, rafId: 0, prevSettingsMode: null };
 
 async function tourStart() {
     if (_tourState.open) return;
     _tourState.open = true;
     _tourState.step = 0;
+    // The Advanced-mode stops flip the settings mode; restore it on close.
+    _tourState.prevSettingsMode = typeof getSettingsMode === 'function' ? getSettingsMode() : null;
     const overlay = document.getElementById('tour-overlay');
     if (!overlay) { _tourState.open = false; return; }
     overlay.style.display = 'block';
@@ -853,6 +869,10 @@ async function tourFinish() {
 
 async function _tourClose(markComplete) {
     _tourState.open = false;
+    if (_tourState.prevSettingsMode && typeof setSettingsMode === 'function') {
+        setSettingsMode(_tourState.prevSettingsMode);
+        _tourState.prevSettingsMode = null;
+    }
     const overlay = document.getElementById('tour-overlay');
     if (overlay) {
         overlay.style.display = 'none';

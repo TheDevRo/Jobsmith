@@ -25,6 +25,7 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.llm.openai.chat import ChatOpenAI
 
+from . import prompt_registry
 from . import session_manager
 from .paths import project_root
 
@@ -260,6 +261,7 @@ def _build_task_prompt(
     resume_file_path: str | None,
     is_linkedin_job: bool = False,
     mode: str = "autofill",
+    config: dict | None = None,
 ) -> str:
     """Build a compact navigation prompt for the Browser-Use agent.
 
@@ -335,31 +337,7 @@ def _build_task_prompt(
             "After filling and verifying all fields, click Submit to complete the application."
         )
 
-    return f"""You are a job application navigator. Complete this application using ONLY the candidate data below.
-
-JOB: {job.get('title', '')} at {job.get('company', '')}
-
-STEPS:
-1. Page is already loaded. Wait for it to render fully.
-2. {apply_instruction}
-3. Follow redirects (LinkedIn → company ATS). Wait for each page to load.
-4. Auth: try Sign In with credentials below. If that fails, create an account. Stop only for SSO-only or email-verification walls.
-5. Fill every visible field using ONLY the candidate data. Leave unknown fields blank or choose "Decline to answer".
-6. Multi-step forms: complete each page then click Next/Continue/Save and Continue.
-7. File upload: upload the resume file when prompted (file chooser is handled automatically).
-{mode_step_8}
-{mode_step_9}
-
-RULES:
-- NEVER fabricate data. Use only what's provided.
-- Stop and report: CAPTCHA, MFA codes, SSO-only login, email-verification walls.
-- {mode_rule}
-- {extra_rules}
-- Don't click nav links, job alerts, videos, or marketing elements.
-- {file_line}
-
-CANDIDATE DATA:
-Name: {name}
+    candidate_data = f"""Name: {name}
 First: {first} | Last: {last} | Middle: {profile.get('middle_name', '')}
 Email: {profile.get('email', '')}
 Phone: {profile.get('phone', '')}
@@ -371,10 +349,21 @@ Salary: {profile.get('desired_salary', '')}
 Gender: {profile.get('gender', '')} | Race: {profile.get('race_ethnicity', '')}
 Veteran: {profile.get('veteran_status', '')} | Disability: {profile.get('disability_status', '')}
 Login email: {profile.get('workday_email', profile.get('email', ''))}
-Login password: {profile.get('workday_password', '')}
+Login password: {profile.get('workday_password', '')}"""
 
-PROFESSIONAL SUMMARY (use for open-ended text boxes about experience/background):
-{summary if summary else 'Not provided — leave open-ended fields blank.'}"""
+    return prompt_registry.render_prompt(
+        config or {}, "browser_agent_task",
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        apply_instruction=apply_instruction,
+        mode_step_8=mode_step_8,
+        mode_step_9=mode_step_9,
+        mode_rule=mode_rule,
+        extra_rules=extra_rules,
+        file_line=file_line,
+        candidate_data=candidate_data,
+        summary=summary if summary else "Not provided — leave open-ended fields blank.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +732,7 @@ async def run_browser_use_apply(
         resume_file_path=resume_file_path,
         is_linkedin_job=is_linkedin_job,
         mode=apply_mode,
+        config=config,
     )
 
     sensitive_data = _build_sensitive_data(profile)
@@ -911,6 +901,7 @@ async def run_browser_use_apply(
                             resume_file_path=resume_file_path,
                             is_linkedin_job=False,
                             mode=apply_mode,
+                            config=config,
                         )
                         # _linkedin_pre_apply already closed the new tab and returned the
                         # external URL.  Navigate the existing page there so the agent

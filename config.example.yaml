@@ -183,3 +183,15 @@ application_honesty:
   # fast = ai.models.fast (quicker), strong = ai.models.strong (higher quality).
   # Per-edit override is available in the AI Edit modal.
   ai_edit_model_tier: strong
+
+# ---------------------------------------------------------------------------
+# AI prompt overrides (optional) — managed from Settings → Prompts (Advanced).
+# Every internal LLM prompt can be customized; only edited prompts are stored
+# here, keyed by prompt id, and win over the built-in defaults. Templates use
+# {placeholder} variables filled in at run time (literal braces in JSON
+# examples need no escaping). Delete a key (or use Reset to Default in the
+# GUI) to go back to the built-in prompt.
+# prompts:
+#   score_job_fit: |
+#     Your custom scoring prompt here...
+#     JOB: {job_title} at {job_company}

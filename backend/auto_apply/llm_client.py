@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
+from .. import prompt_registry
+
 if TYPE_CHECKING:
     from .models import FieldDescriptor, FieldValue, JobApplicationRequest, UserProfile
 
@@ -37,6 +39,7 @@ class LLMClient:
     """
 
     def __init__(self, config: dict) -> None:
+        self._config = config  # kept for prompt_registry override lookups
         ai = config.get("ai", {})
         self.base_url   = ai.get("base_url", "http://localhost:1234/v1").rstrip("/")
         self.api_key    = ai.get("api_key", "lm-studio")
@@ -230,7 +233,7 @@ class LLMClient:
         # --- Phase 2: LLM call(s) for remaining fields (chunked, skipped if none) ---
         llm_results: list[FieldValue] = []
         if llm_fields:
-            system = _FIELD_MAP_SYSTEM
+            system = prompt_registry.get_template(self._config, "auto_apply_field_map")
             chunks = [
                 llm_fields[i:i + chunk_size]
                 for i in range(0, len(llm_fields), chunk_size)
@@ -316,21 +319,8 @@ class LLMClient:
 
         Uses only facts from the profile — never invents employers, dates, etc.
         """
-        system = (
-            "You are a professional job application writer helping a candidate answer "
-            "a question honestly and concisely.\n"
-            "Rules:\n"
-            "- You must only use information explicitly stated in the candidate profile "
-            "provided. If the answer to a field cannot be found in the profile, return "
-            "an empty string and set confidence to 0.0. Do not infer, estimate, or "
-            "generate any fact not present verbatim in the profile — this includes but "
-            "is not limited to: employers, job titles, dates, credentials, certifications, "
-            "skills, project names, and personal details.\n"
-            f"- Keep your answer under {max_words} words.\n"
-            "- Write in first person, professional tone.\n"
-            "- Do NOT include a greeting or sign-off.\n"
-            "- Output only the JSON array. Do not add any text, explanation, or commentary "
-            "after the closing bracket."
+        system = prompt_registry.render_prompt(
+            self._config, "auto_apply_answer", max_words=max_words
         )
         user = (
             f"CANDIDATE PROFILE:\n{profile.to_text()}\n\n"
@@ -342,39 +332,10 @@ class LLMClient:
 
 
 # ---------------------------------------------------------------------------
-# Prompt templates
+# Prompt templates — the system prompts live in prompt_registry (keys
+# "auto_apply_field_map" and "auto_apply_answer") so they can be edited
+# from Settings → Prompts.
 # ---------------------------------------------------------------------------
-
-_FIELD_MAP_SYSTEM = """\
-You are a job-application assistant.  Given a candidate profile and a list of \
-form fields, map each field to the correct value.
-
-STRICT RULES:
-1. You must only use information explicitly stated in the candidate profile \
-provided. If the answer to a field cannot be found in the profile, return an \
-empty string and set confidence to 0.0. Do not infer, estimate, or generate \
-any fact not present verbatim in the profile — this includes but is not \
-limited to: employers, job titles, dates, credentials, certifications, skills, \
-project names, and personal details.
-2. For EEO/demographic fields (gender, race, veteran, disability): use the \
-   profile value if set; otherwise output "Prefer not to answer".
-3. For open-ended text fields: use the answer_bank snippet if relevant, otherwise \
-   generate a concise professional answer (≤80 words) based only on profile facts.
-4. If you cannot determine a value confidently, set action="skip" and value="".
-5. Output only the JSON array. Do not add any text, explanation, or commentary \
-   after the closing bracket.
-
-OUTPUT SCHEMA — a JSON array where every element has exactly these keys:
-[
-  {
-    "field_id": "<same id as input>",
-    "value": "<string value to fill, or empty string to skip>",
-    "action": "fill" | "select" | "check" | "upload" | "skip",
-    "confidence": <float 0.0–1.0>,
-    "source": "profile" | "answer_bank" | "llm_generated" | "skip"
-  }
-]
-"""
 
 
 def _build_field_map_user(

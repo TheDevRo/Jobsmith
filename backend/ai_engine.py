@@ -12,6 +12,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+from . import prompt_registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -260,15 +262,12 @@ async def _select_resume_experiences(
             f"Highlights: {bullets[:500]}"
         )
 
-    prompt = (
-        "You are ranking past job roles by relevance to a target job posting.\n"
-        "Return ONLY a JSON object: {\"scores\": [{\"index\": <int>, \"score\": <0-100>}, ...]}\n"
-        "Score each role 0-100 by how well it prepares the candidate for the target job.\n\n"
-        f"TARGET JOB:\nTitle: {job.get('title', '')}\n"
-        f"Company: {job.get('company', '')}\n"
-        f"Description: {(job.get('description') or '')[:3000]}\n\n"
-        "CANDIDATE ROLES TO SCORE:\n" + "\n".join(role_lines) + "\n\n"
-        "Return only the JSON object."
+    prompt = prompt_registry.render_prompt(
+        config, "select_resume_experiences",
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        job_description=(job.get("description") or "")[:3000],
+        role_lines="\n".join(role_lines),
     )
 
     selected_unpinned: list = []
@@ -373,37 +372,13 @@ async def score_job_fit(
     tier = ai_cfg.get("scoring_tier", "strong")
     client = _get_client(config, tier)
 
-    prompt = f"""You are a career advisor AI. Evaluate how well this candidate's existing experience fits the job below.
-Return ONLY a JSON object with exactly these keys:
-- "score": integer 0-100
-- "reasoning": string, 2-3 sentences
-- "matched_skills": array of hard skills/tools/certifications the job asks for that the candidate HAS (max 12)
-- "missing_skills": array of required or strongly-preferred hard skills the candidate LACKS (max 12)
-- "matched_soft_skills": array of soft skills the job asks for that the candidate demonstrates (max 8)
-- "missing_soft_skills": array of soft skills the job asks for with no evidence in the profile (max 8)
-- "title_alignment": one of "strong", "partial", "weak" — how close the candidate's recent titles are to this job's title
-- "keywords": array of the most important exact keywords/phrases from the posting that an ATS would scan a resume for (max 15)
-
-Scoring guidelines:
-- 80-100: Strong match — most required skills present, directly relevant experience
-- 60-79: Good match — several skills overlap, related experience
-- 40-59: Partial match — some transferable skills, adjacent experience
-- 20-39: Weak match — few relevant skills, mostly unrelated experience
-- 0-19: Poor match — no meaningful overlap
-
-Be realistic. Score based on what the candidate has actually done, not aspirational fit.
-Use the exact wording from the job posting for skills and keywords (ATS systems match exact terms, not synonyms).
-A skill belongs in "matched_skills" ONLY if it appears in (or is clearly evidenced by) the candidate profile.
-
-JOB:
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-Description: {job.get('description', '')[:3000]}
-
-CANDIDATE PROFILE:
-{_profile_summary(profile)}
-
-Return only the JSON object, no other text."""
+    prompt = prompt_registry.render_prompt(
+        config, "score_job_fit",
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        job_description=job.get("description", "")[:3000],
+        profile_summary=_profile_summary(profile),
+    )
 
     try:
         response = await client.chat.completions.create(
@@ -499,24 +474,11 @@ async def suggest_job_titles(profile: dict, answers: dict, config: dict) -> list
         if v and str(v).strip()
     ) or "- (no preferences given)"
 
-    prompt = f"""You are a career advisor AI. Recommend job titles this candidate should search for on job boards.
-
-Return ONLY a JSON object: {{"titles": [{{"title": "...", "reason": "..."}}]}}
-
-Rules:
-- 8 to 12 titles, ordered most-relevant first.
-- Titles must be real, commonly-posted job titles — exactly what employers put in postings — so they work as job-board search keywords. No slashes or parenthetical variants; list variants as separate titles.
-- Base them on the candidate's actual experience and skills AND on the candidate's stated preferences below. Preferences win when they conflict with the résumé (e.g. a pivot).
-- Do not suggest seniority the candidate hasn't plausibly earned unless their preferences ask for a stretch.
-- Each "reason" is one short sentence tying the title to the candidate.
-
-CANDIDATE PREFERENCES:
-{answer_lines}
-
-CANDIDATE PROFILE:
-{_profile_summary(profile)}
-
-Return only the JSON object, no other text."""
+    prompt = prompt_registry.render_prompt(
+        config, "suggest_job_titles",
+        answer_lines=answer_lines,
+        profile_summary=_profile_summary(profile),
+    )
 
     response = await client.chat.completions.create(
         model=_model(config, "strong"),
@@ -575,28 +537,13 @@ async def suggest_companies(
     liked = ", ".join(liked_companies[:15]) or "(no history yet)"
     excluded = ", ".join(exclude[:60]) or "(none)"
 
-    prompt = f"""You are a job-search advisor AI. Suggest companies this candidate should follow — companies likely to post roles matching their background, where they'd plausibly want to work.
-
-Return ONLY a JSON object: {{"companies": [{{"name": "...", "why": "..."}}]}}
-
-Rules:
-- 12 to 18 companies, ordered most-relevant first.
-- Use each company's common brand name (e.g. "Stripe", not "Stripe, Inc.").
-- Prefer companies that hire for the candidate's kind of role regularly. Mix well-known names with a few less-obvious but real companies.
-- Do NOT suggest any company in the EXCLUDE list.
-- Companies similar to the LIKED list are good signals of taste.
-- Each "why" is one short sentence tying the company to the candidate.
-
-CANDIDATE PROFILE:
-{_profile_summary(profile)}
-
-SEARCH KEYWORDS: {keywords}
-
-LIKED (companies that scored well for them recently): {liked}
-
-EXCLUDE (already watched or already shown): {excluded}
-
-Return only the JSON object, no other text."""
+    prompt = prompt_registry.render_prompt(
+        config, "suggest_companies",
+        profile_summary=_profile_summary(profile),
+        keywords=keywords,
+        liked=liked,
+        excluded=excluded,
+    )
 
     response = await client.chat.completions.create(
         model=_model(config, "strong"),
@@ -692,71 +639,15 @@ async def generate_tailored_resume(
         profile.get("experience", []), job, max_entries, config
     )
 
-    prompt = f"""You are an expert resume writer. Tailor the candidate's resume for the job posting below.
-
-{_honesty_instruction(honesty_level)}
-
-{_keyword_targets_block(match_report)}
-Your task: Rephrase and reorder the candidate's experience and skills to best match the job posting.
-
-OUTPUT FORMAT RULES (the document parser requires these exactly):
-- Output EXACTLY these section headers in ALL CAPS on their own line, with nothing else on that line:
-  SUMMARY
-  SKILLS
-  EXPERIENCE
-  EDUCATION
-  CERTIFICATIONS
-- Do NOT use any markdown (no **, no ##, no ```, no * bullets). Use plain dashes (-) for bullet points.
-- Do NOT include the candidate's name or contact info — that is added separately.
-- Target 500-700 words total. Prioritize relevance over length.
-- For each experience entry, output EXACTLY in this format on separate lines:
-  Title: [exact title from profile]
-  Company: [exact company from profile]
-  Dates: [exact dates from profile]
-  - [bullet point]
-
-EXAMPLE FORMAT:
-SUMMARY
-Two to three sentences summarizing the candidate for this specific role.
-
-SKILLS
-Python, AWS, Docker, Kubernetes, CI/CD
-
-EXPERIENCE
-Title: Senior Software Engineer
-Company: Acme Corp
-Dates: Jan 2022 - Present
-- Led migration of monolithic app to microservices, reducing deploy time by 40%
-- Built REST APIs serving 10M requests/day using FastAPI and PostgreSQL
-- Mentored 4 engineers and established code review standards adopted team-wide
-
-EDUCATION
-Degree: B.S. Computer Science
-School: State University
-Year: 2019
-
-CERTIFICATIONS
-- AWS Solutions Architect Associate
-
-Instructions:
-1. Reorder and prioritize the candidate's existing skills to match the job description
-2. For each of the candidate's real experience entries, rewrite bullets to emphasize relevance to THIS role. Output EXACTLY 3 bullets per entry — no more, no less.
-3. Naturally incorporate keywords from the job description into descriptions of the candidate's real experience
-4. Use strong action verbs and quantify achievements where possible
-5. You may omit less relevant roles, but NEVER add roles that aren't in the candidate's profile
-6. Follow the format EXACTLY — the parser depends on "Title:", "Company:", "Dates:" prefixes on their own lines
-7. Copy job titles, company names, and dates VERBATIM from the candidate profile — do NOT alter, merge, or round them
-8. If the candidate held multiple roles at the same company, keep them as SEPARATE entries with their own dates
-
-JOB POSTING (this is what the candidate is APPLYING TO — do NOT list this as experience):
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-Description: {job.get('description', '')[:5000]}
-
-CANDIDATE PROFILE (this is the candidate's ACTUAL background — only use information from here):
-{_profile_summary(profile, selected_experiences)}
-
-Write the tailored resume now. Start directly with SUMMARY."""
+    prompt = prompt_registry.render_prompt(
+        config, "tailor_resume",
+        honesty_instruction=_honesty_instruction(honesty_level),
+        keyword_targets=_keyword_targets_block(match_report),
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        job_description=job.get("description", "")[:5000],
+        profile_summary=_profile_summary(profile, selected_experiences),
+    )
 
     try:
         response = await client.chat.completions.create(
@@ -823,32 +714,15 @@ async def generate_cover_letter(
         profile.get("experience", []), job, max_entries, config
     )
 
-    prompt = f"""You are an expert cover letter writer. Write a tailored cover letter for the candidate applying to the role below.
-
-{_honesty_instruction(honesty_level)}
-
-{_tone_instruction(tone)}
-
-Additional rules:
-- Do NOT use placeholder text like [Company Name] or [Your Name] — use actual values from the profile and job.
-- Do NOT start with "I am writing to apply for..." — that opener is overused and weak.
-
-Requirements:
-1. Address the letter to the hiring team at {job.get('company', 'the company')}
-2. Opening paragraph: Express genuine interest in the specific role and company. Reference something specific about the job posting.
-3. Body paragraphs (1-2): Connect the candidate's REAL experience and skills to the job requirements. Reference actual requirements from the posting and explain how the candidate's existing background meets them. Be specific with examples, not generic.
-4. Closing paragraph: Reiterate enthusiasm and include a clear call to action.
-5. Keep it to 3-4 paragraphs total (roughly 250-350 words).
-
-JOB POSTING (this is what the candidate is applying to):
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-Description: {job.get('description', '')[:5000]}
-
-CANDIDATE PROFILE (this is the candidate's ACTUAL background — only reference information from here):
-{_profile_summary(profile, selected_experiences)}
-
-Write the cover letter now. Start with "Dear Hiring Team," or similar appropriate salutation."""
+    prompt = prompt_registry.render_prompt(
+        config, "cover_letter",
+        honesty_instruction=_honesty_instruction(honesty_level),
+        tone_instruction=_tone_instruction(tone),
+        job_title=job.get("title", ""),
+        job_company=job.get("company", "") or "the company",
+        job_description=job.get("description", "")[:5000],
+        profile_summary=_profile_summary(profile, selected_experiences),
+    )
 
     try:
         response = await client.chat.completions.create(
@@ -898,50 +772,17 @@ async def revise_tailored_resume(
         profile.get("experience", []), job, max_entries, config
     )
 
-    prompt = f"""You are an expert resume editor performing a SCOPED EDIT.
-
-Your job has two halves, equally important:
-1. INSIDE the scope of the user's instruction, make the change FULLY and SUBSTANTIVELY. If they say "rewrite the summary," rewrite the entire summary. If they say "make the bullets stronger," genuinely strengthen every bullet. Do not be timid — a 1–5 word change is a failure when the user asked for a rewrite.
-2. OUTSIDE the scope of the instruction, preserve the existing text verbatim. Do not rephrase, reorder, or "polish" sections the user did not mention.
-
-Determine the scope from the instruction itself:
-- "rewrite the summary" → summary changes substantially; everything else stays.
-- "make it more concise" → entire document is in scope.
-- "add more cybersecurity emphasis to the bullets" → all experience bullets are in scope.
-- "fix the third bullet under [job]" → only that bullet changes.
-
-When in doubt about scope, lean toward applying the edit broadly enough that the user's intent is clearly satisfied.
-
-{_honesty_instruction(honesty_level)}
-
-{_revise_fabrication_guard(honesty_level)}
-
-OUTPUT FORMAT RULES (the document parser requires these exactly — preserve them):
-- Section headers in ALL CAPS on their own line: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, CERTIFICATIONS
-- No markdown (no **, no ##, no ```, no * bullets). Plain dashes (-) for bullets.
-- Do NOT include the candidate's name or contact info.
-- For each experience entry:
-  Title: [exact title from profile]
-  Company: [exact company from profile]
-  Dates: [exact dates from profile]
-  - [bullet point]
-- Job titles, company names, and dates copied VERBATIM from the candidate profile.
-
-CANDIDATE PROFILE (only use facts from here — never invent):
-{_profile_summary(profile, selected_experiences)}
-
-JOB POSTING (target role — maintain relevance to this):
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-Description: {job.get('description', '')[:5000]}
-
-USER REVISION INSTRUCTIONS (apply ONLY these changes):
-{user_instructions}
-
-CURRENT TAILORED RESUME (this is the source of truth — edit it in place, preserve everything not touched by the instruction):
-{current_resume_text}
-
-Output the full revised resume now, starting directly with SUMMARY. Apply the user's instruction substantively within its scope; preserve everything outside its scope."""
+    prompt = prompt_registry.render_prompt(
+        config, "revise_resume",
+        honesty_instruction=_honesty_instruction(honesty_level),
+        fabrication_guard=_revise_fabrication_guard(honesty_level),
+        profile_summary=_profile_summary(profile, selected_experiences),
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        job_description=job.get("description", "")[:5000],
+        user_instructions=user_instructions,
+        current_resume=current_resume_text,
+    )
 
     try:
         response = await client.chat.completions.create(
@@ -980,40 +821,18 @@ async def revise_cover_letter(
         profile.get("experience", []), job, max_entries, config
     )
 
-    prompt = f"""You are an expert cover letter editor performing a SCOPED EDIT.
-
-Your job has two halves, equally important:
-1. INSIDE the scope of the user's instruction, make the change FULLY and SUBSTANTIVELY. If they say "rewrite the opening," rewrite the entire opening. If they say "make it more enthusiastic," genuinely shift the tone throughout. Do not be timid — tiny token-level changes when the user asked for a rewrite are a failure.
-2. OUTSIDE the scope of the instruction, preserve the existing prose verbatim. Do not rephrase or "polish" paragraphs the user did not mention.
-
-When in doubt about scope, lean toward applying the edit broadly enough that the user's intent is clearly satisfied.
-
-{_honesty_instruction(honesty_level)}
-
-{_tone_instruction(tone)}
-
-{_revise_fabrication_guard(honesty_level)}
-
-Additional rules:
-- Do NOT use placeholder text like [Company Name] or [Your Name] — use actual values.
-- Do NOT start with "I am writing to apply for..." unless the user explicitly requests it.
-- Output the full revised cover letter as plain prose paragraphs. No markdown, no headers.
-
-CANDIDATE PROFILE (only use facts from here):
-{_profile_summary(profile, selected_experiences)}
-
-JOB POSTING:
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-Description: {job.get('description', '')[:5000]}
-
-USER REVISION INSTRUCTIONS (apply ONLY these changes):
-{user_instructions}
-
-CURRENT COVER LETTER (source of truth — edit in place, preserve everything not touched):
-{current_letter_text}
-
-Output the full revised cover letter now. Apply the user's instruction substantively within its scope; preserve everything outside its scope."""
+    prompt = prompt_registry.render_prompt(
+        config, "revise_cover_letter",
+        honesty_instruction=_honesty_instruction(honesty_level),
+        tone_instruction=_tone_instruction(tone),
+        fabrication_guard=_revise_fabrication_guard(honesty_level),
+        profile_summary=_profile_summary(profile, selected_experiences),
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        job_description=job.get("description", "")[:5000],
+        user_instructions=user_instructions,
+        current_letter=current_letter_text,
+    )
 
     try:
         response = await client.chat.completions.create(
@@ -1046,26 +865,12 @@ async def generate_embellishment_log(
     client = _get_client(config)
     ai_cfg = config.get("ai", {})
 
-    prompt = f"""Compare the original profile data below against the two generated documents.
-List every addition, change, or embellishment — anything in the documents that was not in, or significantly differs from, the original profile.
-
-ORIGINAL PROFILE:
-{_profile_summary(profile)}
-
-GENERATED RESUME:
-{resume_text[:3000]}
-
-GENERATED COVER LETTER:
-{cover_letter_text[:2000]}
-
-Return a JSON object with exactly two arrays:
-{{
-  "resume_changes": [{{"field": "...", "original": "...", "modified": "..."}}],
-  "cover_letter_changes": [{{"field": "...", "original": "...", "modified": "..."}}]
-}}
-
-If nothing was changed in a document, return an empty array for that key.
-Return ONLY the JSON object, no other text."""
+    prompt = prompt_registry.render_prompt(
+        config, "embellishment_log",
+        profile_summary=_profile_summary(profile),
+        resume_text=resume_text[:3000],
+        cover_letter_text=cover_letter_text[:2000],
+    )
 
     resume_changes: list[dict] = []
     cover_letter_changes: list[dict] = []
@@ -1139,21 +944,13 @@ async def generate_custom_answers(
 
     questions_text = "\n".join(f"- {q}" for q in questions)
 
-    prompt = f"""You are helping a job candidate answer custom application questions.
-Answer each question professionally and concisely based on the candidate's profile.
-
-JOB:
-Title: {job.get('title', '')}
-Company: {job.get('company', '')}
-
-CANDIDATE PROFILE:
-{_profile_summary(profile)}
-
-QUESTIONS:
-{questions_text}
-
-Return a JSON object where each key is the exact question text and each value is the answer.
-Return only the JSON object, no other text."""
+    prompt = prompt_registry.render_prompt(
+        config, "custom_answers",
+        job_title=job.get("title", ""),
+        job_company=job.get("company", ""),
+        profile_summary=_profile_summary(profile),
+        questions=questions_text,
+    )
 
     try:
         response = await client.chat.completions.create(

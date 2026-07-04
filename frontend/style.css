@@ -1760,7 +1760,7 @@ main {
 }
 
 .settings-save {
-    margin-top: 20px;
+    margin: -8px 0 16px;
     text-align: right;
 }
 
@@ -2583,4 +2583,118 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 11.5px; line-height: 1.45; color: var(--text-primary);
     white-space: pre-wrap; word-break: break-word;
+}
+
+/* ---- Settings → Prompts tab ---- */
+.prompt-group-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 18px 0 8px;
+}
+.prompt-group-title:first-child { margin-top: 0; }
+
+.prompt-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+.prompt-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+}
+.prompt-card-header:hover { background: var(--bg-hover); border-radius: 8px; }
+
+.prompt-card-chevron { color: var(--text-muted); font-size: 12px; width: 12px; }
+.prompt-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+
+.prompt-badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(74, 144, 217, 0.15);
+    color: var(--accent-blue);
+    border: 1px solid rgba(74, 144, 217, 0.4);
+}
+
+.prompt-card-body { padding: 0 14px 14px; border-top: 1px solid var(--border); }
+.prompt-card-body .section-hint { margin: 12px 0 10px; }
+
+.prompt-vars { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.prompt-vars-label { font-size: 11.5px; color: var(--text-muted); }
+
+.prompt-var-chip {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.prompt-var-chip:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+.prompt-editor {
+    width: 100%;
+    min-height: 260px;
+    resize: vertical;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.prompt-editor:focus { border-color: var(--accent-blue); }
+
+.prompt-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.prompt-status { font-size: 12px; color: var(--text-muted); }
+
+/* ---- Settings Basic / Advanced mode ---- */
+/* In basic mode, hide every advanced-only tab, card, and field. Inputs stay
+   in the DOM so saveSettings() still round-trips their values. */
+#settings:not(.settings-mode-advanced) .settings-advanced { display: none !important; }
+
+.settings-mode-toggle {
+    margin-left: auto;
+    display: flex;
+    align-self: center;
+    gap: 2px;
+    padding: 2px;
+    margin-bottom: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+}
+
+.settings-mode-toggle button {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.settings-mode-toggle button:hover { color: var(--text-primary); }
+
+.settings-mode-toggle button.active {
+    background: var(--accent-blue);
+    color: #fff;
 }

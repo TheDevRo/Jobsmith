@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=30">
+    <link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -410,7 +410,17 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
+                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-autoapply')">Auto-Apply</button>
+                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
+                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
+                    <div class="settings-mode-toggle" role="group" aria-label="Settings mode" title="Basic shows the essentials; Advanced exposes every knob (auto-apply tuning, AI prompts, logs, and more).">
+                        <button id="settings-mode-basic" onclick="setSettingsMode('basic')">Basic</button>
+                        <button id="settings-mode-advanced" onclick="setSettingsMode('advanced')">Advanced</button>
+                    </div>
+                </div>
+
+                <div class="settings-save">
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
                 </div>
 
                 <!-- Profile Tab -->
@@ -543,7 +553,7 @@
                             </div>
                             <div class="form-group"><label>Exclude Keywords (comma-separated)</label><input type="text" id="cfg-exclude"></div>
                             <div class="form-group"><label>Min Salary</label><input type="number" id="cfg-salary" min="0"></div>
-                            <div class="form-group">
+                            <div class="form-group settings-advanced">
                                 <label class="remote-toggle"><input type="checkbox" id="cfg-salary-auto-ingest" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries during job ingestion</label>
                                 <span class="hint">When enabled, jobs without disclosed compensation get an AI-aided market estimate (real data from Adzuna + BLS) at ingest time. Estimates are clearly labeled and never confused with real comp.</span>
                             </div>
@@ -637,7 +647,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-group" style="margin-top:8px">
+                            <div class="form-group settings-advanced" style="margin-top:8px">
                                 <label>Scoring Tier</label>
                                 <select id="cfg-scoring-tier" style="width:100%">
                                     <option value="strong">Content (highest-quality scores)</option>
@@ -646,7 +656,7 @@
                                 </select>
                                 <p class="ai-tier-hint" style="margin-top:4px">Which tier's model judges job-fit. Set to <strong>Utility</strong> so scoring and the salary-estimator share one model — keeps LM Studio from swapping models on every ingested job. Switch back to <strong>Content</strong> for the most accurate scores.</p>
                             </div>
-                            <div class="form-group" style="margin-top:8px">
+                            <div class="form-group settings-advanced" style="margin-top:8px">
                                 <label>Context Window</label>
                                 <div style="display:flex;gap:8px;align-items:center">
                                     <select id="cfg-context-window" style="flex:1">
@@ -690,7 +700,7 @@
                             <div id="indeed-status" class="ai-status" style="margin-top:10px"></div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>Import Browser Cookies</h2>
                             <p class="section-hint">Skip interactive sign-in by importing cookies from the browser you're already logged in with. Export them with an extension like Cookie-Editor (JSON) or as a Netscape <code>cookies.txt</code>, then upload the file here.</p>
                             <div class="form-group">
@@ -712,13 +722,13 @@
                             <div id="cookie-import-status" class="ai-status" style="margin-top:10px"></div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>ATS Login Credentials</h2>
                             <p class="section-hint">Password used when the tool needs to log into a non-Workday ATS portal. The login email is your profile email above.</p>
                             <div class="form-group"><label>ATS Login Password</label><input type="password" id="cfg-ats-login-password" placeholder="Password for non-Workday job portals" autocomplete="off"></div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>Workday Credentials</h2>
                             <p class="section-hint">Email and password for Workday candidate accounts.</p>
                             <div class="form-group"><label>Workday Email</label><input type="email" id="cfg-workday-email" placeholder="your@email.com"></div>
@@ -732,7 +742,7 @@
                             <div class="form-group"><label>App Key</label><input type="password" id="cfg-adzuna-app-key" placeholder="Your Adzuna App Key" autocomplete="off"></div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>BLS (Bureau of Labor Statistics)</h2>
                             <p class="section-hint">Optional. Used as a fallback for the salary estimator when Adzuna doesn't have data. Register for a free key at <a href="https://data.bls.gov/registrationEngine/" target="_blank" rel="noopener">data.bls.gov</a> (raises rate limit from 25/day to 500/day). Leave blank to skip BLS lookups entirely.</p>
                             <div class="form-group"><label>API Key</label><input type="password" id="cfg-bls-api-key" placeholder="Optional — leave blank to disable BLS" autocomplete="off"></div>
@@ -745,7 +755,7 @@
                             <div class="form-group"><label>API Key</label><input type="text" id="cfg-usajobs-key" placeholder="Your USAJobs API key"></div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>FlareSolverr</h2>
                             <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
                             <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
@@ -835,7 +845,7 @@
                             </div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>Max Experience Entries</h2>
                             <p class="section-hint">Cap the number of past roles shown on tailored resumes. The local LLM picks the most relevant non-pinned roles for the target job. Pin a role in the Profile tab to force it onto every resume.</p>
                             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -849,7 +859,7 @@
                             </div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card settings-advanced">
                             <h2>AI Edit Model</h2>
                             <p class="section-hint">Default model used by the AI Edit feature when revising resumes and cover letters. Per-edit override available in the modal.</p>
                             <div class="honesty-segmented" role="group" aria-label="AI Edit Model">
@@ -942,6 +952,17 @@
                     </div>
                 </div>
 
+                <!-- Prompts Tab -->
+                <div id="stab-prompts" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>AI Prompts</h2>
+                            <p class="section-hint">Every prompt Jobsmith sends to the AI, editable. Placeholders like <code>{profile_summary}</code> are filled in automatically at run time — keep the ones you need. Customized prompts are saved to config.yaml and win over the built-in defaults; prompts left at default automatically pick up improvements in app updates. Saving is per-prompt (the Save Settings button up top doesn't touch these).</p>
+                            <div id="prompts-list"><p class="section-hint">Loading prompts…</p></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Logs Tab -->
                 <div id="stab-logs" class="settings-tab-panel">
                     <div class="settings-grid">
@@ -967,9 +988,6 @@
                     </div>
                 </div>
 
-                <div class="settings-save">
-                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-                </div>
             </section>
 
             <!-- Fit Score Breakdown -->
@@ -1111,7 +1129,7 @@
                 <!-- Step 3: Job search -->
                 <div class="ob-panel" data-panel="3">
                     <h2>What jobs should we look for?</h2>
-                    <p class="ob-lead">These drive the job feed. You can refine them anytime in Settings &rarr; Search.</p>
+                    <p class="ob-lead">These drive the job feed. You can refine them anytime in Settings &rarr; Search &mdash; where you can also follow specific companies' job boards (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions.</p>
                     <div class="form-group"><label>Keywords <span class="hint">(comma-separated)</span></label><input type="text" id="ob-keywords" placeholder="software engineer, backend developer">
                         <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
                             <button type="button" class="btn btn-secondary btn-sm" onclick="openTitleSuggest('ob-keywords', true)">&#10024; Suggest titles with AI</button>
@@ -1143,8 +1161,10 @@
                             <div class="form-group"><label>Workday email</label><input type="text" id="ob-workday-email"></div>
                             <div class="form-group"><label>Workday password</label><input type="password" id="ob-workday-password"></div>
                         </div>
+                        <p class="ob-hint" style="margin:8px 0 0">Later found under Settings &rarr; Integrations with the mode toggle set to Advanced.</p>
                     </div>
                     <p class="ob-hint">Tip: connect LinkedIn from Settings &rarr; Integrations for the widest job coverage.</p>
+                    <p class="ob-hint">Power users: Settings opens in Basic mode with the essentials &mdash; flip the toggle to <strong>Advanced</strong> to expose auto-apply tuning, the AI prompt editor (every prompt Jobsmith sends to your local model is editable), and backend logs.</p>
                 </div>
 
                 <!-- Step 5: Review changes (re-run with existing profile only) -->
@@ -1192,9 +1212,10 @@
     <script src="js/dashboard.js?v=35"></script>
     <script src="js/jobs.js?v=37"></script>
     <script src="js/review.js?v=37"></script>
-    <script src="js/settings.js?v=37"></script>
+    <script src="js/settings.js?v=38"></script>
+    <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=34"></script>
-    <script src="js/onboarding.js?v=34"></script>
+    <script src="js/onboarding.js?v=35"></script>
 </body>
 </html>

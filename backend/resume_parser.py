@@ -20,6 +20,7 @@ import logging
 import re
 
 from . import ai_engine
+from . import prompt_registry
 
 logger = logging.getLogger(__name__)
 
@@ -89,55 +90,9 @@ def extract_text(filename: str, data: bytes) -> str:
 # ---------------------------------------------------------------------------
 # LLM extraction
 # ---------------------------------------------------------------------------
-_PROMPT = """You are a résumé parser. Extract ONLY information that is \
-literally present in the résumé text below. Do NOT infer, guess, embellish, \
-or invent anything. If a field is not clearly stated in the résumé, return an \
-empty string "" (or an empty list for list fields). Never fabricate names, \
-employers, dates, contact details, schools, or skills.
-
-Return ONLY a single JSON object, no prose, no markdown fences, with EXACTLY \
-these keys:
-
-{{
-  "full_name": "",
-  "email": "",
-  "phone": "",
-  "location": "",
-  "street_address": "",
-  "street_address_2": "",
-  "city": "",
-  "state": "",
-  "zip_code": "",
-  "linkedin": "",
-  "github": "",
-  "portfolio": "",
-  "summary": "",
-  "skills": [],
-  "experience": [
-    {{"title": "", "company": "", "start_date": "", "end_date": "Present", "bullets": []}}
-  ],
-  "education": [
-    {{"degree": "", "school": "", "year": ""}}
-  ],
-  "certifications": []
-}}
-
-Rules:
-- "location" should be "City, ST" if present; also fill city/state/zip_code \
-when an explicit address is given.
-- Dates: keep them as written in the résumé (e.g. "2021", "Jan 2021", \
-"2021-01"). Use "Present" for a current role's end_date.
-- "bullets": copy the résumé's accomplishment lines verbatim, lightly \
-trimmed; do not rewrite them.
-- "skills": only skills explicitly listed; one skill per array item.
-- Omit empty experience/education objects entirely rather than padding.
-
-RÉSUMÉ TEXT:
-\"\"\"
-{resume}
-\"\"\"
-
-Return only the JSON object."""
+# The extraction prompt lives in prompt_registry (key "resume_parse") so it
+# can be edited from Settings → Prompts. Other extractive sources (e.g. the
+# LinkedIn importer) pass their own registry key to parse_resume().
 
 
 def _flatten_item(v) -> str:
@@ -226,12 +181,13 @@ def _extract_json(text: str) -> dict:
     raise ValueError("Model did not return parseable JSON")
 
 
-async def parse_resume(text: str, config: dict, prompt_template: str | None = None) -> dict:
+async def parse_resume(text: str, config: dict, prompt_key: str = "resume_parse") -> dict:
     """Extract a partial profile dict from résumé-like text via the local LLM.
 
-    `prompt_template` lets other extractive sources (e.g. the LinkedIn
-    profile importer) supply their own prompt; it must contain a `{resume}`
-    placeholder and request the same JSON schema as `_PROMPT`.
+    `prompt_key` selects the prompt_registry template; other extractive
+    sources (e.g. the LinkedIn profile importer) pass their own key. The
+    template must contain a `{resume}` placeholder and request the same JSON
+    schema as the "resume_parse" default.
 
     Returns {"profile": {...}, "warnings": [...]}. Never raises for a bad
     model response — instead returns an empty profile plus a warning so the
@@ -250,7 +206,7 @@ async def parse_resume(text: str, config: dict, prompt_template: str | None = No
 
     ai_cfg = config.get("ai", {})
     client = ai_engine._get_client(config, "strong")
-    prompt = (prompt_template or _PROMPT).format(resume=text)
+    prompt = prompt_registry.render_prompt(config, prompt_key, resume=text)
 
     try:
         response = await client.chat.completions.create(

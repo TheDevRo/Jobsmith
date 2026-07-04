@@ -3,15 +3,25 @@
 A standalone macOS app (Apple Silicon), the browser extension zips, and the
 Docker image — all built from the same tag.
 
-## What's new in 0.2.1
+## What's new in 0.2.2
 
-- **New app icon** — briefcase with a smithing-hammer cutout, applied to the
-  macOS app, the browser extension, and the dashboard favicon.
-- **LinkedIn profile import overhauled** — the onboarding importer now strips
-  LinkedIn's UI noise before extraction, reads your contact-info panel
-  (email, websites), expands collapsed "…see more" text, and no longer
-  truncates certifications and skills. Imports that previously came back
-  nearly empty now fill the wizard.
+- **Editable AI prompts** — every prompt Jobsmith sends to your local model
+  (job scoring, resume tailoring, cover letters, revisions, parsing,
+  auto-apply…) is now viewable and editable from **Settings → Prompts**.
+  Placeholders like `{profile_summary}` are filled in at run time, literal
+  braces need no escaping, and each prompt has its own Save / Reset to
+  Default. Customized prompts persist in `config.yaml`; prompts left at
+  default keep picking up built-in improvements.
+- **Basic / Advanced settings** — Settings now opens in a leaner Basic mode;
+  an Advanced toggle reveals the Auto-Apply, Prompts, and Logs tabs plus
+  deeper knobs (scoring tier, context window, cookie import, ATS/Workday
+  credentials, BLS, FlareSolverr, max resume entries, AI Edit tier). The
+  Auto-Apply settings tab is reachable from the UI again.
+- **Save Settings moved to the top** — no more scrolling past every panel to
+  save.
+- **Tour & setup wizard refreshed** — the product tour has new stops for the
+  Advanced toggle and the prompt editor, and its Settings walkthrough matches
+  the current tabs; the wizard now points power users at Advanced mode.
 
 ## macOS app (Apple Silicon)
 

@@ -22,7 +22,7 @@ else works without it.
 
 ## Features
 
-- **Multi-source job aggregation** — LinkedIn, Adzuna, RemoteOK, WeWorkRemotely, Greenhouse, Lever, Indeed (Playwright-based, no API key)
+- **Multi-source job aggregation** — LinkedIn, Adzuna, RemoteOK, WeWorkRemotely, USAJobs, Arbeitnow, Indeed (Playwright-based, no API key), plus per-company ATS watchlists (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions
 - **Single-URL ingestion** — Paste any job URL to add it directly; per-source parsers for known boards plus a generic fallback
 - **AI-powered tailoring** — Local LM Studio scores job fit and generates tailored resumes and cover letters
 - **Honesty levels** — Choose how much latitude the AI takes per job: `honest` / `tailored` / `embellished` / `fabricated`
@@ -35,6 +35,9 @@ else works without it.
 - **Auto-apply (on the back burner)** — Heuristic form filler with anti-fabrication guardrails still ships, but is no longer the recommended workflow
 - **Per-domain rate limits** — Cap daily applies per ATS host
 - **Fit-score breakdown** — Click any score on the dashboard for a per-criterion explanation
+- **Salary estimates** — Jobs without disclosed comp get an AI-aided market estimate (Adzuna + BLS data), clearly labeled
+- **Editable AI prompts** — Every internal LLM prompt (scoring, tailoring, cover letters, parsing, auto-apply…) can be viewed, edited, and reset from Settings → Prompts; overrides persist in `config.yaml`, defaults keep improving with updates
+- **Basic / Advanced settings** — Settings opens in Basic mode with just the essentials; flip the toggle to Advanced to expose every knob (auto-apply tuning, prompt editor, scoring tier, context window, logs, and more)
 - **Session persistence** — Per-domain browser session management so you stay logged in across runs
 - **FlareSolverr integration** — Bypasses Cloudflare challenges on protected job boards
 - **Modern dashboard** — Sidebar navigation, split-pane job feed, real-time notifications, batch controls with stop/pause
@@ -216,6 +219,22 @@ application_honesty:
 
 All of these can also be changed live in the **Settings** tab.
 
+> Settings has a **Basic / Advanced** toggle (top-right of the tab bar). Basic covers everything needed to run the app; Advanced additionally reveals the Auto-Apply, Prompts, and Logs tabs plus tuning knobs like scoring tier, context window, cookie import, ATS/Workday credentials, max resume entries, and the AI Edit model tier. Values set in Advanced stay in effect when you switch back to Basic.
+
+#### AI prompts (optional)
+
+Every prompt sent to the local LLM can be customized from **Settings → Prompts** (Advanced mode). Templates use `{placeholder}` variables that are filled in at run time — literal braces (e.g. JSON examples) need no escaping. Only customized prompts are stored, under a top-level `prompts:` key:
+
+```yaml
+prompts:
+  score_job_fit: |
+    Your custom scoring prompt here...
+    JOB: {job_title} at {job_company}
+    ...
+```
+
+Prompts left at default automatically pick up improvements in app updates. Use the per-prompt **Reset to Default** button (or delete the key) to revert.
+
 #### API keys (optional)
 
 ```yaml
@@ -352,10 +371,13 @@ Try a different browser type in Settings (Firefox/Chromium/WebKit). If issues pe
 Delete `data/jobsmith.db` and restart the server — tables are recreated automatically.
 
 **Debugging a specific apply URL**
-Run `venv/bin/python debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
+Run `.venv/bin/python debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
+
+**A prompt edit broke generation output**
+Custom prompts from Settings → Prompts are used verbatim — if generated resumes stop parsing (missing SUMMARY/EXPERIENCE headers, markdown creeping in), hit **Reset to Default** on the prompt you changed. Placeholders the app doesn't recognize are left as literal `{text}` and flagged when you save.
 
 **Tests**
-`venv/bin/python -m pytest tests/auto_apply/ -v` — covers the LLM field-mapping, profile mapping, and answer-bank persistence layer.
+`.venv/bin/python -m pytest tests/ -v` — covers field mapping, honesty prompts, prompt registry/overrides, parsers, salary estimation, and the API layer.
 
 ## n8n Automation (Optional)
 
@@ -375,36 +397,44 @@ Included workflows:
 ```
 jobsmith/
 ├── backend/
-│   ├── main.py               # FastAPI server and REST API
-│   ├── database.py           # SQLite ORM (aiosqlite)
-│   ├── ai_engine.py          # LM Studio: job scoring and resume tailoring
-│   ├── auto_apply.py         # Playwright automation (built-in handlers)
-│   ├── browser_use_agent.py  # Browser-Use autonomous agent wrapper
-│   ├── session_manager.py    # Per-domain browser session persistence
-│   ├── page_extractor.py     # Page content extraction for AI Navigator
-│   ├── resume_generator.py   # DOCX resume and cover letter generation
-│   └── job_sources/
-│       ├── adzuna.py
-│       ├── remoteok.py
-│       ├── weworkremotely.py
-│       ├── greenhouse.py
-│       ├── lever.py
-│       └── linkedin.py
+│   ├── main.py                    # FastAPI app assembly; serves the frontend statically
+│   ├── app_state.py               # config.yaml load/save (single source of truth)
+│   ├── database.py                # SQLite ORM (aiosqlite)
+│   ├── ai_engine.py               # LM Studio: job scoring, tailoring, cover letters, AI Edit
+│   ├── prompt_registry.py         # All internal LLM prompt templates + override rendering
+│   ├── resume_parser.py           # Résumé → profile extraction (onboarding)
+│   ├── linkedin_profile_import.py # LinkedIn profile → profile extraction
+│   ├── salary_estimator.py        # Adzuna/BLS market salary estimates
+│   ├── resume_generator.py        # DOCX/PDF resume and cover letter generation
+│   ├── applicant_assist.py        # Apply Assist sidebar backend
+│   ├── extension_api.py           # Browser-extension API (token auth, autofill data)
+│   ├── browser_use_agent.py       # Browser-Use autonomous agent wrapper (legacy auto-apply)
+│   ├── session_manager.py         # Per-domain browser session persistence
+│   ├── auto_apply/                # Legacy auto-apply: field mapping, LLM client, answer bank
+│   ├── routers/                   # One APIRouter per area (jobs, pipeline, settings,
+│   │                              #   prompts, applications, assist, extension, …)
+│   └── job_sources/               # adzuna, remoteok, weworkremotely, usajobs, arbeitnow,
+│                                  #   indeed, linkedin, greenhouse, lever, ashby, workable,
+│                                  #   recruitee, manual (paste-a-URL), _generic fallback
 ├── frontend/
-│   ├── index.html            # Single-page web UI (sidebar nav, split-pane feed)
-│   ├── app.js                # Frontend application logic
-│   └── style.css             # Dark theme styles
+│   ├── index.html                 # Single-page web UI (sidebar nav, split-pane feed)
+│   ├── js/                        # Plain-JS modules: core, dashboard, jobs, review,
+│   │                              #   settings, prompts, sessions, onboarding, …
+│   └── style.css                  # Dark/light theme styles
+├── src-tauri/                     # Tauri desktop shell (macOS app)
+├── extension/                     # Apply Assist browser extension (Chrome/Firefox)
+├── tests/                         # pytest suite (.venv/bin/python -m pytest tests/)
 ├── n8n/
-│   └── workflows.json        # Optional n8n automation workflows
-├── data/                     # Runtime data (auto-created, gitignored)
-│   ├── jobsmith.db      # SQLite database
-│   └── linkedin_session/     # Persistent LinkedIn browser session
-├── sessions/                 # Per-domain Browser-Use sessions (gitignored)
-├── .browser-profile/         # Browser-Use Chromium profile (gitignored)
-├── failed_screenshots/       # Browser-Use failure captures (gitignored)
-├── config.example.yaml       # Config template — copy to config.yaml
-├── config.yaml               # Your config (gitignored — never committed)
-├── .env                      # Feature flags and runtime paths (gitignored)
-├── requirements.txt          # Python dependencies
-└── setup.sh                  # One-command setup script
+│   └── workflows.json             # Optional n8n automation workflows
+├── data/                          # Runtime data (auto-created, gitignored)
+│   ├── jobsmith.db                # SQLite database
+│   └── linkedin_session/          # Persistent LinkedIn browser session
+├── sessions/                      # Per-domain Browser-Use sessions (gitignored)
+├── .browser-profile/              # Browser-Use Chromium profile (gitignored)
+├── failed_screenshots/            # Browser-Use failure captures (gitignored)
+├── config.example.yaml            # Config template — copy to config.yaml
+├── config.yaml                    # Your config (gitignored — never committed)
+├── .env                           # Feature flags and runtime paths (gitignored)
+├── requirements.txt               # Python dependencies
+└── setup.sh                       # One-command setup script
 ```

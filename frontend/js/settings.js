@@ -1229,3 +1229,37 @@ function tsAddSelected() {
     const needsSave = _tsState.targetId === 'cfg-keywords';
     toast(`Added ${added} title${added === 1 ? '' : 's'}${needsSave ? ' — click Save Settings to persist' : ''}`, 'success');
 }
+
+// ---- Basic / Advanced settings mode ----
+// Basic shows everything needed to run the app; Advanced additionally exposes
+// tuning knobs (Auto-Apply, Prompts, Logs tabs + .settings-advanced elements).
+// The mode only affects visibility — hidden inputs keep their values and are
+// still collected by saveSettings(), so switching modes never loses data.
+
+function getSettingsMode() {
+    return localStorage.getItem('jobsmith_settings_mode') === 'advanced' ? 'advanced' : 'basic';
+}
+
+function setSettingsMode(mode) {
+    localStorage.setItem('jobsmith_settings_mode', mode);
+    applySettingsMode();
+}
+
+function applySettingsMode() {
+    const section = document.getElementById('settings');
+    if (!section) return;
+    const adv = getSettingsMode() === 'advanced';
+    section.classList.toggle('settings-mode-advanced', adv);
+    document.getElementById('settings-mode-basic')?.classList.toggle('active', !adv);
+    document.getElementById('settings-mode-advanced')?.classList.toggle('active', adv);
+
+    // If the active tab just became hidden (e.g. Prompts open, switch to Basic),
+    // fall back to the first visible tab.
+    const activeTab = section.querySelector('.settings-tab.active');
+    if (!adv && activeTab && activeTab.classList.contains('settings-advanced')) {
+        const firstVisible = section.querySelector('.settings-tab:not(.settings-advanced)');
+        if (firstVisible) firstVisible.click();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', applySettingsMode);
