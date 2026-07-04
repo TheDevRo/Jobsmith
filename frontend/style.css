@@ -2153,8 +2153,6 @@ main {
     background: var(--bg-hover, rgba(99, 102, 241, 0.08));
 }
 
-body.auto-apply-disabled #auto-apply-subsettings { display: none; }
-
 /* ============================================================
    First-run onboarding wizard
    ============================================================ */

@@ -410,10 +410,9 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
-                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-autoapply')">Auto-Apply</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
-                    <div class="settings-mode-toggle" role="group" aria-label="Settings mode" title="Basic shows the essentials; Advanced exposes every knob (auto-apply tuning, AI prompts, logs, and more).">
+                    <div class="settings-mode-toggle" role="group" aria-label="Settings mode" title="Basic shows the essentials; Advanced exposes every knob (AI prompts, logs, and more).">
                         <button id="settings-mode-basic" onclick="setSettingsMode('basic')">Basic</button>
                         <button id="settings-mode-advanced" onclick="setSettingsMode('advanced')">Advanced</button>
                     </div>
@@ -759,39 +758,6 @@
                             <h2>FlareSolverr</h2>
                             <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
                             <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Auto-Apply Tab -->
-                <div id="stab-autoapply" class="settings-tab-panel">
-                    <div class="settings-grid">
-                        <div class="section-card">
-                            <h2>Auto-Apply Settings</h2>
-                            <div class="form-group toggle-group"><label>Enable Auto-Apply</label><input type="checkbox" id="cfg-auto-apply"></div>
-                            <div id="auto-apply-subsettings">
-                            <div class="form-group toggle-group"><label>Auto-Approve (skip review)</label><input type="checkbox" id="cfg-auto-approve"></div>
-                            <div class="form-group toggle-group"><label>Headless Mode (hide browser)</label><input type="checkbox" id="cfg-headless"></div>
-                            <div class="form-group toggle-group"><label>Use Browser-Use Agent</label><input type="checkbox" id="cfg-browser-use"></div>
-                            <p class="section-hint" style="margin-top:-8px">When enabled, an autonomous AI agent drives the browser instead of the built-in Playwright adapters. Recommended for LinkedIn.</p>
-                            <div class="form-group"><label>Max Daily Applications</label><input type="number" id="cfg-max-daily" min="1" max="100"></div>
-                            <div class="form-group"><label>Step Ceiling (per application)</label>
-                                <select id="cfg-step-ceiling">
-                                    <option value="20">20 steps</option>
-                                    <option value="40">40 steps</option>
-                                    <option value="60" selected>60 steps (default)</option>
-                                    <option value="80">80 steps</option>
-                                    <option value="100">100 steps</option>
-                                    <option value="0">Unlimited</option>
-                                </select>
-                                <p class="section-hint">Max actions the AI navigator takes per application. Unlimited disables the safety limit.</p>
-                            </div>
-                            <div class="form-group toggle-group"><label>Disable Stuck Detection</label><input type="checkbox" id="cfg-disable-stuck-detection"></div>
-                            <p class="section-hint" style="margin-top:-8px">When enabled, the navigator will not give up if no page progress is detected. Useful for slow ATSes or manual intervention mid-apply.</p>
-                            <div class="form-group"><label>Rate limit per domain (seconds between applies)</label><input type="number" id="cfg-per-domain-rate-limit" min="0" step="1"></div>
-                            <div class="form-group toggle-group"><label>Send unknown ATS applications to Needs Review</label><input type="checkbox" id="cfg-review-unknown-ats"></div>
-                            <div class="form-group"><label>Minimum confidence threshold (below this → Needs Review)</label><input type="number" id="cfg-min-confidence" min="0" max="1" step="0.05"></div>
-                            </div>
                         </div>
                     </div>
                 </div>

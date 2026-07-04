@@ -695,7 +695,7 @@ const TOUR_STEPS = [
         hash: '#settings',
         selector: '.settings-mode-toggle',
         title: 'Basic vs. Advanced',
-        body: 'This toggle controls how much of Settings you see. Basic keeps it to the essentials; Advanced (shown now) reveals the Auto-Apply, Prompts, and Logs tabs plus deeper knobs on the other tabs. Anything you set in Advanced stays in effect when you switch back.',
+        body: 'This toggle controls how much of Settings you see. Basic keeps it to the essentials; Advanced (shown now) reveals the Prompts and Logs tabs plus deeper knobs on the other tabs. Anything you set in Advanced stays in effect when you switch back.',
         before: () => setSettingsMode('advanced'),
     },
     {

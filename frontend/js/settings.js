@@ -49,27 +49,10 @@ async function loadSettings() {
         document.getElementById('cfg-workable').value = (cfg.search?.workable_accounts || []).filter(s => s !== 'example-company').join(', ');
         document.getElementById('cfg-recruitee').value = (cfg.search?.recruitee_companies || []).filter(s => s !== 'example-company').join(', ');
 
-        const aaEnabled = cfg.auto_apply?.enabled || false;
-        document.getElementById('cfg-auto-apply').checked = aaEnabled;
-        applyAutoApplyVisibility(aaEnabled);
-        const aaToggle = document.getElementById('cfg-auto-apply');
-        if (!aaToggle.dataset.bound) {
-            aaToggle.dataset.bound = '1';
-            aaToggle.addEventListener('change', (e) => {
-                applyAutoApplyVisibility(e.target.checked);
-                if (currentReviewView === 'pending') loadReviewQueue();
-                else if (currentReviewView === 'failed') loadFailedApplications();
-            });
-        }
-        document.getElementById('cfg-auto-approve').checked = cfg.auto_apply?.auto_approve || false;
-        document.getElementById('cfg-headless').checked = cfg.auto_apply?.headless !== false;
-        document.getElementById('cfg-browser-use').checked = cfg.auto_apply?.use_browser_use || false;
-        document.getElementById('cfg-max-daily').value = cfg.auto_apply?.max_daily_applications || 20;
-        document.getElementById('cfg-step-ceiling').value = cfg.auto_apply?.step_ceiling ?? 60;
-        document.getElementById('cfg-disable-stuck-detection').checked = cfg.auto_apply?.disable_stuck_detection || false;
-        document.getElementById('cfg-per-domain-rate-limit').value = cfg.auto_apply?.per_domain_rate_limit ?? 0;
-        document.getElementById('cfg-review-unknown-ats').checked = cfg.auto_apply?.review_required_rules?.unknown_ats || false;
-        document.getElementById('cfg-min-confidence').value = cfg.auto_apply?.review_required_rules?.min_confidence ?? 0.60;
+        // Auto-apply has no settings UI for now; it can only be enabled by
+        // editing config.json directly. Still honor the flag so the review
+        // queue shows/hides its Auto Apply buttons correctly.
+        applyAutoApplyVisibility(cfg.auto_apply?.enabled || false);
 
         document.getElementById('cfg-ai-url').value = cfg.ai?.base_url || '';
         // Context window — snap to nearest option, defaulting to 8192
@@ -573,20 +556,8 @@ async function saveSettings() {
             workable_accounts: splitTrim(document.getElementById('cfg-workable').value),
             recruitee_companies: splitTrim(document.getElementById('cfg-recruitee').value),
         },
-        auto_apply: {
-            enabled: document.getElementById('cfg-auto-apply').checked,
-            auto_approve: document.getElementById('cfg-auto-approve').checked,
-            headless: document.getElementById('cfg-headless').checked,
-            use_browser_use: document.getElementById('cfg-browser-use').checked,
-            max_daily_applications: parseInt(document.getElementById('cfg-max-daily').value) || 20,
-            step_ceiling: parseInt(document.getElementById('cfg-step-ceiling').value),
-            disable_stuck_detection: document.getElementById('cfg-disable-stuck-detection').checked,
-            per_domain_rate_limit: parseInt(document.getElementById('cfg-per-domain-rate-limit').value) || 0,
-            review_required_rules: {
-                unknown_ats: document.getElementById('cfg-review-unknown-ats').checked,
-                min_confidence: parseFloat(document.getElementById('cfg-min-confidence').value) || 0.60,
-            },
-        },
+        // auto_apply intentionally omitted — the backend merges per-section,
+        // so existing config.json values are preserved.
         ai: {
             base_url: document.getElementById('cfg-ai-url').value,
             scoring_tier: document.getElementById('cfg-scoring-tier').value || 'strong',
@@ -1232,7 +1203,7 @@ function tsAddSelected() {
 
 // ---- Basic / Advanced settings mode ----
 // Basic shows everything needed to run the app; Advanced additionally exposes
-// tuning knobs (Auto-Apply, Prompts, Logs tabs + .settings-advanced elements).
+// tuning knobs (Prompts, Logs tabs + .settings-advanced elements).
 // The mode only affects visibility — hidden inputs keep their values and are
 // still collected by saveSettings(), so switching modes never loses data.
 
