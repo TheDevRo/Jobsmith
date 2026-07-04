@@ -49,7 +49,9 @@ def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
     """
     ai_cfg = config.get("ai", {})
     default_url = ai_cfg.get("base_url", "http://localhost:1234/v1")
-    default_key = ai_cfg.get("api_key", "lm-studio")
+    # Blank key (e.g. cleared in Settings) falls back to the LM Studio
+    # placeholder — the OpenAI SDK requires a non-empty string.
+    default_key = ai_cfg.get("api_key") or "lm-studio"
 
     models_cfg = ai_cfg.get("models", {})
     base_url = default_url
@@ -57,8 +59,8 @@ def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
     for t in _tier_chain(tier):
         tier_cfg = models_cfg.get(t, {})
         if tier_cfg.get("base_url") or tier_cfg.get("api_key"):
-            base_url = tier_cfg.get("base_url", default_url)
-            api_key = tier_cfg.get("api_key", default_key)
+            base_url = tier_cfg.get("base_url") or default_url
+            api_key = tier_cfg.get("api_key") or default_key
             break
 
     key = (base_url, api_key)

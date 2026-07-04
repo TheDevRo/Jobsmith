@@ -114,6 +114,7 @@ async def get_config():
         "auto_apply": cfg.get("auto_apply", {}),
         "ai": {
             "base_url": cfg.get("ai", {}).get("base_url", ""),
+            "api_key": cfg.get("ai", {}).get("api_key", ""),
             "model": cfg.get("ai", {}).get("model", ""),
             "models": cfg.get("ai", {}).get("models", {}),
             "scoring_tier": cfg.get("ai", {}).get("scoring_tier", "strong"),

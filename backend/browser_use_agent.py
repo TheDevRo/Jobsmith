@@ -110,13 +110,13 @@ def _get_browser_use_llm(config: dict) -> ChatOpenAI:
     """
     ai_cfg = config.get("ai", {})
     default_url = ai_cfg.get("base_url", "http://localhost:1234/v1")
-    default_key = ai_cfg.get("api_key", "lm-studio")
+    default_key = ai_cfg.get("api_key") or "lm-studio"
 
     # Prefer the fast-tier model (same one used by ai_navigator)
     tier_cfg = ai_cfg.get("models", {}).get("fast", {})
     model = tier_cfg.get("model") or ai_cfg.get("model", "local-model")
-    base_url = tier_cfg.get("base_url", default_url)
-    api_key = tier_cfg.get("api_key", default_key)
+    base_url = tier_cfg.get("base_url") or default_url
+    api_key = tier_cfg.get("api_key") or default_key
 
     return ChatOpenAI(
         model=model,

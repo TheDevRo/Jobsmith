@@ -611,8 +611,13 @@
                         <div class="section-card">
                             <h2>AI Connection</h2>
                             <div class="form-group" style="display:flex;gap:8px;align-items:flex-end">
-                                <div style="flex:1"><label>LM Studio URL</label><input type="text" id="cfg-ai-url" placeholder="http://localhost:1234/v1"></div>
-                                <button class="btn btn-secondary btn-sm" style="white-space:nowrap;margin-bottom:0" onclick="loadAiModels()">Load Models</button>
+                                <div style="flex:1"><label>Server URL</label><input type="text" id="cfg-ai-url" placeholder="http://localhost:1234/v1"></div>
+                                <button class="btn btn-secondary btn-sm" style="white-space:nowrap;margin-bottom:0" onclick="loadAiModels({ persistConnection: true })">Load Models</button>
+                            </div>
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <input type="password" id="cfg-ai-api-key" placeholder="Optional — not needed for LM Studio" autocomplete="off">
+                                <span class="hint">Any OpenAI-compatible server works (LM Studio, Ollama, OpenRouter, OpenAI…). Set a key for hosted providers; LM Studio ignores it.</span>
                             </div>
                             <div class="ai-tier-group">
                                 <div class="ai-tier">
@@ -1030,9 +1035,10 @@
             <div class="ob-body">
                 <!-- Step 0: AI -->
                 <div class="ob-panel active" data-panel="0">
-                    <h2>Connect your local AI</h2>
-                    <p class="ob-lead">Jobsmith runs entirely on your own machine. Point it at your LM Studio server, then pick the models to use.</p>
-                    <div class="form-group"><label>LM Studio base URL</label><input type="text" id="ob-ai-url" placeholder="http://localhost:1234/v1"></div>
+                    <h2>Connect your AI</h2>
+                    <p class="ob-lead">Jobsmith works with any OpenAI-compatible server — local like LM Studio or Ollama (fully private), or hosted like OpenRouter or OpenAI. Point it at your server, then pick the models to use.</p>
+                    <div class="form-group"><label>Server base URL</label><input type="text" id="ob-ai-url" placeholder="http://localhost:1234/v1"></div>
+                    <div class="form-group"><label>API key <span class="hint">(optional)</span></label><input type="password" id="ob-ai-api-key" placeholder="Only needed for hosted providers" autocomplete="off"></div>
                     <div style="display:flex;gap:10px;align-items:center;margin:8px 0 4px">
                         <button class="btn btn-primary btn-sm" onclick="obTestAI()">Test connection</button>
                         <span id="ob-ai-status" class="ob-status">Not tested yet</span>
