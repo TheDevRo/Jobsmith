@@ -401,60 +401,158 @@ def _slug_candidates(company: str) -> list[str]:
     return out
 
 
+async def _probe_ats(source: str, spec: dict, slug: str, session) -> Optional[dict]:
+    """One (ATS, slug) probe: 200 + parseable board payload → match dict."""
+    import json
+
+    import aiohttp
+
+    url = spec["url"].format(slug=slug)
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return None
+            data = json.loads(await resp.text())
+    except Exception:
+        return None
+    count = spec["count"](data)
+    if count is None:
+        return None
+    name = None
+    if "name" in spec:
+        try:
+            name = spec["name"](data)
+        except Exception:
+            name = None
+    return {
+        "source": source,
+        "slug": slug,
+        "jobs": count,
+        "company_name": name,
+        "board_url": spec["board_url"].format(slug=slug),
+        "config_key": spec["config_key"],
+    }
+
+
+async def _detect_boards_for(company: str, session) -> list[dict]:
+    """Probe every ATS with every slug guess for one company; return the best
+    hit (most jobs) per ATS, sorted by job count."""
+    slugs = _slug_candidates(company)
+    if not slugs:
+        return []
+    results = await asyncio.gather(*(
+        _probe_ats(source, spec, slug, session)
+        for source, spec in _ATS_PROBES.items()
+        for slug in slugs
+    ))
+    best: dict = {}
+    for r in results:
+        if r and (r["source"] not in best or r["jobs"] > best[r["source"]]["jobs"]):
+            best[r["source"]] = r
+    return sorted(best.values(), key=lambda r: -r["jobs"])
+
+
 @router.post("/api/sources/detect-boards")
 async def detect_boards(body: DetectBoardsRequest):
     """Probe the public APIs of all supported ATSes with slug guesses derived
     from a company name. Returns every (source, slug) that answers with a
     live board so the user never has to know slugs up front."""
-    import json
-
     import aiohttp
 
     slugs = _slug_candidates(body.company)
     if not slugs:
         raise HTTPException(400, "Give me a company name to look for")
 
-    async def _probe(source: str, spec: dict, slug: str, session) -> Optional[dict]:
-        url = spec["url"].format(slug=slug)
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status != 200:
-                    return None
-                data = json.loads(await resp.text())
-        except Exception:
-            return None
-        count = spec["count"](data)
-        if count is None:
-            return None
-        name = None
-        if "name" in spec:
-            try:
-                name = spec["name"](data)
-            except Exception:
-                name = None
-        return {
-            "source": source,
-            "slug": slug,
-            "jobs": count,
-            "company_name": name,
-            "board_url": spec["board_url"].format(slug=slug),
-            "config_key": spec["config_key"],
-        }
-
     async with aiohttp.ClientSession(headers={"User-Agent": "Jobsmith/1.0"}) as session:
-        results = await asyncio.gather(*(
-            _probe(source, spec, slug, session)
-            for source, spec in _ATS_PROBES.items()
-            for slug in slugs
-        ))
-
-    # Keep the best hit (most jobs) per source.
-    best: dict = {}
-    for r in results:
-        if r and (r["source"] not in best or r["jobs"] > best[r["source"]]["jobs"]):
-            best[r["source"]] = r
-    matches = sorted(best.values(), key=lambda r: -r["jobs"])
+        matches = await _detect_boards_for(body.company, session)
     return {"matches": matches, "tried_slugs": slugs}
+
+
+class SuggestCompaniesRequest(BaseModel):
+    exclude: list[str] = []
+
+
+def _norm_company(name: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+@router.post("/api/sources/suggest-companies")
+async def suggest_companies(body: SuggestCompaniesRequest):
+    """AI company recommender: merge zero-hallucination candidates mined from
+    the user's own feed (companies that scored well / were applied to) with
+    LLM suggestions from their profile, then validate every candidate against
+    the live ATS board probes. Only companies with a reachable board are
+    returned, so a hallucinated suggestion costs nothing."""
+    import aiohttp
+
+    from .. import ai_engine
+
+    cfg = state.load_config()
+    search_cfg = cfg.get("search", {})
+
+    # Companies already watched (config holds slugs) or already shown.
+    watched = {
+        _norm_company(s)
+        for key in ("greenhouse_boards", "greenhouse_companies", "lever_companies",
+                    "ashby_boards", "workable_accounts", "recruitee_companies")
+        for s in (search_cfg.get(key) or [])
+    }
+    shown = {_norm_company(n) for n in body.exclude}
+
+    def _fresh(name: str) -> bool:
+        n = _norm_company(name)
+        return bool(n) and n not in watched and n not in shown
+
+    # 1. Zero-hallucination pool: the user's own feed.
+    signals = await db.get_company_signals(min_score=70.0, limit=15)
+    candidates: list[dict] = []
+    for s in signals:
+        if not _fresh(s["company"]):
+            continue
+        why = f"{s['matched']} job{'s' if s['matched'] != 1 else ''} scored ≥70% fit in your feed (best {int(s['best_score'])}%)"
+        if s["applied"]:
+            why += f"; you applied to {s['applied']} of them"
+        candidates.append({"name": s["company"], "why": why, "origin": "history"})
+
+    # 2. LLM pool. AI being down shouldn't kill the history-mined results.
+    ai_error = None
+    try:
+        liked = [s["company"] for s in signals]
+        exclude_for_ai = body.exclude + liked + [c["name"] for c in candidates]
+        ai_suggestions = await ai_engine.suggest_companies(
+            cfg.get("profile", {}), search_cfg, liked, exclude_for_ai, cfg,
+        )
+    except Exception as e:
+        logger.warning("suggest-companies: AI call failed: %s", e)
+        ai_suggestions, ai_error = [], str(e)
+
+    seen = {_norm_company(c["name"]) for c in candidates}
+    for s in ai_suggestions:
+        if _fresh(s["name"]) and _norm_company(s["name"]) not in seen:
+            seen.add(_norm_company(s["name"]))
+            candidates.append({"name": s["name"], "why": s["why"], "origin": "ai"})
+
+    candidates = candidates[:12]
+
+    # 3. Validate every candidate against the live board probes (bounded).
+    sem = asyncio.Semaphore(4)
+    async with aiohttp.ClientSession(headers={"User-Agent": "Jobsmith/1.0"}) as session:
+        async def _validate(cand: dict) -> Optional[dict]:
+            async with sem:
+                boards = await _detect_boards_for(cand["name"], session)
+            live = [b for b in boards if b["jobs"] > 0]
+            return {**cand, "boards": live} if live else None
+
+        validated = await asyncio.gather(*(_validate(c) for c in candidates))
+
+    suggestions = [v for v in validated if v]
+    return {
+        "suggestions": suggestions,
+        "considered": len(candidates),
+        "ai_error": ai_error,
+    }
 
 
 @router.post("/api/jobs/refetch-descriptions", status_code=202)

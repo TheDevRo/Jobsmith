@@ -325,6 +325,32 @@ async def get_known_external_ids(source: str) -> set[str]:
         await db.close()
 
 
+async def get_company_signals(min_score: float = 70.0, limit: int = 15) -> list[dict]:
+    """Companies from the user's own feed worth watching directly: ones that
+    repeatedly score well and/or were applied to. Feeds the AI company
+    recommender's zero-hallucination candidate pool."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT company,
+                   COUNT(*) AS matched,
+                   ROUND(MAX(fit_score), 0) AS best_score,
+                   SUM(CASE WHEN status IN ('applied', 'submitted') THEN 1 ELSE 0 END) AS applied
+            FROM jobs
+            WHERE company IS NOT NULL AND company != '' AND fit_score >= ?
+            GROUP BY company COLLATE NOCASE
+            ORDER BY applied DESC, matched DESC, best_score DESC
+            LIMIT ?
+            """,
+            (min_score, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        await db.close()
+
+
 async def get_jobs(
     status: Optional[str] = None,
     source: Optional[str] = None,
