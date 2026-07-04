@@ -6,6 +6,7 @@ jobs         /api/jobs/* (CRUD, fetch, refetch), /api/sources, /api/screenshots
 pipeline     score / tailor / detect-apply-types / estimate-salaries batches
 applications /api/applications/*
 settings     /api/config, /api/settings/*, /api/onboarding/*, stats/activity
+prompts      /api/prompts/* (view/edit/reset internal LLM prompts)
 sessions     /api/linkedin/*, /api/indeed/*, /api/sessions/*
 system       /api/health, /api/ai/*, /api/debug/*, /api/logs/*, /api/resumes/*, notifications
 assist       /api/assist/*, /assist/launch/*, /assist-sidebar
@@ -19,6 +20,7 @@ from . import (  # noqa: F401
     extension,
     jobs,
     pipeline,
+    prompts,
     sessions,
     settings,
     system,
@@ -30,6 +32,7 @@ ALL_ROUTERS = [
     pipeline.router,
     applications.router,
     settings.router,
+    prompts.router,
     sessions.router,
     system.router,
     assist.router,

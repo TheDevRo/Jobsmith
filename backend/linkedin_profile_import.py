@@ -42,65 +42,8 @@ _SECTIONS = (
     ("SKILLS", "details/skills/", 1400),
 )
 
-_PROMPT = """You are extracting a job seeker's data from the visible text of \
-their own LinkedIn profile pages. Extract ONLY information that is literally \
-present in the text below. Do NOT infer, guess, embellish, or invent \
-anything. If a field is not clearly stated, return an empty string "" (or an \
-empty list for list fields). Never fabricate names, employers, dates, contact \
-details, schools, or skills.
-
-The text is scraped from web pages, so it contains UI noise — ignore things \
-like "· 3rd", follower/connection counts, "Show all", "Endorse", button \
-labels, and duration hints such as "· 2 yrs 3 mos".
-
-Return ONLY a single JSON object, no prose, no markdown fences, with EXACTLY \
-these keys:
-
-{{
-  "full_name": "",
-  "email": "",
-  "phone": "",
-  "location": "",
-  "street_address": "",
-  "street_address_2": "",
-  "city": "",
-  "state": "",
-  "zip_code": "",
-  "linkedin": "",
-  "github": "",
-  "portfolio": "",
-  "summary": "",
-  "skills": [],
-  "experience": [
-    {{"title": "", "company": "", "start_date": "", "end_date": "Present", "bullets": []}}
-  ],
-  "education": [
-    {{"degree": "", "school": "", "year": ""}}
-  ],
-  "certifications": []
-}}
-
-Rules:
-- "location" should be "City, ST" if present; also fill city/state/zip_code \
-when an explicit address is given.
-- Dates: keep them as written (e.g. "2021", "Jan 2021"). Use "Present" for a \
-current role's end_date. Do not copy duration hints like "2 yrs" into dates.
-- "summary": the profile's About text, verbatim.
-- "bullets": copy each role's description lines verbatim, lightly trimmed, \
-one line per array item; do not rewrite them.
-- "skills": only skills explicitly listed; one skill per array item; skip \
-endorsement counts.
-- "certifications": plain strings, one per item, as "Name (Issuer)" when the \
-issuer is shown — never objects.
-- "email"/"phone": only if shown (e.g. in a CONTACT INFO section).
-- Omit empty experience/education objects entirely rather than padding.
-
-LINKEDIN PROFILE TEXT:
-\"\"\"
-{resume}
-\"\"\"
-
-Return only the JSON object."""
+# The extraction prompt lives in prompt_registry (key "linkedin_import") so
+# it can be edited from Settings → Prompts.
 
 
 def _clean_text(text: str) -> str:
@@ -332,13 +275,13 @@ async def import_profile(config: dict) -> dict:
             "linkedin_url": profile_url,
         }
 
-    result = await resume_parser.parse_resume(text, config, prompt_template=_PROMPT)
+    result = await resume_parser.parse_resume(text, config, prompt_key="linkedin_import")
     # Small local models occasionally whiff on a long extraction; when the
     # scrape clearly had content but nothing came back, one retry is cheap.
     p = result["profile"]
     if len(text) > 500 and not p.get("full_name") and not p.get("experience"):
         logger.warning("LinkedIn import: empty extraction from %d chars — retrying once", len(text))
-        retry = await resume_parser.parse_resume(text, config, prompt_template=_PROMPT)
+        retry = await resume_parser.parse_resume(text, config, prompt_key="linkedin_import")
         rp = retry["profile"]
         if rp.get("full_name") or rp.get("experience"):
             result = retry

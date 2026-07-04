@@ -22,6 +22,7 @@ import httpx
 
 from . import ai_engine
 from . import database as db
+from . import prompt_registry
 
 logger = logging.getLogger(__name__)
 
@@ -250,16 +251,11 @@ async def classify_job_role(title: str, description: str, config: dict) -> dict:
     if cached is not None:
         return cached
 
-    prompt = (
-        "Classify the job posting below. Return ONLY a JSON object with these keys:\n"
-        '  "canonical_title": short generic role name (e.g. "software engineer", "cybersecurity analyst")\n'
-        '  "seniority": one of [intern, entry, junior, mid, senior, staff, principal, manager, director]\n'
-        '  "soc_code": closest 6-digit SOC code in "NN-NNNN" format\n'
-        '  "soc_title": label for that SOC code\n\n'
-        f"{_SOC_HINTS}\n"
-        f"TITLE: {title}\n"
-        f"DESCRIPTION: {(description or '')[:1500]}\n\n"
-        "Return only the JSON object."
+    prompt = prompt_registry.render_prompt(
+        config, "classify_job_role",
+        soc_hints=_SOC_HINTS,
+        job_title=title,
+        job_description=(description or "")[:1500],
     )
 
     result = {
