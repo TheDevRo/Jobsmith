@@ -265,6 +265,56 @@ function addBoardSlug(configKey, slug, btn) {
     toast('Added to watchlist — click Save Settings to apply', 'info');
 }
 
+// ---- AI company recommender ----
+
+const _suggestedCompanyNames = [];
+
+async function suggestCompanies() {
+    const btn = document.getElementById('suggest-companies-btn');
+    const results = document.getElementById('suggest-companies-results');
+    btn.disabled = true;
+    results.textContent = 'Mining your feed + asking the AI, then verifying live boards… (can take ~20s)';
+    try {
+        const r = await api('/api/sources/suggest-companies', {
+            method: 'POST',
+            body: JSON.stringify({ exclude: _suggestedCompanyNames }),
+        });
+        r.suggestions.forEach(s => _suggestedCompanyNames.push(s.name));
+        if (!r.suggestions.length) {
+            results.textContent = r.ai_error
+                ? `No verified suggestions this round (AI unavailable: ${r.ai_error}). Feed-mined candidates had no live boards.`
+                : 'No new suggestions with live boards this round — try again after fetching more jobs, or broaden your keywords.';
+            btn.textContent = 'Suggest more';
+            return;
+        }
+        const rows = r.suggestions.map(s => {
+            const origin = s.origin === 'history'
+                ? '<span style="font-size:0.75rem;padding:1px 6px;border-radius:8px;background:var(--bg-primary);border:1px solid var(--border)">from your feed</span>'
+                : '<span style="font-size:0.75rem;padding:1px 6px;border-radius:8px;background:var(--bg-primary);border:1px solid var(--border)">AI pick</span>';
+            const boards = s.boards.map(b => `
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 0 2px 14px;font-size:0.85rem">
+                    <span style="flex:1">${SOURCE_LABELS[b.source] || b.source}: <a href="${b.board_url}" target="_blank" rel="noopener"><code>${b.slug}</code></a>${b.company_name ? ` ("${b.company_name}")` : ''} — ${b.jobs} open job${b.jobs === 1 ? '' : 's'}</span>
+                    <button class="btn btn-secondary btn-sm" onclick="addBoardSlug('${b.config_key}', '${b.slug}', this)">Add</button>
+                </div>`).join('');
+            return `
+                <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem">
+                        <strong>${s.name}</strong> ${origin}
+                    </div>
+                    ${s.why ? `<div style="font-size:0.85rem;color:var(--text-secondary);margin:2px 0">${s.why}</div>` : ''}
+                    ${boards}
+                </div>`;
+        }).join('');
+        const aiNote = r.ai_error ? `<div class="hint" style="margin-top:6px">AI was unavailable (${r.ai_error}) — showing feed-mined suggestions only.</div>` : '';
+        results.innerHTML = rows + aiNote;
+        btn.textContent = 'Suggest more';
+    } catch (e) {
+        results.textContent = `Suggestion failed: ${e.message}`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 // ---- Logs ----
 
 let logsAutoRefreshTimer = null;

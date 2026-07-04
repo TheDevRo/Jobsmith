@@ -555,6 +555,86 @@ Return only the JSON object, no other text."""
     return titles
 
 
+async def suggest_companies(
+    profile: dict,
+    search_cfg: dict,
+    liked_companies: list[str],
+    exclude: list[str],
+    config: dict,
+) -> list[dict]:
+    """Recommend companies whose job boards the candidate should watch.
+
+    Returns a list of {"name": str, "why": str} dicts (may be empty if the
+    model output was unusable). Suggestions are candidates only — the caller
+    must validate each against the live ATS board probes before showing it.
+    """
+    ai_cfg = config.get("ai", {})
+    client = _get_client(config, "strong")
+
+    keywords = ", ".join(search_cfg.get("keywords", [])) or "(none set)"
+    liked = ", ".join(liked_companies[:15]) or "(no history yet)"
+    excluded = ", ".join(exclude[:60]) or "(none)"
+
+    prompt = f"""You are a job-search advisor AI. Suggest companies this candidate should follow — companies likely to post roles matching their background, where they'd plausibly want to work.
+
+Return ONLY a JSON object: {{"companies": [{{"name": "...", "why": "..."}}]}}
+
+Rules:
+- 12 to 18 companies, ordered most-relevant first.
+- Use each company's common brand name (e.g. "Stripe", not "Stripe, Inc.").
+- Prefer companies that hire for the candidate's kind of role regularly. Mix well-known names with a few less-obvious but real companies.
+- Do NOT suggest any company in the EXCLUDE list.
+- Companies similar to the LIKED list are good signals of taste.
+- Each "why" is one short sentence tying the company to the candidate.
+
+CANDIDATE PROFILE:
+{_profile_summary(profile)}
+
+SEARCH KEYWORDS: {keywords}
+
+LIKED (companies that scored well for them recently): {liked}
+
+EXCLUDE (already watched or already shown): {excluded}
+
+Return only the JSON object, no other text."""
+
+    response = await client.chat.completions.create(
+        model=_model(config, "strong"),
+        messages=[{"role": "user", "content": prompt}],
+        temperature=ai_cfg.get("temperature", 0.7),
+        max_tokens=1500,
+    )
+    text = (response.choices[0].message.content or "").strip()
+
+    data = None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+    if not isinstance(data, dict):
+        logger.warning("suggest_companies: unparseable response: %s", text[:300])
+        return []
+
+    companies: list[dict] = []
+    seen: set[str] = set()
+    for item in data.get("companies", []):
+        if isinstance(item, str):
+            item = {"name": item, "why": ""}
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        companies.append({"name": name, "why": str(item.get("why", "")).strip()})
+    return companies
+
+
 def _keyword_targets_block(match_report: Optional[dict]) -> str:
     """Build the ATS keyword-targeting section injected into the resume prompt.
 
