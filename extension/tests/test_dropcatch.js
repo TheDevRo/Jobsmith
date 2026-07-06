@@ -17,8 +17,12 @@ const dom = loadDom(html);
 const { window } = dom;
 const doc = window.document;
 
-const messages = [];
-window.browser = { runtime: { sendMessage: (m) => { messages.push(m); } } };
+// Pull-based: drops are recorded in the page and consumed via
+// __jobsmithTakeDropResult (runtime messaging is unreliable into extension
+// iframes in Firefox).
+const take = () => window.__jobsmithTakeDropResult();
+const messages = [];  // filled by takeAll() below for assertion convenience
+function takeAll() { const r = take(); if (r) messages.push(r); return r; }
 
 // Distinct rects so nearest-input selection is decidable: resume dropzone on
 // the left, cover input on the right.
@@ -53,9 +57,10 @@ doc.addEventListener("drop", () => { pageSawDrop = true; });
 const drop = new window.MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 50, clientY: 50 });
 doc.getElementById("page-btn").dispatchEvent(drop);
 
-const m = messages[messages.length - 1];
+const m = takeAll();
 checks.push(["drop intercepted before page handler", !pageSawDrop]);
-checks.push(["message sent with ok+kind", m && m.type === "jobsmith-file-drop" && m.ok === true && m.kind === "resume"]);
+checks.push(["result recorded with ok+kind", m && m.ok === true && m.kind === "resume"]);
+checks.push(["result consumed exactly once", take() === null]);
 checks.push(["nearest input stamped with fid", m && doc.getElementById("resume-input").getAttribute("data-jobsmith-fid") === m.fid]);
 checks.push(["auto-disarmed after drop", !doc.getElementById("__jobsmith-dropcatch-style__")]);
 
@@ -64,7 +69,7 @@ window.__jobsmithArmDropCatch("cover_letter");
 doc.getElementById("page-btn").dispatchEvent(
   new window.MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 700, clientY: 50 })
 );
-const m2 = messages[messages.length - 1];
+const m2 = takeAll();
 checks.push(["right-side drop picks cover input", m2 && m2.ok && doc.getElementById("cover-input").getAttribute("data-jobsmith-fid") === m2.fid]);
 
 // Keyword dominance: dragging a RESUME but dropping over the cover zone must
@@ -73,17 +78,16 @@ window.__jobsmithArmDropCatch("resume");
 doc.getElementById("page-btn").dispatchEvent(
   new window.MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 700, clientY: 50 })
 );
-const m3 = messages[messages.length - 1];
+const m3 = takeAll();
 checks.push(["resume drag over cover zone still picks resume input", m3 && m3.ok && doc.getElementById("resume-input").getAttribute("data-jobsmith-fid") === m3.fid]);
 
 // Manual disarm removes listeners: a later drop does nothing
 window.__jobsmithArmDropCatch("resume");
 window.__jobsmithDisarmDropCatch();
-const before = messages.length;
 doc.getElementById("page-btn").dispatchEvent(
   new window.MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 50, clientY: 50 })
 );
-checks.push(["disarm stops interception", messages.length === before]);
+checks.push(["disarm stops interception", take() === null]);
 
 const fail = report(checks);
 if (fail) { console.log("messages:", JSON.stringify(messages)); process.exit(1); }

@@ -408,8 +408,10 @@ async function armDropCatch(kind) {
       func: (k) => { window.__jobsmithArmDropCatch && window.__jobsmithArmDropCatch(k); },
       args: [kind],
     });
+    setStatus("Drop it on the highlighted upload area…");
   } catch (e) {
-    console.debug("armDropCatch failed:", e);
+    // Surface it — a silent console line here cost a debugging round-trip.
+    setStatus(`Drag setup failed: ${e.message}`, "err");
   }
 }
 
@@ -425,34 +427,46 @@ async function disarmDropCatch() {
   } catch (_) { /* tab gone — nothing to disarm */ }
 }
 
-async function handleFileDrop(msg, sender) {
-  // Only the panel instance that armed the drag responds — another open
-  // panel (e.g. native sidebar alongside the docked overlay) stays quiet.
-  if (dropCatchTabId == null) return;
-  disarmDropCatch();
-  if (!msg.ok) {
-    setStatus(`Drop failed: ${msg.reason || "no file input found"}`, "err");
+// Pull the recorded drop result out of every frame of the tab. The page
+// records it in dropcatch.js when the drop lands (drop always fires before
+// dragend, so by the time we collect, the result is there). Pulling via
+// executeScript avoids runtime messaging, whose delivery to an extension
+// page iframed in a web page is unreliable in Firefox.
+async function collectDropResult(tabId) {
+  const results = await ext.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: () => (window.__jobsmithTakeDropResult ? window.__jobsmithTakeDropResult() : null),
+  });
+  for (const r of results || []) {
+    if (r && r.result) {
+      return { ...r.result, frameId: typeof r.frameId === "number" ? r.frameId : 0 };
+    }
+  }
+  return null;
+}
+
+async function handleFileDrop(tabId, drop) {
+  if (!drop.ok) {
+    setStatus(`Drop failed: ${drop.reason || "no file input found"}`, "err");
     return;
   }
-  const file = msg.kind === "cover_letter" ? cachedFiles.cover : cachedFiles.resume;
+  const file = drop.kind === "cover_letter" ? cachedFiles.cover : cachedFiles.resume;
   if (!file) {
     setStatus("No file loaded — load a job first.", "warn");
     return;
   }
-  const tabId = sender.tab && sender.tab.id;
-  if (tabId == null) return;
   setStatus(`Attaching ${file.name}…`);
   try {
     const buf = await file.arrayBuffer();
     const item = {
-      field_id: msg.fid,
-      selector: `[data-jobsmith-fid="${CSS.escape(msg.fid)}"]`,
-      value: msg.kind,
+      field_id: drop.fid,
+      selector: `[data-jobsmith-fid="${CSS.escape(drop.fid)}"]`,
+      value: drop.kind,
       action: "upload",
       field_type: "file",
       confidence: 1,
       source: "drop",
-      _frameId: typeof sender.frameId === "number" ? sender.frameId : 0,
+      _frameId: drop.frameId,
       file_bytes: Array.from(new Uint8Array(buf)),
       file_name: file.name,
       file_mime: file.type || "application/octet-stream",
@@ -471,12 +485,6 @@ async function handleFileDrop(msg, sender) {
   }
 }
 
-if (ext.runtime && ext.runtime.onMessage) {
-  ext.runtime.onMessage.addListener((msg, sender) => {
-    if (msg && msg.type === "jobsmith-file-drop") handleFileDrop(msg, sender);
-  });
-}
-
 function attachDragHandlers(tile, kind) {
   tile.addEventListener("dragstart", (e) => {
     const file = tile._jobsmithFile;
@@ -493,14 +501,23 @@ function attachDragHandlers(tile, kind) {
     e.dataTransfer.setData("DownloadURL", `${mime}:${file.name}:about:blank`);
     armDropCatch(kind);
   });
-  tile.addEventListener("dragend", () => {
-    // dragend fires the instant the mouse is released, but the drop message
-    // from the content script arrives asynchronously — disarming (and
-    // clearing dropCatchTabId, the armed-panel guard handleFileDrop checks)
-    // immediately would race the message and silently swallow the drop.
-    // The catcher already auto-disarmed itself on a successful drop; this
-    // delayed sweep only cleans up cancelled drags.
-    setTimeout(() => disarmDropCatch(), 1200);
+  tile.addEventListener("dragend", async () => {
+    // drop fired before dragend (if it fired at all) — pull the recorded
+    // result out of the page and attach.
+    const tabId = dropCatchTabId;
+    if (tabId == null) return;
+    try {
+      const drop = await collectDropResult(tabId);
+      if (drop) {
+        await handleFileDrop(tabId, drop);
+      } else {
+        setStatus("Drag cancelled — drop onto the upload area of the form.", "warn");
+      }
+    } catch (e) {
+      setStatus(`Drop check failed: ${e.message}`, "err");
+    } finally {
+      disarmDropCatch();
+    }
   });
 }
 
