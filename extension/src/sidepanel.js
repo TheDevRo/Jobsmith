@@ -386,7 +386,98 @@ function downloadFile(file) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function attachDragHandlers(tile) {
+// ---- Drag-to-attach ------------------------------------------------------
+// Browsers don't reliably deliver a programmatic File dragged from an
+// extension page into a web page (Firefox drops an empty payload — the file
+// "disappears"). So the drag is a gesture only: while it's in flight we arm
+// common/dropcatch.js in the page, which intercepts the drop, picks the file
+// input nearest the cursor, and messages back — then we attach the real
+// bytes through the same runFill upload path autofill uses.
+
+let dropCatchTabId = null;
+
+async function armDropCatch(kind) {
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return;
+    dropCatchTabId = tab.id;
+    const target = { tabId: tab.id, allFrames: true };  // ATS forms live in iframes too
+    await ext.scripting.executeScript({ target, files: ["common/dropcatch.js"] });
+    await ext.scripting.executeScript({
+      target,
+      func: (k) => { window.__jobsmithArmDropCatch && window.__jobsmithArmDropCatch(k); },
+      args: [kind],
+    });
+  } catch (e) {
+    console.debug("armDropCatch failed:", e);
+  }
+}
+
+async function disarmDropCatch() {
+  if (dropCatchTabId == null) return;
+  const tabId = dropCatchTabId;
+  dropCatchTabId = null;
+  try {
+    await ext.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => { window.__jobsmithDisarmDropCatch && window.__jobsmithDisarmDropCatch(); },
+    });
+  } catch (_) { /* tab gone — nothing to disarm */ }
+}
+
+async function handleFileDrop(msg, sender) {
+  // Only the panel instance that armed the drag responds — another open
+  // panel (e.g. native sidebar alongside the docked overlay) stays quiet.
+  if (dropCatchTabId == null) return;
+  disarmDropCatch();
+  if (!msg.ok) {
+    setStatus(`Drop failed: ${msg.reason || "no file input found"}`, "err");
+    return;
+  }
+  const file = msg.kind === "cover_letter" ? cachedFiles.cover : cachedFiles.resume;
+  if (!file) {
+    setStatus("No file loaded — load a job first.", "warn");
+    return;
+  }
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  setStatus(`Attaching ${file.name}…`);
+  try {
+    const buf = await file.arrayBuffer();
+    const item = {
+      field_id: msg.fid,
+      selector: `[data-jobsmith-fid="${CSS.escape(msg.fid)}"]`,
+      value: msg.kind,
+      action: "upload",
+      field_type: "file",
+      confidence: 1,
+      source: "drop",
+      _frameId: typeof sender.frameId === "number" ? sender.frameId : 0,
+      file_bytes: Array.from(new Uint8Array(buf)),
+      file_name: file.name,
+      file_mime: file.type || "application/octet-stream",
+    };
+    await injectFillRuntime(tabId, true);
+    const out = await runFill(tabId, [item]);
+    const r = out && out.results && out.results[0];
+    if (r && r.status === "filled") {
+      setStatus(`Attached ${file.name}.`, "ok");
+      showToast(`Attached ${file.name}`);
+    } else {
+      setStatus(`Attach failed: ${(r && r.message) || "unknown error"}`, "err");
+    }
+  } catch (e) {
+    setStatus(`Attach error: ${e.message}`, "err");
+  }
+}
+
+if (ext.runtime && ext.runtime.onMessage) {
+  ext.runtime.onMessage.addListener((msg, sender) => {
+    if (msg && msg.type === "jobsmith-file-drop") handleFileDrop(msg, sender);
+  });
+}
+
+function attachDragHandlers(tile, kind) {
   tile.addEventListener("dragstart", (e) => {
     const file = tile._jobsmithFile;
     if (!file) { e.preventDefault(); return; }
@@ -400,6 +491,12 @@ function attachDragHandlers(tile) {
     // Hint for sites that listen for DownloadURL drops
     const mime = file.type || "application/octet-stream";
     e.dataTransfer.setData("DownloadURL", `${mime}:${file.name}:about:blank`);
+    armDropCatch(kind);
+  });
+  tile.addEventListener("dragend", () => {
+    // The drop message (if any) was sent synchronously before dragend fires;
+    // this just cleans up listeners/highlights in every frame.
+    disarmDropCatch();
   });
 }
 
@@ -463,8 +560,8 @@ $("loadJob").addEventListener("click", () => loadJob($("jobId").value.trim()));
 $("jobId").addEventListener("keydown", (e) => {
   if (e.key === "Enter") loadJob($("jobId").value.trim());
 });
-attachDragHandlers($("resumeTile"));
-attachDragHandlers($("coverTile"));
+attachDragHandlers($("resumeTile"), "resume");
+attachDragHandlers($("coverTile"), "cover_letter");
 
 $("resumeDownload").addEventListener("click", () => downloadFile($("resumeDownload")._jobsmithFile));
 $("coverDownload").addEventListener("click",  () => downloadFile($("coverDownload")._jobsmithFile));
