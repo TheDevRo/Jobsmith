@@ -49,25 +49,7 @@ async function copyToClipboard(text) {
   }
 }
 
-// When opened as a detached popup window (Firefox Assist auto-open), the
-// panel is pinned to the application tab via ?tabId= — "active tab in the
-// current window" would otherwise resolve to the panel page itself.
-const PINNED_TAB_ID = (() => {
-  const v = new URLSearchParams(location.search).get("tabId");
-  const n = v ? parseInt(v, 10) : NaN;
-  return Number.isFinite(n) ? n : null;
-})();
-
 async function activeTab() {
-  if (PINNED_TAB_ID != null) {
-    const tab = await new Promise((resolve) => {
-      try {
-        ext.tabs.get(PINNED_TAB_ID, (t) => resolve(ext.runtime.lastError ? null : t));
-      } catch (_) { resolve(null); }
-    });
-    if (tab) return tab;
-    // Pinned tab was closed — fall through to normal behavior.
-  }
   return new Promise((resolve) => {
     ext.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
   });
@@ -605,11 +587,7 @@ window.addEventListener("focus", () => {
 if (ext.tabs && ext.tabs.onUpdated) {
   ext.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status !== "complete") return;
-    if (PINNED_TAB_ID != null) {
-      if (tabId !== PINNED_TAB_ID) return;  // pinned mode: track only that tab
-    } else if (!tab || !tab.active) {
-      return;
-    }
+    if (!tab || !tab.active) return;
     checkActiveJobHint(true);
     autoScanIfReady();
   });
