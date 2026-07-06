@@ -29,15 +29,21 @@ RUN pip install -r requirements.txt
 
 # X stack for the optional headed mode. fluxbox matters: Chromium under a
 # bare Xvfb has no window manager, so dialogs can render off-screen.
+# rsync + zip: needed by extension/scripts/build.sh below.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        xvfb x11vnc novnc websockify fluxbox \
+        xvfb x11vnc novnc websockify fluxbox rsync zip \
     && rm -rf /var/lib/apt/lists/* \
     && test -f /usr/share/novnc/vnc.html
 
 COPY backend ./backend
 COPY frontend ./frontend
 COPY extension ./extension
+
+# Build extension/dist (gitignored, so never in the build context): the
+# install/download endpoints serve these zips, and the committed signed
+# Firefox XPI in extension/signed/ gets staged into the artifacts dir.
+RUN bash extension/scripts/build.sh
 COPY tests ./tests
 COPY config.example.yaml debug_apply.py linkedin_login.py pytest.ini ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

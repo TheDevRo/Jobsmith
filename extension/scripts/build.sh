@@ -42,6 +42,14 @@ if [ -n "$STASH" ]; then
   rmdir "$STASH"
 fi
 
+# Committed signed XPIs (extension/signed/) also belong in the artifacts dir
+# so PyInstaller-bundled desktop builds ship them. -n: never clobber a fresh
+# `web-ext sign` output of the same name.
+if compgen -G "$ROOT/signed/*.xpi" > /dev/null; then
+  mkdir -p "$DIST/firefox/web-ext-artifacts"
+  cp -n -p "$ROOT/signed/"*.xpi "$DIST/firefox/web-ext-artifacts/" || true
+fi
+
 echo "Built:"
 echo "  $DIST/chrome   (load unpacked in chrome://extensions)"
 echo "  $DIST/firefox  (Load Temporary Add-on in about:debugging)"

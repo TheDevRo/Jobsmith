@@ -7,6 +7,7 @@ backend/extension_api.py; this module is the dashboard-facing surface.
 """
 
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -67,13 +68,35 @@ async def download_extension(browser: str):
     return FileResponse(str(path), media_type="application/zip", filename=fname)
 
 
+# Signed artifacts live in two places: web-ext-artifacts/ (fresh `web-ext
+# sign` output, present in desktop builds) and extension/signed/ (committed
+# to git so Docker images and source checkouts — which have no dist and no
+# AMO credentials — still serve a permanently installable XPI).
+_EXT_SIGNED_DIRS = (
+    _EXT_DIST_DIR / "firefox" / "web-ext-artifacts",
+    _EXT_DIST_DIR.parent / "signed",
+)
+
+_XPI_VERSION_RE = re.compile(r"-(\d+(?:\.\d+)*)\.xpi$")
+
+
+def _xpi_sort_key(path: Path) -> tuple:
+    """Highest version wins; mtime breaks ties. Version comes from the
+    `...-X.Y.Z.xpi` filename suffix — git checkouts reset mtimes, so mtime
+    alone would misrank a committed newer version under a stale local one."""
+    m = _XPI_VERSION_RE.search(path.name)
+    version = tuple(int(p) for p in m.group(1).split(".")) if m else ()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (version, mtime)
+
+
 def _latest_signed_xpi() -> Optional[Path]:
-    """Newest Mozilla-signed .xpi produced by `web-ext sign`, if any."""
-    artifacts_dir = _EXT_DIST_DIR / "firefox" / "web-ext-artifacts"
-    if not artifacts_dir.is_dir():
-        return None
-    xpis = sorted(artifacts_dir.glob("*.xpi"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return xpis[0] if xpis else None
+    """Best Mozilla-signed .xpi available across all artifact locations."""
+    xpis = [p for d in _EXT_SIGNED_DIRS if d.is_dir() for p in d.glob("*.xpi")]
+    return max(xpis, key=_xpi_sort_key) if xpis else None
 
 
 @router.get("/api/extension/firefox-xpi")
