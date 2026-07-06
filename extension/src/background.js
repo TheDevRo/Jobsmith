@@ -19,6 +19,48 @@ api.runtime.onInstalled.addListener(() => {
 });
 
 // ---------------------------------------------------------------------------
+// Privileged-API RPC for the docked panel.
+//
+// Firefox gives an extension page iframed inside a web page (the overlay)
+// only content-script-level privileges — no tabs, no scripting. The panel
+// sends {type:"jobsmith-rpc"} messages and the background (always fully
+// privileged) executes on its behalf. Functions can't cross the message
+// boundary, so page-world calls go by NAME via "scripting.callInPage",
+// invoking a window.__jobsmith* function with JSON args in the target's
+// isolated world.
+// ---------------------------------------------------------------------------
+
+api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== "jobsmith-rpc") return;
+  (async () => {
+    try {
+      let result;
+      if (msg.method === "tabs.query") {
+        result = await api.tabs.query(msg.args[0]);
+      } else if (msg.method === "tabs.get") {
+        result = await api.tabs.get(msg.args[0]);
+      } else if (msg.method === "scripting.executeScript") {
+        const { target, files } = msg.args[0];
+        result = await api.scripting.executeScript({ target, files });
+      } else if (msg.method === "scripting.callInPage") {
+        const { target, fnName, fnArgs } = msg.args[0];
+        result = await api.scripting.executeScript({
+          target,
+          func: (name, a) => { const f = window[name]; return f ? f.apply(null, a) : null; },
+          args: [fnName, fnArgs || []],
+        });
+      } else {
+        throw new Error("unknown rpc method: " + msg.method);
+      }
+      sendResponse({ ok: true, result });
+    } catch (e) {
+      sendResponse({ ok: false, error: String((e && e.message) || e) });
+    }
+  })();
+  return true;  // keep the message channel open for the async response
+});
+
+// ---------------------------------------------------------------------------
 // Applicant Assist handoff (background-driven)
 // ---------------------------------------------------------------------------
 
