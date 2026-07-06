@@ -494,9 +494,13 @@ function attachDragHandlers(tile, kind) {
     armDropCatch(kind);
   });
   tile.addEventListener("dragend", () => {
-    // The drop message (if any) was sent synchronously before dragend fires;
-    // this just cleans up listeners/highlights in every frame.
-    disarmDropCatch();
+    // dragend fires the instant the mouse is released, but the drop message
+    // from the content script arrives asynchronously — disarming (and
+    // clearing dropCatchTabId, the armed-panel guard handleFileDrop checks)
+    // immediately would race the message and silently swallow the drop.
+    // The catcher already auto-disarmed itself on a successful drop; this
+    // delayed sweep only cleans up cancelled drags.
+    setTimeout(() => disarmDropCatch(), 1200);
   });
 }
 
