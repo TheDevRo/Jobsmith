@@ -1,6 +1,7 @@
-// assist_handshake.js — runs on http(s)://(localhost|127.0.0.1):8888/assist/launch/*
+// assist_handshake.js — runs on http(s)://(localhost|127.0.0.1)/assist/launch/*
+// (any port — the desktop backend may bind a random one when 8888 is taken).
 // Reads the session record embedded in the page, auto-provisions the backend
-// token into extension storage if needed, then calls /api/ext/assist/checkin
+// token into extension storage if needed or stale, then calls /api/ext/assist/checkin
 // so the page can detect the extension is present and redirect to the job.
 
 (function () {
@@ -59,38 +60,53 @@
       console.error(TAG, "storage.get failed", e);
       return;
     }
-    const hasToken = !!(stored && stored.token);
-    const token = hasToken ? stored.token : setupToken;
+    stored = stored || {};
+    const hasToken = !!stored.token;
     console.log(TAG, "stored token present:", hasToken);
 
-    if (!hasToken || !stored.backendUrl) {
-      try {
-        await storageSet({
-          backendUrl: stored.backendUrl || backendUrl,
-          token,
-        });
-        console.log(TAG, "persisted backendUrl + token into extension storage");
-      } catch (e) {
-        console.error(TAG, "storage.set failed", e);
-      }
-    }
-
-    try {
+    async function checkin(tok) {
       const resp = await fetch(backendUrl + "/api/ext/assist/checkin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Jobsmith-Token": token,
+          "X-Jobsmith-Token": tok,
         },
         body: JSON.stringify({ session_id: sessionId, had_token: hasToken }),
       });
       console.log(TAG, "checkin status:", resp.status);
+      return resp;
+    }
+
+    let token = hasToken ? stored.token : setupToken;
+    try {
+      let resp = await checkin(token);
+      if (resp.status === 401 && token !== setupToken) {
+        // Stored token is stale (backend token rotated, or a different
+        // Jobsmith instance). The page's setup token is authoritative for
+        // this session.
+        console.warn(TAG, "stored token rejected; retrying with setup token");
+        token = setupToken;
+        resp = await checkin(token);
+      }
       if (!resp.ok) {
         const body = await resp.text().catch(() => "");
         console.error(TAG, "checkin failed body:", body);
+        return;
       }
     } catch (e) {
       console.error(TAG, "checkin fetch threw:", e);
+      return;
+    }
+
+    // Persist whatever just worked so the popup/side panel talk to the same
+    // backend with a valid token (heals rotated tokens and moved ports).
+    if (stored.token !== token || stored.backendUrl !== backendUrl) {
+      try {
+        await storageSet({ backendUrl, token });
+        console.log(TAG, "persisted backendUrl + token into extension storage");
+      } catch (e) {
+        console.error(TAG, "storage.set failed", e);
+      }
     }
   })();
 })();

@@ -1,9 +1,9 @@
 // background.js — service worker (Chrome) / background script (Firefox).
 // Handles toolbar/side-panel wiring AND the Applicant Assist handoff:
-// when a tab navigates to http(s)://(localhost|127.0.0.1):8888/assist/launch/<id>,
+// when a tab navigates to http(s)://(localhost|127.0.0.1)[:port]/assist/launch/<id>,
 // the background fetches the per-session setup token, persists it into
-// extension storage if missing, then POSTs /api/ext/assist/checkin so the
-// launch page can detect the extension and redirect to the apply URL.
+// extension storage if missing or stale, then POSTs /api/ext/assist/checkin so
+// the launch page can detect the extension and redirect to the apply URL.
 //
 // We do this from the background instead of via a content_script because
 // Firefox MV3 treats host_permissions for localhost as user-opt-in, which
@@ -36,7 +36,9 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // Applicant Assist handoff (background-driven)
 // ---------------------------------------------------------------------------
 
-const LAUNCH_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):8888\/assist\/launch\/([A-Za-z0-9_-]+)/;
+// No port pin: the desktop backend binds a random free port when 8888 is
+// already taken (e.g. a Docker Jobsmith is running).
+const LAUNCH_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/assist\/launch\/([A-Za-z0-9_-]+)/;
 const seenSessions = new Set();
 
 function storageGet(keys) {
@@ -106,30 +108,48 @@ async function performAssistHandshake(launchUrl, sessionId, tabId) {
     return;
   }
 
-  const stored = await storageGet(["backendUrl", "token"]);
-  const hasToken = !!(stored && stored.token);
-  const token = hasToken ? stored.token : setupToken;
-  if (!hasToken || !stored.backendUrl) {
+  const stored = (await storageGet(["backendUrl", "token"])) || {};
+  const hasToken = !!stored.token;
+
+  async function checkin(tok) {
+    const r = await fetch(origin + "/api/ext/assist/checkin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Jobsmith-Token": tok },
+      body: JSON.stringify({ session_id: sessionId, had_token: hasToken }),
+    });
+    console.log("[Jobsmith handshake]", "checkin status:", r.status);
+    return r;
+  }
+
+  let token = hasToken ? stored.token : setupToken;
+  try {
+    let r = await checkin(token);
+    if (r.status === 401 && token !== setupToken) {
+      // Stored token is stale (backend token rotated, or a different Jobsmith
+      // instance). The page's setup token is authoritative for this session.
+      console.warn("[Jobsmith handshake]", "stored token rejected; retrying with setup token");
+      token = setupToken;
+      r = await checkin(token);
+    }
+    if (!r.ok) {
+      seenSessions.delete(sessionId);
+      return;
+    }
+  } catch (e) {
+    console.error("[Jobsmith handshake]", "checkin fetch threw", e);
+    seenSessions.delete(sessionId);
+    return;
+  }
+
+  // Persist whatever just worked so the popup/side panel talk to the same
+  // backend with a valid token (heals rotated tokens and moved ports).
+  if (stored.token !== token || stored.backendUrl !== origin) {
     try {
-      await storageSet({
-        backendUrl: stored.backendUrl || origin,
-        token,
-      });
+      await storageSet({ backendUrl: origin, token });
       console.log("[Jobsmith handshake]", "persisted backendUrl + token");
     } catch (e) {
       console.warn("[Jobsmith handshake]", "storage.set failed", e);
     }
-  }
-
-  try {
-    const r = await fetch(origin + "/api/ext/assist/checkin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Jobsmith-Token": token },
-      body: JSON.stringify({ session_id: sessionId, had_token: hasToken }),
-    });
-    console.log("[Jobsmith handshake]", "checkin status:", r.status);
-  } catch (e) {
-    console.error("[Jobsmith handshake]", "checkin fetch threw", e);
   }
 }
 
