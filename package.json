@@ -9,7 +9,7 @@
   "main": "index.js",
   "scripts": {
     "test": "npm run test:extension",
-    "test:extension": "node extension/tests/test_snapshot.js && node extension/tests/test_fill.js && node extension/tests/test_combobox.js && node extension/tests/test_overlay.js"
+    "test:extension": "node extension/tests/test_snapshot.js && node extension/tests/test_fill.js && node extension/tests/test_combobox.js && node extension/tests/test_overlay.js && node extension/tests/test_dropcatch.js"
   },
   "keywords": [],
   "author": "",
