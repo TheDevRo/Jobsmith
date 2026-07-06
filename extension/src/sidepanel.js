@@ -58,19 +58,84 @@ const PINNED_TAB_ID = (() => {
   return Number.isFinite(n) ? n : null;
 })();
 
-async function activeTab() {
-  if (PINNED_TAB_ID != null) {
-    const tab = await new Promise((resolve) => {
+// ---------------------------------------------------------------------------
+// Privileged API access.
+//
+// Chrome grants extension pages full APIs even when iframed inside a web
+// page. Firefox does NOT: the docked overlay gets content-script-level
+// privileges only — ext.tabs / ext.scripting are undefined there. Route
+// those calls through the background script (always fully privileged) via
+// a small RPC over runtime.sendMessage, which IS available in the iframe.
+// (?forceRpc=1 exercises the RPC path in any browser, for tests.)
+// ---------------------------------------------------------------------------
+
+const HAS_DIRECT_APIS =
+  !new URLSearchParams(location.search).has("forceRpc") &&
+  !!(ext.tabs && ext.tabs.query && ext.scripting && ext.scripting.executeScript);
+
+function bgRpc(method, ...args) {
+  return new Promise((resolve, reject) => {
+    const handle = (resp) => {
+      if (!resp) {
+        const le = ext.runtime.lastError;
+        reject(new Error(le ? le.message : "no response from background"));
+      } else if (!resp.ok) {
+        reject(new Error(resp.error));
+      } else {
+        resolve(resp.result);
+      }
+    };
+    try {
+      const p = ext.runtime.sendMessage({ type: "jobsmith-rpc", method, args });
+      if (p && typeof p.then === "function") p.then(handle, reject);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function tabsQuery(info) {
+  if (HAS_DIRECT_APIS) return new Promise((r) => ext.tabs.query(info, r));
+  return bgRpc("tabs.query", info);
+}
+
+function tabsGet(tabId) {
+  if (HAS_DIRECT_APIS) {
+    return new Promise((resolve) => {
       try {
-        ext.tabs.get(PINNED_TAB_ID, (t) => resolve(ext.runtime.lastError ? null : t));
+        ext.tabs.get(tabId, (t) => resolve(ext.runtime.lastError ? null : t));
       } catch (_) { resolve(null); }
     });
+  }
+  return bgRpc("tabs.get", tabId).catch(() => null);
+}
+
+function execFiles(target, files) {
+  if (HAS_DIRECT_APIS) return ext.scripting.executeScript({ target, files });
+  return bgRpc("scripting.executeScript", { target, files });
+}
+
+// Call a well-known window.__jobsmith* function in the page's isolated world
+// with JSON args (functions can't cross the RPC boundary, names can).
+function execCall(target, fnName, fnArgs) {
+  if (HAS_DIRECT_APIS) {
+    return ext.scripting.executeScript({
+      target,
+      func: (name, a) => { const f = window[name]; return f ? f.apply(null, a) : null; },
+      args: [fnName, fnArgs || []],
+    });
+  }
+  return bgRpc("scripting.callInPage", { target, fnName, fnArgs: fnArgs || [] });
+}
+
+async function activeTab() {
+  if (PINNED_TAB_ID != null) {
+    const tab = await tabsGet(PINNED_TAB_ID);
     if (tab) return tab;
     // Pinned tab was closed — fall through to normal behavior.
   }
-  return new Promise((resolve) => {
-    ext.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
-  });
+  const tabs = await tabsQuery({ active: true, currentWindow: true });
+  return tabs && tabs[0];
 }
 
 async function snapshotActiveTab() {
@@ -83,10 +148,7 @@ async function snapshotActiveTab() {
 
   async function grab(allFrames) {
     const target = allFrames ? { tabId: tab.id, allFrames: true } : { tabId: tab.id };
-    const results = await ext.scripting.executeScript({
-      target,
-      files: ["common/snapshot.js"],
-    });
+    const results = await execFiles(target, ["common/snapshot.js"]);
     if (!results || !results.length) {
       throw new Error("Snapshot returned nothing (page may block scripts)");
     }
@@ -126,10 +188,7 @@ async function snapshotActiveTab() {
 
 async function injectFillRuntime(tabId, deep) {
   const target = deep ? { tabId, allFrames: true } : { tabId };
-  await ext.scripting.executeScript({
-    target,
-    files: ["common/fill.js"],
-  });
+  await execFiles(target, ["common/fill.js"]);
 }
 
 async function runFill(tabId, items, { clearOnly = false } = {}) {
@@ -144,12 +203,12 @@ async function runFill(tabId, items, { clearOnly = false } = {}) {
   const perFrame = await Promise.all(
     Array.from(groups, async ([fid, group]) => {
       try {
-        const [res] = await ext.scripting.executeScript({
-          target: { tabId, frameIds: [fid] },
-          func: (payload, options) => window.__jobsmithFillAndHighlight(payload, options),
-          args: [group, { clearOnly }],
-        });
-        return res && res.result;
+        const res = await execCall(
+          { tabId, frameIds: [fid] },
+          "__jobsmithFillAndHighlight",
+          [group, { clearOnly }]
+        );
+        return res && res[0] && res[0].result;
       } catch (e) {
         console.warn(`fill in frame ${fid} failed:`, e);
         return null;
@@ -345,11 +404,7 @@ async function doClearHighlights() {
     // Clear in every frame directly — runFill() groups by item frame and
     // executes nothing for an empty item list.
     await injectFillRuntime(tab.id, true);
-    await ext.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true },
-      func: (options) => window.__jobsmithFillAndHighlight([], options),
-      args: [{ clearOnly: true }],
-    });
+    await execCall({ tabId: tab.id, allFrames: true }, "__jobsmithFillAndHighlight", [[], { clearOnly: true }]);
     setStatus("Highlights cleared.");
   } catch (e) {
     setStatus(`Clear error: ${e.message}`, "err");
@@ -402,12 +457,8 @@ async function armDropCatch(kind) {
     if (!tab || !tab.id) return;
     dropCatchTabId = tab.id;
     const target = { tabId: tab.id, allFrames: true };  // ATS forms live in iframes too
-    await ext.scripting.executeScript({ target, files: ["common/dropcatch.js"] });
-    await ext.scripting.executeScript({
-      target,
-      func: (k) => { window.__jobsmithArmDropCatch && window.__jobsmithArmDropCatch(k); },
-      args: [kind],
-    });
+    await execFiles(target, ["common/dropcatch.js"]);
+    await execCall(target, "__jobsmithArmDropCatch", [kind]);
     setStatus("Drop it on the highlighted upload area…");
   } catch (e) {
     // Surface it — a silent console line here cost a debugging round-trip.
@@ -420,10 +471,7 @@ async function disarmDropCatch() {
   const tabId = dropCatchTabId;
   dropCatchTabId = null;
   try {
-    await ext.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => { window.__jobsmithDisarmDropCatch && window.__jobsmithDisarmDropCatch(); },
-    });
+    await execCall({ tabId, allFrames: true }, "__jobsmithDisarmDropCatch", []);
   } catch (_) { /* tab gone — nothing to disarm */ }
 }
 
@@ -433,10 +481,7 @@ async function disarmDropCatch() {
 // executeScript avoids runtime messaging, whose delivery to an extension
 // page iframed in a web page is unreliable in Firefox.
 async function collectDropResult(tabId) {
-  const results = await ext.scripting.executeScript({
-    target: { tabId, allFrames: true },
-    func: () => (window.__jobsmithTakeDropResult ? window.__jobsmithTakeDropResult() : null),
-  });
+  const results = await execCall({ tabId, allFrames: true }, "__jobsmithTakeDropResult", []);
   for (const r of results || []) {
     if (r && r.result) {
       return { ...r.result, frameId: typeof r.frameId === "number" ? r.frameId : 0 };
