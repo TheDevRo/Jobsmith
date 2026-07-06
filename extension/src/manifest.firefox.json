@@ -43,15 +43,6 @@
       "128": "icons/icon-128.png"
     }
   },
-  "sidebar_action": {
-    "default_title": "Jobsmith",
-    "default_panel": "sidepanel.html",
-    "default_icon": {
-      "16": "icons/icon-16.png",
-      "48": "icons/icon-48.png",
-      "128": "icons/icon-128.png"
-    }
-  },
   "browser_specific_settings": {
     "gecko": {
       "id": "jobsmith@localhost",

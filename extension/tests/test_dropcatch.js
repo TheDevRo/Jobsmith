@@ -67,6 +67,15 @@ doc.getElementById("page-btn").dispatchEvent(
 const m2 = messages[messages.length - 1];
 checks.push(["right-side drop picks cover input", m2 && m2.ok && doc.getElementById("cover-input").getAttribute("data-jobsmith-fid") === m2.fid]);
 
+// Keyword dominance: dragging a RESUME but dropping over the cover zone must
+// still pick the resume input (its id says "resume", the other says "cover").
+window.__jobsmithArmDropCatch("resume");
+doc.getElementById("page-btn").dispatchEvent(
+  new window.MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 700, clientY: 50 })
+);
+const m3 = messages[messages.length - 1];
+checks.push(["resume drag over cover zone still picks resume input", m3 && m3.ok && doc.getElementById("resume-input").getAttribute("data-jobsmith-fid") === m3.fid]);
+
 // Manual disarm removes listeners: a later drop does nothing
 window.__jobsmithArmDropCatch("resume");
 window.__jobsmithDisarmDropCatch();

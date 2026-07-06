@@ -43,15 +43,25 @@ $("test").addEventListener("click", async () => {
 });
 
 $("open").addEventListener("click", async () => {
-  if (ext.sidePanel) {
-    const [tab] = await new Promise(r => ext.tabs.query({ active: true, currentWindow: true }, r));
-    try { await ext.sidePanel.open({ windowId: tab.windowId }); window.close(); }
-    catch (e) { setStatus(`Open failed: ${e.message}`, "err"); }
-  } else if (ext.sidebarAction) {
-    ext.sidebarAction.open();
+  // Mount the in-page docked panel on the active tab — the single panel
+  // implementation for both browsers (see background.js).
+  const [tab] = await new Promise(r => ext.tabs.query({ active: true, currentWindow: true }, r));
+  if (!tab || !tab.id) { setStatus("No active tab.", "err"); return; }
+  if (!/^https?:/.test(tab.url || "")) {
+    setStatus("Open a job page first — the panel attaches to the page.", "err");
+    return;
+  }
+  try {
+    const panelUrl = ext.runtime.getURL("sidepanel.html") + "?tabId=" + tab.id + "&overlay=1";
+    await ext.scripting.executeScript({ target: { tabId: tab.id }, files: ["common/overlay.js"] });
+    await ext.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (u) => { window.__jobsmithMountOverlay && window.__jobsmithMountOverlay(u); },
+      args: [panelUrl],
+    });
     window.close();
-  } else {
-    setStatus("Side panel not supported in this browser.", "err");
+  } catch (e) {
+    setStatus(`Open failed: ${e.message}`, "err");
   }
 });
 

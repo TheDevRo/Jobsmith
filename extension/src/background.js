@@ -14,22 +14,8 @@
 const isChrome = typeof browser === "undefined";
 const api = isChrome ? chrome : browser;
 
-if (isChrome && api.sidePanel) {
-  api.sidePanel.setPanelBehavior({ openPanelOnActionClick: false })
-    .catch((e) => console.warn("sidePanel.setPanelBehavior:", e));
-}
-
 api.runtime.onInstalled.addListener(() => {
   console.log("Jobsmith extension installed");
-});
-
-api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.type === "open-side-panel" && isChrome && api.sidePanel) {
-    api.sidePanel.open({ windowId: sender.tab?.windowId })
-      .then(() => sendResponse({ ok: true }))
-      .catch((e) => sendResponse({ ok: false, error: String(e) }));
-    return true;
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -53,14 +39,16 @@ function storageSet(values) {
 }
 
 // ---------------------------------------------------------------------------
-// Firefox: in-page docked panel.
+// The in-page docked panel — the ONE panel implementation, both browsers.
 //
-// Firefox's sidebarAction.open() only works from a real user-input handler
-// (and that status doesn't propagate through messages), so the native
-// sidebar can never auto-open from the Assist navigation. Instead, tabs that
-// completed an Assist handshake get the panel injected INTO the application
-// page as a docked iframe (common/overlay.js) — the same UX as the old
-// isolated-mode sidebar, but in the user's own browser.
+// Tabs that completed an Assist handshake get the panel injected INTO the
+// application page as a docked iframe (common/overlay.js), same UX as the
+// old isolated-mode sidebar but in the user's own browser. Native
+// sidebar/side-panel APIs are deliberately unused: Firefox's
+// sidebarAction.open() only works from a real user-input handler (the
+// status doesn't propagate through messages), and maintaining two panel
+// surfaces meant duplicate behavior. The popup's "Open panel" button mounts
+// the same overlay manually.
 // ---------------------------------------------------------------------------
 
 const assistTabs = new Set();
@@ -92,33 +80,11 @@ if (api.tabs && api.tabs.onRemoved) {
   api.tabs.onRemoved.addListener((tabId) => assistTabs.delete(tabId));
 }
 
-async function tryOpenSidePanel(tabId) {
-  if (!isChrome) {
-    // Firefox: mark the tab; the overlay mounts once it navigates from the
-    // launch page to the actual application (and re-mounts on every page of
-    // multi-step flows).
-    if (tabId != null) assistTabs.add(tabId);
-    return;
-  }
-  // Chrome: sidePanel.open() accepts the launch-URL navigation as a
-  // downstream user gesture.
-  if (!api.sidePanel || !api.sidePanel.open) return;
-  try {
-    let windowId;
-    if (tabId != null && api.tabs && api.tabs.get) {
-      try {
-        const tab = await (api.tabs.get.length === 1
-          ? api.tabs.get(tabId)
-          : new Promise((res, rej) => api.tabs.get(tabId, (t) =>
-              api.runtime.lastError ? rej(api.runtime.lastError) : res(t))));
-        windowId = tab && tab.windowId;
-      } catch (_) { /* fall through to no windowId */ }
-    }
-    await api.sidePanel.open(windowId != null ? { windowId } : {});
-    console.log("[Jobsmith handshake]", "side panel opened");
-  } catch (e) {
-    console.warn("[Jobsmith handshake]", "auto-open side panel failed (non-fatal):", e && e.message || e);
-  }
+function tryOpenSidePanel(tabId) {
+  // Mark the tab; the overlay mounts once it navigates from the launch page
+  // to the actual application (and re-mounts on every page of multi-step
+  // flows).
+  if (tabId != null) assistTabs.add(tabId);
 }
 
 async function performAssistHandshake(launchUrl, sessionId, tabId) {
@@ -208,10 +174,9 @@ if (api.tabs && api.tabs.onUpdated) {
   api.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.url) maybeHandle(changeInfo.url, tabId);
     else if (changeInfo.status === "complete" && tab && tab.url) maybeHandle(tab.url, tabId);
-    // Firefox docked panel: (re)mount on every completed navigation of an
-    // assist tab once it has left the launch page.
+    // Docked panel: (re)mount on every completed navigation of an assist
+    // tab once it has left the launch page.
     if (
-      !isChrome &&
       changeInfo.status === "complete" &&
       assistTabs.has(tabId) &&
       tab && tab.url &&
