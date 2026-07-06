@@ -509,9 +509,12 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           const input = (el.tagName === "INPUT" && el.type === "file")
             ? el
             : (el.querySelector && el.querySelector('input[type="file"]')) || el;
-          input.files = dt.files;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
+          const assign = () => {
+            input.files = dt.files;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          };
+          assign();
           // Best-effort: some dropzones (Greenhouse, Lever) listen for drop on a wrapper.
           const dropTarget = input.closest('[data-test-id*="drop"], .dropzone, [class*="drop"]') || input.parentElement;
           if (dropTarget && dropTarget !== input) {
@@ -520,11 +523,19 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
               dropTarget.dispatchEvent(dropEvt);
             } catch (_) { /* DragEvent constructor may not accept dataTransfer in all browsers */ }
           }
+          // Some uploaders clear the input while starting their own async
+          // handling — give them a beat, then retry the assignment once.
+          await sleep(250);
+          if (!input.files || input.files.length === 0) {
+            assign();
+            await sleep(250);
+          }
           if (!input.files || input.files.length === 0) {
             results.push({ field_id: item.field_id, status: "failed", message: "input.files did not accept assignment" });
             continue;
           }
-          results.push({ field_id: item.field_id, status: "filled", message: `attached ${item.file_name}` });
+          const targetDesc = input.id ? `#${input.id}` : (input.name ? `[name=${input.name}]` : "file input");
+          results.push({ field_id: item.field_id, status: "filled", message: `attached ${item.file_name} → ${targetDesc}` });
         } catch (e) {
           results.push({ field_id: item.field_id, status: "failed", message: `upload: ${e.message || e}` });
         }

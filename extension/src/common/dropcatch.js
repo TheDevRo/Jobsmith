@@ -48,14 +48,51 @@
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   }
 
-  function nearestInput(x, y) {
+  // What the input is *for*, from its own attributes, its label, and its
+  // wrapper's visible text.
+  function haystackFor(input) {
+    let labelText = "";
+    try {
+      if (input.id) {
+        const l = document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+        if (l) labelText = l.textContent || "";
+      }
+    } catch (_) {}
+    const w = wrapperFor(input);
+    return [
+      input.id || "", input.name || "", input.getAttribute("aria-label") || "",
+      labelText, (w.textContent || "").slice(0, 200),
+    ].join(" ").toLowerCase();
+  }
+
+  const KIND_RE = {
+    resume: /resume|\bcv\b|curriculum/,
+    cover_letter: /cover/,
+  };
+  const CLASH_RE = {
+    resume: /cover/,
+    cover_letter: /resume|\bcv\b|curriculum/,
+  };
+
+  function pickInput(x, y, kind) {
     const inputs = fileInputs();
     if (!inputs.length) return null;
     if (inputs.length === 1) return inputs[0];
+    // Kind is a hard tier, distance only breaks ties: dragging a resume must
+    // never land in the cover-letter input just because its (possibly
+    // hidden, zero-rect) sibling sat closer to the cursor.
+    //   1. inputs labeled for this kind
+    //   2. inputs not labeled for the OTHER kind
+    //   3. anything
+    const wantRe = KIND_RE[kind];
+    const clashRe = CLASH_RE[kind];
+    const hays = inputs.map(haystackFor);
+    let pool = inputs.filter((_, i) => wantRe && wantRe.test(hays[i]));
+    if (!pool.length) pool = inputs.filter((_, i) => !(clashRe && clashRe.test(hays[i])));
+    if (!pool.length) pool = inputs;
     let best = null, bestD = Infinity;
-    for (const inp of inputs) {
+    for (const inp of pool) {
       const r = wrapperFor(inp).getBoundingClientRect();
-      // Distance from the drop point to the wrapper rect (0 if inside it).
       const cx = Math.max(r.left, Math.min(x, r.right));
       const cy = Math.max(r.top, Math.min(y, r.bottom));
       const d = Math.hypot(x - cx, y - cy);
@@ -73,7 +110,7 @@
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     e.stopPropagation();
     disarm();
-    const input = nearestInput(e.clientX || 0, e.clientY || 0);
+    const input = pickInput(e.clientX || 0, e.clientY || 0, kind);
     if (!input) {
       try {
         ext.runtime.sendMessage({ type: "jobsmith-file-drop", kind, ok: false, reason: "no file input on this page" });
