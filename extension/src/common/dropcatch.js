@@ -14,7 +14,6 @@
 (function () {
   if (window.__jobsmithArmDropCatch) return;
 
-  const ext = (typeof browser !== "undefined") ? browser : chrome;
   const STYLE_ID = "__jobsmith-dropcatch-style__";
   let armed = null;   // { kind, timer }
   let fidCounter = 0;
@@ -101,20 +100,25 @@
     return best;
   }
 
+  // Result of the last intercepted drop. The PANEL pulls this on dragend via
+  // executeScript — a push via runtime.sendMessage is not reliably delivered
+  // to an extension page iframed inside a web page (Firefox), and pulling
+  // also removes the drop-vs-dragend ordering race by design.
+  let dropResult = null;
+
   function onDrop(e) {
     if (!armed) return;
     const kind = armed.kind;
-    // The page must never see this drop — its own dropzone handler would
-    // receive an empty file list and show an error.
+    // Best effort to keep the page's own dropzone handler (which would see
+    // an empty file list) out of the way. preventDefault is shared across
+    // script worlds; stop*Propagation may not silence main-world listeners.
     e.preventDefault();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     e.stopPropagation();
     disarm();
     const input = pickInput(e.clientX || 0, e.clientY || 0, kind);
     if (!input) {
-      try {
-        ext.runtime.sendMessage({ type: "jobsmith-file-drop", kind, ok: false, reason: "no file input on this page" });
-      } catch (_) {}
+      dropResult = { kind, ok: false, reason: "no file input on this page" };
       return;
     }
     let fid = input.getAttribute("data-jobsmith-fid");
@@ -122,9 +126,7 @@
       fid = "dropzone_" + (++fidCounter) + "_" + Math.floor(Math.random() * 1e6);
       try { input.setAttribute("data-jobsmith-fid", fid); } catch (_) {}
     }
-    try {
-      ext.runtime.sendMessage({ type: "jobsmith-file-drop", kind, ok: true, fid });
-    } catch (_) {}
+    dropResult = { kind, ok: true, fid };
   }
 
   function disarm() {
@@ -138,6 +140,7 @@
 
   window.__jobsmithArmDropCatch = function (kind) {
     disarm();
+    dropResult = null;
     armed = { kind, timer: setTimeout(disarm, 60000) };  // safety net
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
@@ -145,6 +148,13 @@
   };
 
   window.__jobsmithDisarmDropCatch = disarm;
+
+  // Return-and-clear the recorded drop, so a result is consumed exactly once.
+  window.__jobsmithTakeDropResult = function () {
+    const r = dropResult;
+    dropResult = null;
+    return r;
+  };
 })();
 
 // Final expression must be structured-clonable for Firefox's executeScript.
