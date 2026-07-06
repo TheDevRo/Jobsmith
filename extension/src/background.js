@@ -52,67 +52,28 @@ function storageSet(values) {
   return new Promise((resolve) => api.storage.local.set(values, resolve));
 }
 
-// Firefox: the id of the detached panel window we opened, if it's still up.
-let panelWindowId = null;
-if (typeof browser !== "undefined" && api.windows && api.windows.onRemoved) {
-  api.windows.onRemoved.addListener((wid) => {
-    if (wid === panelWindowId) panelWindowId = null;
-  });
-}
-
-async function getTab(tabId) {
-  if (tabId == null || !api.tabs || !api.tabs.get) return null;
-  try {
-    return await (api.tabs.get.length === 1
-      ? api.tabs.get(tabId)
-      : new Promise((res, rej) => api.tabs.get(tabId, (t) =>
-          api.runtime.lastError ? rej(api.runtime.lastError) : res(t))));
-  } catch (_) {
-    return null;
-  }
-}
-
 async function tryOpenSidePanel(tabId) {
-  if (isChrome && api.sidePanel && api.sidePanel.open) {
-    // Chrome: sidePanel.open() accepts the launch-URL navigation as a
-    // downstream user gesture.
-    try {
-      const tab = await getTab(tabId);
-      const windowId = tab && tab.windowId;
-      await api.sidePanel.open(windowId != null ? { windowId } : {});
-      console.log("[Jobsmith handshake]", "side panel opened");
-    } catch (e) {
-      console.warn("[Jobsmith handshake]", "auto-open side panel failed (non-fatal):", e && e.message || e);
-    }
-    return;
-  }
-
-  // Firefox: sidebarAction.open() only works from a real user-input handler,
-  // and that status does NOT propagate through content-script messages — so
-  // the native sidebar cannot be opened from a navigation event, ever.
-  // windows.create() has no such restriction: open the panel UI as a
-  // detached popup window pinned to the assist tab.
-  if (!api.windows || !api.windows.create) return;
+  // Chrome only: sidePanel.open() accepts the launch-URL navigation as a
+  // downstream user gesture. Firefox's sidebarAction.open() strictly requires
+  // a real user-input handler in the same context, so we don't even attempt
+  // it here — the launch page directs Firefox users to click the toolbar
+  // icon instead.
+  if (!isChrome || !api.sidePanel || !api.sidePanel.open) return;
   try {
-    if (panelWindowId != null) {
-      // A panel from a previous Assist session may be pinned to a stale tab —
-      // replace it so it tracks the new application tab.
-      try { await api.windows.remove(panelWindowId); } catch (_) {}
-      panelWindowId = null;
+    let windowId;
+    if (tabId != null && api.tabs && api.tabs.get) {
+      try {
+        const tab = await (api.tabs.get.length === 1
+          ? api.tabs.get(tabId)
+          : new Promise((res, rej) => api.tabs.get(tabId, (t) =>
+              api.runtime.lastError ? rej(api.runtime.lastError) : res(t))));
+        windowId = tab && tab.windowId;
+      } catch (_) { /* fall through to no windowId */ }
     }
-    const url = api.runtime.getURL("sidepanel.html") +
-      (tabId != null ? "?tabId=" + encodeURIComponent(tabId) : "");
-    const win = await api.windows.create({ url, type: "popup", width: 430, height: 760 });
-    panelWindowId = win && win.id;
-    console.log("[Jobsmith handshake]", "panel window opened", panelWindowId);
-    // Hand focus back to the browser window hosting the application tab so
-    // the user can start typing/reviewing immediately.
-    const tab = await getTab(tabId);
-    if (tab && tab.windowId != null && api.windows.update) {
-      try { await api.windows.update(tab.windowId, { focused: true }); } catch (_) {}
-    }
+    await api.sidePanel.open(windowId != null ? { windowId } : {});
+    console.log("[Jobsmith handshake]", "side panel opened");
   } catch (e) {
-    console.warn("[Jobsmith handshake]", "panel window failed (non-fatal):", e && e.message || e);
+    console.warn("[Jobsmith handshake]", "auto-open side panel failed (non-fatal):", e && e.message || e);
   }
 }
 
