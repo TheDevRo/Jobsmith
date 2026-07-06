@@ -63,6 +63,10 @@ _SEED: dict[str, str] = {
         "<Replace with a reusable cover-letter body.  The orchestrator will prepend "
         "a personalised opening and close.>"
     ),
+    "how_did_you_hear": (
+        "<Replace with how you usually find postings — e.g. LinkedIn, Indeed, "
+        "or Company website.>"
+    ),
 }
 
 # Weighted keyword map for the 8 built-in keys.
@@ -117,6 +121,12 @@ _KEY_PATTERNS: dict[str, dict[str, list[str]]] = {
         "exact":    ["cover letter", "why should we hire", "why should we choose you",
                      "why should we select you"],
         "keywords": ["cover", "letter", "hire", "choose"],
+    },
+    "how_did_you_hear": {
+        "exact":    ["how did you hear", "how did you find", "where did you hear",
+                     "where did you find", "how did you learn about", "referral source",
+                     "source of application", "who referred you"],
+        "keywords": ["hear", "find", "source", "referral", "learn"],
     },
 }
 

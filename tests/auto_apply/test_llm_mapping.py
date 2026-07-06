@@ -144,10 +144,16 @@ async def test_map_fields_correct_values(llm, profile, job, fields):
     assert mapping["field-6"].value == "No"
 
 
+# Fixture fields that can't be resolved deterministically from the profile and
+# therefore reach the LLM: field-4 is skill-specific ("years of experience with
+# Python") and field-7 is an open-ended textarea.
+LLM_BOUND = {"field-4", "field-7"}
+
+
 @pytest.mark.asyncio
 async def test_map_fields_fills_gaps_with_skip(llm, profile, job, fields):
-    """If LLM omits a field, orchestrator should insert a skip entry."""
-    # Return only half the fields
+    """If the LLM omits an LLM-bound field, a skip entry is inserted for it."""
+    # Respond with an unrelated field only, so both LLM-bound fields are omitted
     partial_response = json.dumps([
         {"field_id": "field-0", "value": "Jane", "action": "fill", "confidence": 1.0, "source": "profile"},
     ])
@@ -155,33 +161,39 @@ async def test_map_fields_fills_gaps_with_skip(llm, profile, job, fields):
         results = await llm.map_fields_to_values(profile, job, fields, answer_bank={})
 
     assert len(results) == len(fields)
-    skipped = [r for r in results if r.action == "skip"]
-    assert len(skipped) == len(fields) - 1
+    skipped = {r.field_id for r in results if r.action == "skip"}
+    assert skipped == LLM_BOUND
 
 
 @pytest.mark.asyncio
-async def test_map_fields_on_llm_error_returns_all_skip(llm, profile, job, fields):
-    """If the LLM call fails entirely, all fields should be skipped."""
+async def test_map_fields_on_llm_error_keeps_deterministic(llm, profile, job, fields):
+    """If the LLM call fails entirely, only LLM-bound fields are skipped —
+    deterministically matched profile fields still come back filled."""
     with patch.object(llm, "complete", new=AsyncMock(side_effect=RuntimeError("LM Studio down"))):
         results = await llm.map_fields_to_values(profile, job, fields, answer_bank={})
 
     assert len(results) == len(fields)
-    assert all(r.action == "skip" for r in results)
-    assert all(r.confidence == 0.0 for r in results)
+    by_id = {r.field_id: r for r in results}
+    for fid in LLM_BOUND:
+        assert by_id[fid].action == "skip"
+        assert by_id[fid].confidence == 0.0
+    for fid in set(by_id) - LLM_BOUND:
+        assert by_id[fid].action != "skip"
+        assert by_id[fid].value
 
 
 @pytest.mark.asyncio
 async def test_map_fields_retries_on_bad_json(llm, profile, job, fields):
     """
     If LLM returns invalid JSON, complete_json should retry up to max_retries,
-    eventually raising; map_fields_to_values should return skip-all.
+    eventually raising; LLM-bound fields degrade to skip without raising.
     """
     with patch.object(llm, "complete", new=AsyncMock(return_value="not valid json")):
         results = await llm.map_fields_to_values(profile, job, fields, answer_bank={})
 
     # Should gracefully degrade, not raise
     assert len(results) == len(fields)
-    assert all(r.action == "skip" for r in results)
+    assert {r.field_id for r in results if r.action == "skip"} == LLM_BOUND
 
 
 # ---------------------------------------------------------------------------

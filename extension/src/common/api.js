@@ -7,27 +7,33 @@ const jobsmithBrowser = (typeof browser !== "undefined") ? browser : chrome;
 
 async function jobsmithGetConfig() {
   const out = await new Promise((resolve) => {
-    jobsmithBrowser.storage.local.get(["backendUrl", "token", "deepScan", "autoScan"], resolve);
+    jobsmithBrowser.storage.local.get(["backendUrl", "token", "deepScan", "autoScan", "autoFill"], resolve);
   });
   return {
     backendUrl: (out.backendUrl || DEFAULT_BACKEND).replace(/\/+$/, ""),
     token: out.token || "",
     // deepScan: inject into every frame (slow on heavy pages but catches
-    // ATS forms hosted in iframes). Default off — top-frame only.
+    // ATS forms hosted in iframes). Default off — top-frame only; the side
+    // panel automatically falls back to all-frames when the top frame has
+    // no usable fields.
     deepScan: out.deepScan === true,
     // autoScan: let the panel scan/poll on its own (tab focus, switch,
     // navigation, and the active-job poll). Default on; flip off to make
     // the extension act only on explicit button clicks.
     autoScan: out.autoScan !== false,
+    // autoFill: fill immediately after a successful auto-scan (once per
+    // page URL). Default off — hands-off mode is opt-in.
+    autoFill: out.autoFill === true,
   };
 }
 
-async function jobsmithSetConfig({ backendUrl, token, deepScan, autoScan }) {
+async function jobsmithSetConfig({ backendUrl, token, deepScan, autoScan, autoFill }) {
   const patch = {};
   if (backendUrl !== undefined) patch.backendUrl = backendUrl;
   if (token !== undefined) patch.token = token;
   if (deepScan !== undefined) patch.deepScan = !!deepScan;
   if (autoScan !== undefined) patch.autoScan = !!autoScan;
+  if (autoFill !== undefined) patch.autoFill = !!autoFill;
   await new Promise((resolve) => {
     jobsmithBrowser.storage.local.set(patch, resolve);
   });
