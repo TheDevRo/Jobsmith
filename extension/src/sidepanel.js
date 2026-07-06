@@ -3,10 +3,12 @@
 const $ = (id) => document.getElementById(id);
 const ext = (typeof browser !== "undefined") ? browser : chrome;
 
-let lastMapping = null;     // { tab, descriptors, values } — cached from most recent scan
+let lastMapping = null;     // { tab, url, descriptors, values, deep } — cached from most recent scan
 let currentJob = null;      // { id, title, company, url }
 let cachedFiles = { resume: null, cover: null };  // pre-fetched File objects
 let autoScanOn = true;      // gates background scan/poll; synced from config
+let autoFillOn = false;     // fill right after each auto-scan; synced from config
+let lastAutoFillKey = "";   // tabId|url guard so auto-fill fires once per page
 
 function setStatus(msg, cls = "") {
   const s = $("status");
@@ -60,34 +62,52 @@ async function snapshotActiveTab() {
   // Lever, Ashby) are scanned. Off by default — heavy pages have many
   // third-party iframes that slow injection. Toggle in popup settings.
   const { deepScan } = await Jobsmith.jobsmithGetConfig();
-  const target = deepScan ? { tabId: tab.id, allFrames: true } : { tabId: tab.id };
-  const results = await ext.scripting.executeScript({
-    target,
-    files: ["common/snapshot.js"],
-  });
-  if (!results || !results.length) {
-    throw new Error("Snapshot returned nothing (page may block scripts)");
-  }
-  const merged = { url: tab.url || "", fields: [] };
-  for (const r of results) {
-    const snap = r && r.result;
-    if (!snap || !Array.isArray(snap.fields)) continue;
-    if (!merged.url && snap.url) merged.url = snap.url;
-    const fid = typeof r.frameId === "number" ? r.frameId : 0;
-    for (const f of snap.fields) {
-      // Disambiguate field_ids across frames (the DOM `data-jobsmith-fid` stamp
-      // is scoped to its own frame, so the original selector still works
-      // when we route the fill back to that frameId).
-      const taggedId = fid === 0 ? f.field_id : `f${fid}__${f.field_id}`;
-      merged.fields.push({ ...f, field_id: taggedId, _frameId: fid });
+
+  async function grab(allFrames) {
+    const target = allFrames ? { tabId: tab.id, allFrames: true } : { tabId: tab.id };
+    const results = await ext.scripting.executeScript({
+      target,
+      files: ["common/snapshot.js"],
+    });
+    if (!results || !results.length) {
+      throw new Error("Snapshot returned nothing (page may block scripts)");
     }
+    const merged = { url: tab.url || "", fields: [] };
+    for (const r of results) {
+      const snap = r && r.result;
+      if (!snap || !Array.isArray(snap.fields)) continue;
+      if (!merged.url && snap.url) merged.url = snap.url;
+      const fid = typeof r.frameId === "number" ? r.frameId : 0;
+      for (const f of snap.fields) {
+        // Disambiguate field_ids across frames (the DOM `data-jobsmith-fid` stamp
+        // is scoped to its own frame, so the original selector still works
+        // when we route the fill back to that frameId).
+        const taggedId = fid === 0 ? f.field_id : `f${fid}__${f.field_id}`;
+        merged.fields.push({ ...f, field_id: taggedId, _frameId: fid });
+      }
+    }
+    return merged;
   }
-  return { tab, snapshot: merged };
+
+  let deep = deepScan;
+  let merged = await grab(deepScan);
+  // Auto-fallback: company career pages often embed the real ATS form
+  // (Greenhouse/Lever) in an iframe. If the top frame has next to no
+  // fields, rescan all frames even with deep-scan off.
+  if (!deep && merged.fields.length < 3) {
+    try {
+      const deepMerged = await grab(true);
+      if (deepMerged.fields.length > merged.fields.length) {
+        merged = deepMerged;
+        deep = true;
+      }
+    } catch (_) { /* keep the shallow result */ }
+  }
+  return { tab, snapshot: merged, deep };
 }
 
-async function injectFillRuntime(tabId) {
-  const { deepScan } = await Jobsmith.jobsmithGetConfig();
-  const target = deepScan ? { tabId, allFrames: true } : { tabId };
+async function injectFillRuntime(tabId, deep) {
+  const target = deep ? { tabId, allFrames: true } : { tabId };
   await ext.scripting.executeScript({
     target,
     files: ["common/fill.js"],
@@ -235,7 +255,7 @@ async function doScan() {
   $("scan").disabled = true;
   setStatus("Scanning page…");
   try {
-    const { tab, snapshot } = await snapshotActiveTab();
+    const { tab, snapshot, deep } = await snapshotActiveTab();
     if (!snapshot.fields.length) {
       setStatus("No visible form fields on this page.", "warn");
       renderFields([], []);
@@ -252,7 +272,7 @@ async function doScan() {
       },
     });
     setStatus(`Mapped ${resp.count} field(s).`, "ok");
-    lastMapping = { tab, url: snapshot.url, descriptors: snapshot.fields, values: resp.fields };
+    lastMapping = { tab, url: snapshot.url, descriptors: snapshot.fields, values: resp.fields, deep };
     renderFields(resp.fields, snapshot.fields, null);
     return lastMapping;
   } catch (e) {
@@ -276,7 +296,7 @@ async function doAutofill() {
     }
     setStatus("Filling fields…");
     const items = await buildFillItems(mapping.descriptors, mapping.values);
-    await injectFillRuntime(mapping.tab.id);
+    await injectFillRuntime(mapping.tab.id, mapping.deep);
     const out = await runFill(mapping.tab.id, items);
     if (!out) throw new Error("Fill script returned nothing");
 
@@ -304,8 +324,14 @@ async function doClearHighlights() {
   try {
     const tab = await activeTab();
     if (!tab || !tab.id) return;
-    await injectFillRuntime(tab.id);
-    await runFill(tab.id, [], { clearOnly: true });
+    // Clear in every frame directly — runFill() groups by item frame and
+    // executes nothing for an empty item list.
+    await injectFillRuntime(tab.id, true);
+    await ext.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: (options) => window.__jobsmithFillAndHighlight([], options),
+      args: [{ clearOnly: true }],
+    });
     setStatus("Highlights cleared.");
   } catch (e) {
     setStatus(`Clear error: ${e.message}`, "err");
@@ -449,12 +475,31 @@ $("autoScanToggle").addEventListener("change", async (e) => {
   }
 });
 
-// Keep the toggle in sync if changed elsewhere (e.g. another panel window).
+// Auto-fill on/off switch. Requires auto-scan to be useful, but is stored
+// independently so it survives auto-scan being toggled.
+$("autoFillToggle").addEventListener("change", async (e) => {
+  autoFillOn = e.target.checked;
+  await Jobsmith.jobsmithSetConfig({ autoFill: autoFillOn });
+  if (autoFillOn) {
+    lastAutoFillKey = "";  // allow an immediate fill of the current page
+    setStatus("Auto-fill on — pages fill right after scanning.", "ok");
+    autoScanIfReady();
+  } else {
+    setStatus("Auto-fill off.");
+  }
+});
+
+// Keep the toggles in sync if changed elsewhere (e.g. another panel window).
 if (ext.storage && ext.storage.onChanged) {
   ext.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.autoScan) {
+    if (area !== "local") return;
+    if (changes.autoScan) {
       autoScanOn = changes.autoScan.newValue !== false;
       $("autoScanToggle").checked = autoScanOn;
+    }
+    if (changes.autoFill) {
+      autoFillOn = changes.autoFill.newValue === true;
+      $("autoFillToggle").checked = autoFillOn;
     }
   });
 }
@@ -515,6 +560,18 @@ async function autoScanIfReady() {
     setStatus("Auto-scanning…");
     const mapping = await doScan();
     if (mapping && mapping.values && mapping.values.length) {
+      // Hands-off mode: fill right away, but only once per tab+URL so a
+      // re-scan of the same page (focus changes, polling) can't re-fill
+      // fields the user has since corrected.
+      if (autoFillOn) {
+        const key = `${mapping.tab.id}|${mapping.url}`;
+        if (key !== lastAutoFillKey) {
+          lastAutoFillKey = key;
+          setStatus(`${mapping.values.length} fields mapped — auto-filling…`);
+          await doAutofill();
+          return;
+        }
+      }
       setStatus(`${mapping.values.length} fields ready — click Autofill.`, "ok");
     }
   } catch (e) {
@@ -570,8 +627,10 @@ setInterval(() => {
   try {
     const cfg = await Jobsmith.jobsmithGetConfig();
     autoScanOn = cfg.autoScan;
+    autoFillOn = cfg.autoFill;
     $("autoScanToggle").checked = autoScanOn;
-  } catch { /* defaults to on */ }
+    $("autoFillToggle").checked = autoFillOn;
+  } catch { /* defaults: scan on, fill off */ }
 
   try {
     await Jobsmith.jobsmithHealth();

@@ -171,6 +171,7 @@ class LLMClient:
         It returns a JSON array that we validate into FieldValue objects.
         """
         from .answer_bank import get_answer_bank
+        from .field_matcher import match_profile_fields
         from .models import FieldValue  # local import to avoid circular deps
 
         if not fields:
@@ -208,13 +209,42 @@ class LLMClient:
                     continue
             remaining_fields.append(f)
 
+        # --- Phase 0.5: deterministic profile matching ---
+        # Contact info, address, links, salary, work auth, EEO, education,
+        # availability — matched by autocomplete attr + label/name regex rules
+        # so the common fields never depend on LLM output.
+        det_resolved = match_profile_fields(profile, remaining_fields)
+        if det_resolved:
+            logger.debug(
+                "map_fields_to_values: %d field(s) resolved deterministically",
+                len(det_resolved),
+            )
+        _after_det: list["FieldDescriptor"] = []
+        for f in remaining_fields:
+            if f.field_id in det_resolved:
+                continue
+            # Password fields must never reach the LLM — if the matcher had a
+            # credential it already used it; otherwise skip outright.
+            if (f.field_type or "").lower() == "password":
+                det_resolved[f.field_id] = FieldValue(
+                    field_id=f.field_id, value="", action="skip",
+                    confidence=0.0, source="skip",
+                )
+                continue
+            _after_det.append(f)
+        remaining_fields = _after_det
+
         # --- Phase 1: resolve fields from the answer bank ---
         bank = get_answer_bank()
         bank_resolved: dict[str, FieldValue] = {}
         llm_fields: list["FieldDescriptor"] = []
 
         for f in remaining_fields:
-            question_text = f.label or f.extra_context or f.name
+            # Combine label + group context (fieldset legend etc.) so bank
+            # keyword matching sees the actual question, not just "Yes".
+            question_text = " ".join(
+                filter(None, (f.label, f.extra_context))
+            ) or f.name
             match = bank.find_best_match(question_text) if question_text else None
             if match:
                 bank_resolved[f.field_id] = FieldValue(
@@ -301,6 +331,8 @@ class LLMClient:
         for f in fields:
             if f.field_id in file_resolved:
                 out.append(file_resolved[f.field_id])
+            elif f.field_id in det_resolved:
+                out.append(det_resolved[f.field_id])
             elif f.field_id in bank_resolved:
                 out.append(bank_resolved[f.field_id])
             elif f.field_id in llm_by_id:

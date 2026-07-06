@@ -359,7 +359,7 @@ def _slim_answer_bank(
     if len(full_bank) <= min_keep:
         return full_bank
     haystack = " ".join(
-        f"{f.label or ''} {f.name or ''} {f.placeholder or ''}".lower()
+        f"{f.label or ''} {f.name or ''} {f.placeholder or ''} {f.extra_context or ''}".lower()
         for f in fields
     )
     if not haystack.strip():

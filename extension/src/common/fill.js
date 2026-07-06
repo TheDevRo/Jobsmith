@@ -10,7 +10,7 @@
 //     name:       string,        // input name attr (used for radio groups)
 //     value:      string,
 //     action:     "fill"|"select"|"check"|"upload"|"skip",
-//     field_type: "text"|"textarea"|"select"|"checkbox"|"radio"|"email"|"tel"|"url"|"number"|"file",
+//     field_type: "text"|"textarea"|"select"|"checkbox"|"radio"|"email"|"tel"|"url"|"number"|"file"|"date"|"password",
 //     confidence: number,
 //     source:     string,
 //     options?:   string[],      // for select / radio
@@ -24,50 +24,294 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
   const LOW_CONF = 0.60;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Drive a react-select / Ashby / Workday-style combobox: open the
-  // popup, type the value to filter, then click the matching option.
-  // Returns { ok, message? }.
-  async function fillCombobox(input, value) {
+  // ---- Option matching ---------------------------------------------------
+  // Scored matching instead of greedy substring, so "No" never grabs
+  // "Not applicable" and state abbreviations still find their full names.
+
+  const OPT_THRESHOLD = 55;
+
+  const US_STATES = {
+    al: "alabama", ak: "alaska", az: "arizona", ar: "arkansas", ca: "california",
+    co: "colorado", ct: "connecticut", de: "delaware", fl: "florida", ga: "georgia",
+    hi: "hawaii", id: "idaho", il: "illinois", in: "indiana", ia: "iowa",
+    ks: "kansas", ky: "kentucky", la: "louisiana", me: "maine", md: "maryland",
+    ma: "massachusetts", mi: "michigan", mn: "minnesota", ms: "mississippi",
+    mo: "missouri", mt: "montana", ne: "nebraska", nv: "nevada", nh: "new hampshire",
+    nj: "new jersey", nm: "new mexico", ny: "new york", nc: "north carolina",
+    nd: "north dakota", oh: "ohio", ok: "oklahoma", or: "oregon", pa: "pennsylvania",
+    ri: "rhode island", sc: "south carolina", sd: "south dakota", tn: "tennessee",
+    tx: "texas", ut: "utah", vt: "vermont", va: "virginia", wa: "washington",
+    wv: "west virginia", wi: "wisconsin", wy: "wyoming", dc: "district of columbia",
+  };
+  const US_STATES_REV = Object.fromEntries(Object.entries(US_STATES).map(([k, v]) => [v, k]));
+  const COUNTRY_ALIASES = {
+    "united states": ["usa", "us", "united states of america", "america"],
+    "united kingdom": ["uk", "great britain", "england"],
+  };
+  // Degree strings ("BS Computer Science") → education-level dropdown buckets.
+  const DEGREE_LEVELS = [
+    [/\b(ph\.?d|doctor)/, ["phd", "doctorate", "doctoral degree"]],
+    [/\bmba\b/, ["mba", "master's degree", "masters"]],
+    [/\b(ms|msc|ma|master)\b/, ["master's degree", "masters", "master"]],
+    [/\b(bs|bsc|ba|bachelor)\b/, ["bachelor's degree", "bachelors", "bachelor"]],
+    [/\b(associate|aa|aas)\b/, ["associate's degree", "associate degree", "associate"]],
+  ];
+
+  function normText(s) {
+    return (s || "").toLowerCase()
+      .replace(/[^a-z0-9+#.\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function tokensOf(s) { return normText(s).split(" ").filter(Boolean); }
+
+  function isPlaceholderOption(text) {
+    const t = normText(text);
+    return !t || /^(select|choose|please|pick|none selected)\b/.test(t);
+  }
+
+  function candidatesFor(want) {
+    const w = normText(want);
+    const out = [want];
+    if (US_STATES[w]) out.push(US_STATES[w]);
+    else if (US_STATES_REV[w]) out.push(US_STATES_REV[w]);
+    for (const [canonical, aliases] of Object.entries(COUNTRY_ALIASES)) {
+      if (w === canonical) out.push(...aliases);
+      else if (aliases.includes(w)) out.push(canonical);
+    }
+    for (const [re, expansions] of DEGREE_LEVELS) {
+      if (re.test(w)) { out.push(...expansions); break; }
+    }
+    return out;
+  }
+
+  function optionScore(want, text) {
+    const w = normText(want), t = normText(text);
+    if (!w || !t) return 0;
+    if (w === t) return 100;
+    const wt = tokensOf(w), tt = tokensOf(t);
+    const wset = new Set(wt), tset = new Set(tt);
+    if (w === "yes" || w === "no") {
+      if (w === "yes") {
+        if (/^y(es)?\b/.test(t)) return 90;
+        return tset.has("yes") ? 80 : 0;
+      }
+      if (/^n(o)?\b/.test(t)) return 90;
+      return (tset.has("no") || tset.has("not") || tset.has("none") || tset.has("never")) ? 75 : 0;
+    }
+    const wIn = wt.every((x) => tset.has(x));
+    const tIn = tt.every((x) => wset.has(x));
+    if (wIn && tIn) return 95;
+    if (wIn) return Math.max(60, 88 - (tt.length - wt.length));  // prefer shorter options
+    if (tIn) return Math.max(60, 80 - (wt.length - tt.length));
+    let inter = 0;
+    for (const x of wset) if (tset.has(x)) inter++;
+    if (!inter) return 0;
+    const uni = new Set([...wset, ...tset]).size;
+    const sub = (t.includes(w) || w.includes(t)) ? 25 : 0;
+    return Math.round(40 * (inter / uni)) + sub;
+  }
+
+  function scoreAgainst(want, text) {
+    let best = 0;
+    for (const cand of candidatesFor(want)) {
+      const s = optionScore(cand, text);
+      if (s > best) best = s;
+    }
+    return best;
+  }
+
+  // ---- Combobox driving --------------------------------------------------
+  // Handles react-select / Ashby / Greenhouse typeaheads (typeable inputs)
+  // AND Workday-style button widgets (open + click, no typing). Retries with
+  // progressively shorter queries because async option lists (Workday
+  // location lookups) often return nothing for a full-string query.
+  // Multi-select widgets (aria-multiselectable) get the value split on
+  // separators and each part selected in turn.
+  async function fillCombobox(el, value) {
     const want = (value || "").trim();
     if (!want) return { ok: false, message: "empty value" };
+    const canType = el.tagName === "INPUT" || el.tagName === "TEXTAREA";
 
-    input.focus();
-    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    input.click();
-
-    // Type the value so the combobox filters its list. Empty out first
-    // in case React holds prior state.
-    nativeSet(input, "");
-    fireInputEvents(input, "");
-    await sleep(20);
-    nativeSet(input, want);
-    fireInputEvents(input, want);
-
-    // Wait for options to render in the DOM portal.
-    let opts2 = [];
-    for (let i = 0; i < 30; i++) {
-      await sleep(50);
-      opts2 = Array.from(document.querySelectorAll('[role="option"]'))
-        .filter((o) => {
-          const r = o.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-      if (opts2.length) break;
+    function openWidget() {
+      try { el.focus(); } catch (_) {}
+      fireFocus(el);
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      el.click();
     }
-    if (!opts2.length) return { ok: false, message: "no options rendered" };
 
-    const lower = want.toLowerCase();
-    let target =
-      opts2.find((o) => (o.textContent || "").trim().toLowerCase() === lower) ||
-      opts2.find((o) => (o.textContent || "").trim().toLowerCase().startsWith(lower)) ||
-      opts2.find((o) => (o.textContent || "").trim().toLowerCase().includes(lower));
-    if (!target) return { ok: false, message: `no option matches "${want.slice(0, 40)}"` };
+    function visibleOptions() {
+      const root = el.getRootNode ? el.getRootNode() : document;
+      const scopes = [];
+      // The listbox the widget declares it controls is the highest-signal scope.
+      const ids = (
+        (el.getAttribute("aria-controls") || "") + " " + (el.getAttribute("aria-owns") || "")
+      ).split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        let scope = null;
+        try { scope = (root.getElementById && root.getElementById(id)) || document.getElementById(id); } catch (_) {}
+        if (scope) scopes.push(scope);
+      }
+      scopes.push(root);
+      if (root !== document) scopes.push(document);  // portals render into <body>
+      const tiers = ['[role="option"]', '[role="listbox"] li', 'li[class*="option"], div[class*="option"]'];
+      for (const sel of tiers) {
+        const seen = new Set();
+        const out = [];
+        for (const scope of scopes) {
+          let cands = [];
+          try { cands = scope.querySelectorAll(sel); } catch (_) {}
+          for (const o of cands) {
+            if (seen.has(o)) continue;
+            seen.add(o);
+            const r = o.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) out.push(o);
+          }
+        }
+        if (out.length) return out;
+      }
+      return [];
+    }
 
-    target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    target.click();
-    await sleep(30);
+    async function pollOptions(ms) {
+      const deadline = Date.now() + ms;
+      let found = [];
+      while (Date.now() < deadline) {
+        await sleep(75);
+        found = visibleOptions();
+        if (found.length) break;
+      }
+      return found;
+    }
+
+    function typeQuery(q) {
+      nativeSet(el, "");
+      fireInputEvents(el, "");
+      nativeSet(el, q);
+      fireInputEvents(el, q);
+    }
+
+    function pickFrom(rendered, wanted) {
+      let best = null, bestScore = 0;
+      for (const o of rendered) {
+        const text = (o.textContent || "").trim();
+        if (isPlaceholderOption(text)) continue;
+        const s = scoreAgainst(wanted, text);
+        if (s > bestScore || (s === bestScore && best && text.length < (best.textContent || "").trim().length)) {
+          best = o; bestScore = s;
+        }
+      }
+      return bestScore >= OPT_THRESHOLD ? best : null;
+    }
+
+    function clickOption(target) {
+      try { target.scrollIntoView({ block: "nearest" }); } catch (_) {}
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      target.click();
+    }
+
+    function isMultiselectable() {
+      if ((el.getAttribute("aria-multiselectable") || "").toLowerCase() === "true") return true;
+      const root = el.getRootNode ? el.getRootNode() : document;
+      const ids = (
+        (el.getAttribute("aria-controls") || "") + " " + (el.getAttribute("aria-owns") || "")
+      ).split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        let scope = null;
+        try { scope = (root.getElementById && root.getElementById(id)) || document.getElementById(id); } catch (_) {}
+        if (scope && (scope.getAttribute("aria-multiselectable") || "").toLowerCase() === "true") return true;
+      }
+      const lb = document.querySelector('[role="listbox"][aria-multiselectable="true"]');
+      return !!lb;
+    }
+
+    // Select a single value via the query ladder. Returns
+    // { ok, message?, unverified? }.
+    async function selectOne(wanted) {
+      const queries = [];
+      if (canType) {
+        queries.push(wanted);
+        const firstWord = wanted.split(/[\s,]+/)[0];
+        if (firstWord && firstWord.length >= 2 && firstWord.toLowerCase() !== wanted.toLowerCase()) queries.push(firstWord);
+        if (wanted.length > 4) queries.push(wanted.slice(0, 3));
+      } else {
+        queries.push(null);  // button widget — just open and read the list
+      }
+
+      let sawOptions = false;
+      for (let i = 0; i < queries.length; i++) {
+        if (queries[i] !== null) typeQuery(queries[i]);
+        const rendered = await pollOptions(i === 0 ? 2000 : 1500);
+        if (!rendered.length) continue;
+        sawOptions = true;
+        const target = pickFrom(rendered, wanted);
+        if (target) {
+          const pickedText = (target.textContent || "").trim();
+          clickOption(target);
+          await sleep(80);
+          if (!canType) {
+            // Button widgets show the selection as their own text — verify
+            // the click actually took, and flag for review if we can't tell.
+            const shown = normText(el.textContent || el.value || "");
+            const pickedN = normText(pickedText);
+            if (shown && pickedN && !(shown.includes(pickedN) || pickedN.includes(shown))) {
+              return { ok: true, unverified: true, message: `clicked "${pickedText.slice(0, 40)}" — verify selection` };
+            }
+          }
+          return { ok: true };
+        }
+      }
+
+      if (!canType) {
+        return { ok: false, message: sawOptions ? `no option matches "${wanted.slice(0, 40)}"` : "no options rendered" };
+      }
+
+      // Last resort: retype the full value and commit with Enter — many
+      // comboboxes accept the highlighted entry or free text.
+      typeQuery(wanted);
+      await sleep(150);
+      const target = pickFrom(visibleOptions(), wanted);
+      if (target) {
+        clickOption(target);
+        await sleep(80);
+        return { ok: true };
+      }
+      el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }));
+      el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
+      await sleep(80);
+      if ((el.value || "").trim()) {
+        return { ok: true, unverified: true, message: "typed value — verify selection" };
+      }
+      return { ok: false, message: sawOptions ? `no option matches "${wanted.slice(0, 40)}"` : "no options rendered" };
+    }
+
+    openWidget();
+    await sleep(50);
+
+    const parts = isMultiselectable()
+      ? want.split(/[;,]/).map((s) => s.trim()).filter(Boolean)
+      : [want];
+
+    let unverified = null;
+    const failed = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) { openWidget(); await sleep(60); }  // some multiselects close after each pick
+      const res = await selectOne(parts[i]);
+      if (!res.ok) failed.push(parts[i]);
+      else if (res.unverified) unverified = res.message;
+    }
+
+    if (failed.length === parts.length) {
+      return { ok: false, message: `no option matches "${failed[0].slice(0, 40)}"` };
+    }
+    if (failed.length) {
+      return { ok: true, message: `selected ${parts.length - failed.length}/${parts.length} — missing: ${failed.join(", ").slice(0, 60)}` };
+    }
+    if (unverified) {
+      return { ok: true, message: unverified };
+    }
     return { ok: true };
   }
 
@@ -163,41 +407,49 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
   }
 
   function pickSelectOption(selectEl, wantedValue) {
-    const want = (wantedValue || "").trim().toLowerCase();
+    const want = (wantedValue || "").trim();
     if (!want) return null;
+    const wantN = normText(want);
     for (const opt of selectEl.options) {
-      const candidates = [opt.value, opt.textContent].map(s => (s || "").trim().toLowerCase());
-      if (candidates.includes(want)) return opt;
+      if (normText(opt.value) === wantN || normText(opt.textContent) === wantN) return opt;
     }
-    // Substring fallback
+    let best = null, bestScore = 0;
     for (const opt of selectEl.options) {
-      const text = (opt.textContent || "").trim().toLowerCase();
-      if (text && (text.includes(want) || want.includes(text))) return opt;
+      if (isPlaceholderOption(opt.textContent)) continue;
+      const s = Math.max(scoreAgainst(want, opt.textContent), scoreAgainst(want, opt.value));
+      const optLen = (opt.textContent || "").trim().length;
+      if (s > bestScore || (s === bestScore && best && optLen < (best.textContent || "").trim().length)) {
+        best = opt; bestScore = s;
+      }
     }
-    return null;
+    return bestScore >= OPT_THRESHOLD ? best : null;
   }
 
-  function pickRadioInGroup(name, wantedValue) {
-    const group = document.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`);
-    const want = (wantedValue || "").trim().toLowerCase();
-    if (!group.length || !want) return null;
+  function pickRadioInGroup(anchorEl, name, wantedValue) {
+    const want = (wantedValue || "").trim();
+    if (!want) return null;
+    const root = (anchorEl && anchorEl.getRootNode) ? anchorEl.getRootNode() : document;
+    let group = [];
+    if (name) {
+      try { group = Array.from(root.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`)); } catch (_) {}
+    }
+    if (!group.length && anchorEl) group = [anchorEl];  // unnamed standalone radio
+    let best = null, bestScore = 0;
     for (const r of group) {
       const lab = labelTextFor(r) || r.value;
-      if ((lab || "").trim().toLowerCase() === want) return r;
+      const s = Math.max(scoreAgainst(want, lab), scoreAgainst(want, r.value));
+      if (s > bestScore) { best = r; bestScore = s; }
     }
-    for (const r of group) {
-      const lab = labelTextFor(r) || r.value;
-      const t = (lab || "").trim().toLowerCase();
-      if (t && (t.includes(want) || want.includes(t))) return r;
-    }
-    return null;
+    return bestScore >= OPT_THRESHOLD ? best : null;
   }
 
   function labelTextFor(el) {
-    if (el.id) {
-      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+    const root = (el.getRootNode ? el.getRootNode() : document);
+    if (el.id && root.querySelector) {
+      const lab = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lab) return lab.textContent.trim();
     }
+    if (el.getAttribute && el.getAttribute("aria-label")) return el.getAttribute("aria-label").trim();
     let p = el.parentElement;
     while (p && p.tagName !== "LABEL") p = p.parentElement;
     return p ? p.textContent.trim() : "";
@@ -205,6 +457,24 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
 
   function isTruthyAnswer(s) {
     return /^(y(es)?|true|1|on)$/i.test((s || "").trim());
+  }
+
+  // <input type=date> needs YYYY-MM-DD regardless of what the profile says.
+  function normalizeDateValue(el, value) {
+    const t = (el.type || "").toLowerCase();
+    if (t !== "date" && t !== "month") return value;
+    const v = (value || "").trim();
+    let d = null;
+    if (/^(immediate(ly)?|asap|now|today)$/i.test(v)) d = new Date();
+    else {
+      const parsed = new Date(v);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d) return value;
+    const pad = (n) => String(n).padStart(2, "0");
+    return t === "month"
+      ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+      : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
   // ---- Apply fills -----------------------------------------------------
@@ -264,29 +534,63 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       if (item._combobox || (item.field_type === "select" && el.tagName !== "SELECT")) {
         const out = await fillCombobox(el, item.value);
         if (!out.ok) { results.push({ field_id: item.field_id, status: "failed", message: out.message }); continue; }
+        if (out.message) { results.push({ field_id: item.field_id, status: "low_confidence", message: out.message }); continue; }
+        await sleep(60);  // let dependent fields (country → state) cascade
       } else if (item.field_type === "select") {
         const opt = pickSelectOption(el, item.value);
         if (!opt) { results.push({ field_id: item.field_id, status: "failed", message: "no matching option" }); continue; }
-        el.value = opt.value;
+        nativeSet(el, opt.value);
         fireInputEvents(el);
+        if (el.value !== opt.value) {
+          results.push({ field_id: item.field_id, status: "failed", message: "select did not accept value" });
+          continue;
+        }
+        await sleep(60);  // dependent dropdowns repopulate after change
       } else if (item.field_type === "radio") {
-        const target = pickRadioInGroup(item.name || el.name, item.value);
+        const target = pickRadioInGroup(el, item.name || el.name, item.value);
         if (!target) { results.push({ field_id: item.field_id, status: "failed", message: "no matching radio" }); continue; }
         target.click();
+        if (!target.checked) {
+          // Custom widgets sometimes intercept the click — force it through.
+          target.checked = true;
+          fireInputEvents(target);
+        }
+        if (!target.checked) {
+          results.push({ field_id: item.field_id, status: "failed", message: "radio did not select" });
+          continue;
+        }
+        await sleep(40);
       } else if (item.field_type === "checkbox") {
         const want = isTruthyAnswer(item.value);
         if (el.checked !== want) el.click();
+        if (el.checked !== want) {
+          el.checked = want;
+          fireInputEvents(el);
+        }
+        if (el.checked !== want) {
+          results.push({ field_id: item.field_id, status: "failed", message: "checkbox did not toggle" });
+          continue;
+        }
+      } else if (el.isContentEditable || (el.getAttribute && ["", "true"].includes(el.getAttribute("contenteditable")))) {
+        fireFocus(el);
+        el.textContent = item.value;
+        fireInputEvents(el, item.value);
+        fireBlur(el);
+        if ((el.textContent || "").trim() !== (item.value || "").trim()) {
+          results.push({ field_id: item.field_id, status: "failed", message: "editor did not accept text" });
+          continue;
+        }
       } else {
+        const value = normalizeDateValue(el, item.value);
         el.focus();
         fireFocus(el);
-        nativeSet(el, item.value);
-        fireInputEvents(el, item.value);
+        nativeSet(el, value);
+        fireInputEvents(el, value);
         fireBlur(el);
         el.blur();
         // Verify-after-fill: if React snapped the value back, surface it.
         const actual = (el.value || "");
-        const wanted = (item.value || "");
-        if (actual !== wanted && !(wanted && actual.includes(wanted))) {
+        if (actual !== value && !(value && actual.includes(value))) {
           results.push({
             field_id: item.field_id,
             status: "failed",

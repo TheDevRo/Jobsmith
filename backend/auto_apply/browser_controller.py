@@ -481,6 +481,7 @@ class BrowserController:
                     options       = item.get("options") or None,
                     required      = bool(item.get("required", False)),
                     extra_context = item.get("extra_context", ""),
+                    autocomplete  = item.get("autocomplete", ""),
                 )
             )
 
@@ -512,9 +513,11 @@ class BrowserController:
 
     async def select_field(self, field_id: str, value: str) -> bool:
         """
-        Select an option from a <select> element.
+        Select an option from a choice widget.
 
-        Tries exact text match first, then partial/case-insensitive match.
+        Routes by the actual element: native <select> (Playwright
+        select_option), radio group (click_radio), anything else is driven
+        as a combobox — open, type, click the best-matching [role=option].
         """
         selector = self._field_map.get(field_id)
         if not selector:
@@ -522,6 +525,14 @@ class BrowserController:
         try:
             await self._human_delay(200, 800)
             locator = self.page.locator(selector).first
+            info = await locator.evaluate(
+                "el => ({tag: el.tagName, type: (el.type || '').toLowerCase()})"
+            )
+            if info["tag"] == "INPUT" and info["type"] == "radio":
+                return await self.click_radio(field_id, value)
+            if info["tag"] != "SELECT":
+                return await self._select_combobox(locator, field_id, value)
+
             # Try value attribute match
             try:
                 await locator.select_option(value=value, timeout=3000)
@@ -534,14 +545,13 @@ class BrowserController:
                 return True
             except Exception:
                 pass
-            # Case-insensitive partial match against available options
+            # Scored match against available options (state abbreviations,
+            # degree buckets, "No" vs "Not applicable", …)
+            from .field_matcher import best_option
             options: list[str] = await locator.evaluate(
                 "el => Array.from(el.options).map(o => o.text)"
             )
-            target = value.lower()
-            match = next(
-                (o for o in options if target in o.lower()), None
-            )
+            match = best_option(value, options)
             if match:
                 await locator.select_option(label=match, timeout=3000)
                 return True
@@ -550,6 +560,60 @@ class BrowserController:
             return False
         except Exception as exc:
             logger.warning("select_field %s failed: %s", field_id, exc)
+            return False
+
+    async def _select_combobox(self, locator, field_id: str, value: str) -> bool:
+        """Drive a custom dropdown (react-select input or Workday-style
+        button): open it, type to filter when possible, click the best
+        [role=option]. Retries with shorter queries for async option lists."""
+        from .field_matcher import best_option
+
+        try:
+            await locator.scroll_into_view_if_needed()
+            await locator.click()
+            typeable = (await locator.evaluate("el => el.tagName")) in ("INPUT", "TEXTAREA")
+
+            queries = [value]
+            if typeable:
+                first_word = value.replace(",", " ").split()
+                if first_word and first_word[0].lower() != value.lower():
+                    queries.append(first_word[0])
+                if len(value) > 4:
+                    queries.append(value[:3])
+
+            for i, q in enumerate(queries):
+                if typeable:
+                    try:
+                        await locator.fill("")
+                    except Exception:
+                        pass
+                    await locator.type(q, delay=random.randint(25, 60))
+                texts: list[str] = []
+                for _ in range(20 if i == 0 else 15):  # ~2s first try, ~1.5s retries
+                    await asyncio.sleep(0.1)
+                    try:
+                        texts = [
+                            t.strip()
+                            for t in await self.page.locator('[role="option"]').all_inner_texts()
+                            if t.strip()
+                        ]
+                    except Exception:
+                        texts = []
+                    if texts:
+                        break
+                if not texts:
+                    if not typeable:
+                        break  # nothing to vary — the list simply didn't render
+                    continue
+                match = best_option(value, texts)
+                if match:
+                    await self.page.locator('[role="option"]').filter(has_text=match).first.click()
+                    return True
+
+            logger.warning("combobox %s: no option matching %r", field_id, value)
+            return False
+        except Exception as exc:
+            logger.warning("combobox %s failed: %s", field_id, exc)
             return False
 
     async def check_field(self, field_id: str) -> bool:
@@ -820,34 +884,73 @@ _SNAPSHOT_JS = """
     return 'body > ' + path;
   }
 
+  // Custom-widget detection — mirrors extension/src/common/snapshot.js so
+  // both pipelines feed the backend matcher the same field shapes.
+  function isComboWidget(el) {
+    if (['INPUT','SELECT','TEXTAREA'].includes(el.tagName)) return false;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const haspop = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    return role === 'combobox' || (el.tagName === 'BUTTON' && haspop === 'listbox');
+  }
+  function isComboInput(el) {
+    if (el.tagName !== 'INPUT') return false;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const haspop = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    const ac = (el.getAttribute('aria-autocomplete') || '').toLowerCase();
+    return role === 'combobox' || ['listbox','menu','true'].includes(haspop) || ['list','both'].includes(ac);
+  }
+  function isEditable(el) {
+    const ce = el.getAttribute ? el.getAttribute('contenteditable') : null;
+    if (ce !== '' && ce !== 'true' && !el.isContentEditable) return false;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    return role === 'textbox' || el.getAttribute('aria-multiline') === 'true';
+  }
+
   const seen = new Set();
+  const seenRadio = new Set();
   const fields = [];
 
   // Collect inputs (exclude hidden/submit/button/image/reset)
   const excludeTypes = new Set(['hidden','submit','button','image','reset','search']);
-  document.querySelectorAll('input, textarea, select').forEach(el => {
-    const type = (el.type || el.tagName.toLowerCase()).toLowerCase();
-    if (excludeTypes.has(type)) return;
+  const FIELD_QUERY = 'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [contenteditable=""], [contenteditable="true"]';
+  document.querySelectorAll(FIELD_QUERY).forEach(el => {
+    const isFormTag = ['INPUT','TEXTAREA','SELECT'].includes(el.tagName);
+    if (!isFormTag && !isComboWidget(el) && !isEditable(el)) return;
+    // A combobox wrapper div usually contains the real <input> (react-select);
+    // skip the wrapper so the widget isn't captured twice.
+    if (!isFormTag && el.querySelector && el.querySelector('input, select, textarea')) return;
+    const type = isFormTag ? (el.type || el.tagName.toLowerCase()).toLowerCase() : '';
+    if (isFormTag && excludeTypes.has(type)) return;
     // Skip display:none / aria-hidden / visibility:hidden fields
     if (!isVisible(el)) return;
-    if (!el.offsetParent && el.type !== 'file') return;
+    if (!el.offsetParent && type !== 'file') return;
+    // Dedupe named radio groups to one field carrying all option labels.
+    if (type === 'radio' && el.name) {
+      if (seenRadio.has(el.name)) return;
+      seenRadio.add(el.name);
+    }
     const sel = uniqueSelector(el);
     if (seen.has(sel)) return;
     seen.add(sel);
 
     const helperText = getHelperText(el);
     const extraCtx = getExtraContext(el);
+    const combo = isComboWidget(el) || isComboInput(el);
 
     const entry = {
       selector: sel,
-      type: el.tagName === 'SELECT' ? 'select' : (el.tagName === 'TEXTAREA' ? 'textarea' : type),
+      type: el.tagName === 'SELECT' ? 'select'
+          : (el.tagName === 'TEXTAREA' || isEditable(el)) ? 'textarea'
+          : combo ? 'select'
+          : type,
       name: el.name || '',
-      placeholder: el.placeholder || '',
+      placeholder: el.placeholder || el.getAttribute('data-placeholder') || '',
       required: el.required || el.getAttribute('aria-required') === 'true',
       label: getLabel(el),
       autocomplete: el.getAttribute('autocomplete') || '',
       helper_text: helperText,
       extra_context: helperText ? helperText + ' | ' + extraCtx : extraCtx,
+      combobox: combo,
     };
 
     if (el.tagName === 'SELECT') {
@@ -855,6 +958,10 @@ _SNAPSHOT_JS = """
         .slice(1)  // skip first (usually "Select...")
         .map(o => o.text.trim())
         .filter(Boolean);
+    } else if (type === 'radio' && el.name) {
+      entry.options = Array.from(
+        document.querySelectorAll('input[type="radio"][name="' + CSS.escape(el.name) + '"]')
+      ).map(r => getLabel(r) || r.value).filter(Boolean);
     }
 
     fields.push(entry);

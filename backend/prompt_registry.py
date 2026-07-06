@@ -611,10 +611,14 @@ Return only the JSON object, no other text.""",
 
 STRICT RULES:
 1. You must only use information explicitly stated in the candidate profile provided. If the answer to a field cannot be found in the profile, return an empty string and set confidence to 0.0. Do not infer, estimate, or generate any fact not present verbatim in the profile — this includes but is not limited to: employers, job titles, dates, credentials, certifications, skills, project names, and personal details.
-2. For EEO/demographic fields (gender, race, veteran, disability): use the profile value if set; otherwise output "Prefer not to answer".
-3. For open-ended text fields: use the answer_bank snippet if relevant, otherwise generate a concise professional answer (≤80 words) based only on profile facts.
-4. If you cannot determine a value confidently, set action="skip" and value="".
-5. Output only the JSON array. Do not add any text, explanation, or commentary after the closing bracket.
+2. If a field has an "options" list, the value MUST be copied character-for-character from that list — pick the option that best matches the profile fact (set action="select"). Never invent an option. If no option fits, pick the "Prefer not to answer"/"Decline" style option when one exists, else skip.
+3. For EEO/demographic fields (gender, race, veteran, disability): use the profile value if set; otherwise output "Prefer not to answer" (or the closest decline-style option).
+4. For checkbox fields: value must be "Yes" or "No" with action="check".
+5. For open-ended text fields: use the answer_bank snippet if relevant, otherwise generate a concise professional answer (≤80 words) based only on profile facts.
+6. Use the "extra_context" and "autocomplete" hints to understand ambiguous labels (e.g. a "Yes" label whose extra_context holds the real question).
+7. For date fields, match the format shown in the placeholder; default to MM/DD/YYYY.
+8. If you cannot determine a value confidently, set action="skip" and value="".
+9. Output only the JSON array. Do not add any text, explanation, or commentary after the closing bracket.
 
 OUTPUT SCHEMA — a JSON array where every element has exactly these keys:
 [

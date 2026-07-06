@@ -64,6 +64,7 @@ class UserProfile(BaseModel):
     phone:               str = ""
     middle_name:         str = ""
     location:            str = ""
+    country:             str = "United States"
     street_address:      str = ""
     street_address_2:    str = ""
     city:                str = ""
@@ -84,6 +85,7 @@ class UserProfile(BaseModel):
     disability_status:   str = ""
     work_authorization:  str = "Yes"
     sponsorship_required: str = "No"
+    over_18:             str = "Yes"
     # Availability
     notice_period:   str = "2 weeks"
     available_start: str = "Immediately"
@@ -149,6 +151,8 @@ class UserProfile(BaseModel):
             f"Phone: {self.phone}",
             f"Location: {self.location}",
         ]
+        if self.middle_name:
+            lines.append(f"Middle Name: {self.middle_name}")
         if self.street_address:
             lines.append(f"Street Address (Address Line 1): {self.street_address}")
         if self.street_address_2:
@@ -159,6 +163,8 @@ class UserProfile(BaseModel):
             lines.append(f"State / Province / Region: {self.state}")
         if self.zip_code:
             lines.append(f"Zip Code (Postal Code): {self.zip_code}")
+        if self.country:
+            lines.append(f"Country: {self.country}")
         if self.linkedin:
             lines.append(f"LinkedIn: {self.linkedin}")
         if self.github:
@@ -167,6 +173,21 @@ class UserProfile(BaseModel):
             lines.append(f"Portfolio: {self.portfolio}")
         lines.append(f"Work Authorization: {self.work_authorization}")
         lines.append(f"Sponsorship Required: {self.sponsorship_required}")
+        lines.append(f"Age 18 or Older: {self.over_18}")
+        if self.notice_period:
+            lines.append(f"Notice Period: {self.notice_period}")
+        if self.available_start:
+            lines.append(f"Earliest Start Date: {self.available_start}")
+        # EEO / demographics — only what the user has explicitly set. The LLM
+        # falls back to "Prefer not to answer" for anything absent here.
+        if self.gender:
+            lines.append(f"Gender: {self.gender}")
+        if self.race_ethnicity:
+            lines.append(f"Race / Ethnicity: {self.race_ethnicity}")
+        if self.veteran_status:
+            lines.append(f"Veteran Status: {self.veteran_status}")
+        if self.disability_status:
+            lines.append(f"Disability Status: {self.disability_status}")
         if self.desired_salary:
             lines.append(f"Desired Salary: {self.desired_salary}")
         if self.skills:
@@ -211,11 +232,12 @@ class FieldDescriptor(BaseModel):
     field_id:      str          # Stable key used to reference this field
     label:         str = ""     # Text from <label>, aria-label, or nearby heading
     placeholder:   str = ""
-    field_type:    str = "text" # text|number|email|tel|url|select|textarea|checkbox|radio|file
+    field_type:    str = "text" # text|number|email|tel|url|select|textarea|checkbox|radio|file|date|password
     name:          str = ""
     options:       Optional[list[str]] = None  # For <select> / radio groups
     required:      bool = False
-    extra_context: str = ""     # Nearby text snippet for ambiguous fields
+    extra_context: str = ""     # Nearby text snippet (e.g. fieldset legend) for ambiguous fields
+    autocomplete:  str = ""     # HTML autocomplete attribute — high-precision matching hint
 
 
 class FieldValue(BaseModel):

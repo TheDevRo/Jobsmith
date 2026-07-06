@@ -20,6 +20,9 @@ async function loadSettings() {
         document.getElementById('cfg-notice-period').value = cfg.profile?.notice_period || '2 weeks';
         document.getElementById('cfg-available-start').value = cfg.profile?.available_start || 'Immediately';
         document.getElementById('cfg-linkedin').value = cfg.profile?.linkedin || '';
+        document.getElementById('cfg-github').value = cfg.profile?.github || '';
+        document.getElementById('cfg-portfolio').value = cfg.profile?.portfolio || '';
+        document.getElementById('cfg-country').value = cfg.profile?.country || 'United States';
         document.getElementById('cfg-summary').value = cfg.profile?.summary || '';
         document.getElementById('cfg-skills').value = (cfg.profile?.skills || []).join(', ');
 
@@ -34,6 +37,7 @@ async function loadSettings() {
         document.getElementById('cfg-disability').value = cfg.profile?.disability_status || '';
         document.getElementById('cfg-work-auth').value = cfg.profile?.work_authorization || '';
         document.getElementById('cfg-sponsorship').value = cfg.profile?.sponsorship_required || '';
+        document.getElementById('cfg-over-18').value = cfg.profile?.over_18 || 'Yes';
 
         document.getElementById('cfg-keywords').value = (cfg.search?.keywords || []).join(', ');
         document.getElementById('cfg-locations').value = (cfg.search?.locations || []).join('\n');
@@ -517,7 +521,10 @@ async function saveSettings() {
             email: document.getElementById('cfg-email').value.trim(),
             phone: document.getElementById('cfg-phone').value.trim(),
             location: document.getElementById('cfg-location').value.trim(),
+            country: document.getElementById('cfg-country').value.trim() || 'United States',
             linkedin: document.getElementById('cfg-linkedin').value.trim(),
+            github: document.getElementById('cfg-github').value.trim(),
+            portfolio: document.getElementById('cfg-portfolio').value.trim(),
             summary: document.getElementById('cfg-summary').value.trim(),
             skills: splitCsvSmart(document.getElementById('cfg-skills').value),
             middle_name: document.getElementById('cfg-middle-name').value,
@@ -535,6 +542,7 @@ async function saveSettings() {
             disability_status: document.getElementById('cfg-disability').value,
             work_authorization: document.getElementById('cfg-work-auth').value,
             sponsorship_required: document.getElementById('cfg-sponsorship').value,
+            over_18: document.getElementById('cfg-over-18').value || 'Yes',
             ats_login_password: document.getElementById('cfg-ats-login-password').value,
             workday_email: document.getElementById('cfg-workday-email').value,
             workday_password: document.getElementById('cfg-workday-password').value,
