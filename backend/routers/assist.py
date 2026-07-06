@@ -7,6 +7,7 @@ autofill/scan against the active assist browser.
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -461,7 +462,11 @@ async def assist_launch(req: AssistLaunchRequest):
     token = extension_api.get_or_create_token()
     record = applicant_assist.create_handoff_session(job, setup_token=token)
 
-    port = cfg.get("server", {}).get("port", 8888)
+    # JOBSMITH_PORT is the port the desktop sidecar actually bound (the Tauri
+    # shell picks a free one when 8888 is taken); config.yaml only knows the
+    # preferred port, so the env var must win or the launch URL points at the
+    # wrong (or no) server.
+    port = int(os.environ.get("JOBSMITH_PORT") or cfg.get("server", {}).get("port", 8888))
     launch_url = f"http://127.0.0.1:{port}/assist/launch/{record['id']}"
 
     opened = False

@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from . import database as db
 from .auto_apply.llm_client import LLMClient
+from .paths import project_root
 from .auto_apply.models import (
     FieldDescriptor,
     FieldValue,
@@ -33,7 +34,10 @@ from .auto_apply.models import (
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# User state (token, generated documents) must live under project_root() —
+# in desktop builds __file__ points into the PyInstaller extraction dir, which
+# is recreated on every launch, so a __file__-based token would rotate per run.
+PROJECT_ROOT = project_root()
 DATA_DIR = PROJECT_ROOT / "data"
 RESUMES_DIR = PROJECT_ROOT / "resumes"
 TOKEN_PATH = DATA_DIR / "extension_token.txt"

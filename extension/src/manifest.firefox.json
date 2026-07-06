@@ -5,8 +5,8 @@
   "description": "Scan, autofill, and attach tailored resumes for the job tab you're on.",
   "permissions": ["storage", "activeTab", "scripting", "webNavigation", "cookies"],
   "host_permissions": [
-    "http://localhost:8888/*",
-    "http://127.0.0.1:8888/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://*.linkedin.com/*",
     "https://*.indeed.com/*",
     "<all_urls>"
@@ -17,8 +17,8 @@
   "content_scripts": [
     {
       "matches": [
-        "http://localhost:8888/assist/launch/*",
-        "http://127.0.0.1:8888/assist/launch/*"
+        "http://localhost/assist/launch/*",
+        "http://127.0.0.1/assist/launch/*"
       ],
       "js": ["assist_handshake.js"],
       "run_at": "document_end"
