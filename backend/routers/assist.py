@@ -582,9 +582,9 @@ async def assist_launch_page(session_id: str, request: Request):
   <div id="status-firefox-gate" class="status hidden">
     <strong>Extension connected.</strong>
     <div style="margin-top:10px;font-size:13px;color:#cdd6f4;line-height:1.5">
-      <em>Tip:</em> Firefox can't open the sidebar from a webpage.
-      Click the <strong>Jobsmith</strong> icon in your toolbar &rarr;
-      <strong>Open panel</strong> to start the Assist sidebar.
+      The Jobsmith panel will appear docked to the right edge of the
+      application page. Drag its edge to resize, or use the rail buttons
+      to collapse/close it.
     </div>
     <div style="margin-top:14px">
       <button id="jobsmith-continue-btn" type="button">Continue now</button>

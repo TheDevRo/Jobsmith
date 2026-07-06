@@ -52,13 +52,57 @@ function storageSet(values) {
   return new Promise((resolve) => api.storage.local.set(values, resolve));
 }
 
+// ---------------------------------------------------------------------------
+// Firefox: in-page docked panel.
+//
+// Firefox's sidebarAction.open() only works from a real user-input handler
+// (and that status doesn't propagate through messages), so the native
+// sidebar can never auto-open from the Assist navigation. Instead, tabs that
+// completed an Assist handshake get the panel injected INTO the application
+// page as a docked iframe (common/overlay.js) — the same UX as the old
+// isolated-mode sidebar, but in the user's own browser.
+// ---------------------------------------------------------------------------
+
+const assistTabs = new Set();
+
+async function injectAssistOverlay(tabId) {
+  try {
+    const panelUrl = api.runtime.getURL("sidepanel.html")
+      + "?tabId=" + encodeURIComponent(tabId) + "&overlay=1";
+    await api.scripting.executeScript({ target: { tabId }, files: ["common/overlay.js"] });
+    await api.scripting.executeScript({
+      target: { tabId },
+      func: (u) => { window.__jobsmithMountOverlay && window.__jobsmithMountOverlay(u); },
+      args: [panelUrl],
+    });
+    console.log("[Jobsmith overlay]", "panel mounted in tab", tabId);
+  } catch (e) {
+    console.warn("[Jobsmith overlay]", "inject failed (non-fatal):", e && e.message || e);
+  }
+}
+
+api.runtime.onMessage.addListener((msg, sender) => {
+  // User clicked ✕ on the docked panel — stop re-injecting for that tab.
+  if (msg && msg.type === "assist-overlay-closed" && sender.tab) {
+    assistTabs.delete(sender.tab.id);
+  }
+});
+
+if (api.tabs && api.tabs.onRemoved) {
+  api.tabs.onRemoved.addListener((tabId) => assistTabs.delete(tabId));
+}
+
 async function tryOpenSidePanel(tabId) {
-  // Chrome only: sidePanel.open() accepts the launch-URL navigation as a
-  // downstream user gesture. Firefox's sidebarAction.open() strictly requires
-  // a real user-input handler in the same context, so we don't even attempt
-  // it here — the launch page directs Firefox users to click the toolbar
-  // icon instead.
-  if (!isChrome || !api.sidePanel || !api.sidePanel.open) return;
+  if (!isChrome) {
+    // Firefox: mark the tab; the overlay mounts once it navigates from the
+    // launch page to the actual application (and re-mounts on every page of
+    // multi-step flows).
+    if (tabId != null) assistTabs.add(tabId);
+    return;
+  }
+  // Chrome: sidePanel.open() accepts the launch-URL navigation as a
+  // downstream user gesture.
+  if (!api.sidePanel || !api.sidePanel.open) return;
   try {
     let windowId;
     if (tabId != null && api.tabs && api.tabs.get) {
@@ -164,6 +208,18 @@ if (api.tabs && api.tabs.onUpdated) {
   api.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.url) maybeHandle(changeInfo.url, tabId);
     else if (changeInfo.status === "complete" && tab && tab.url) maybeHandle(tab.url, tabId);
+    // Firefox docked panel: (re)mount on every completed navigation of an
+    // assist tab once it has left the launch page.
+    if (
+      !isChrome &&
+      changeInfo.status === "complete" &&
+      assistTabs.has(tabId) &&
+      tab && tab.url &&
+      /^https?:/.test(tab.url) &&
+      !LAUNCH_RE.test(tab.url)
+    ) {
+      injectAssistOverlay(tabId);
+    }
   });
 }
 if (api.webNavigation && api.webNavigation.onCommitted) {
