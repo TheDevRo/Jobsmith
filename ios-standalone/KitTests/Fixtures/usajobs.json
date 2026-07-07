@@ -1,0 +1,58 @@
+{
+  "LanguageCode": "EN",
+  "SearchParameters": {},
+  "SearchResult": {
+    "SearchResultCount": 2,
+    "SearchResultCountAll": 2,
+    "SearchResultItems": [
+      {
+        "MatchedObjectId": "812345600",
+        "MatchedObjectDescriptor": {
+          "PositionID": "AF-25-12345678",
+          "PositionTitle": "IT Specialist (INFOSEC)",
+          "PositionURI": "https://www.usajobs.gov/job/812345600",
+          "ApplyURI": ["https://www.usajobs.gov/job/812345600"],
+          "PositionLocationDisplay": "Colorado Springs, Colorado",
+          "PositionLocation": [
+            { "LocationName": "Colorado Springs, Colorado", "CountryCode": "United States" },
+            { "LocationName": "Peterson AFB, Colorado", "CountryCode": "United States" }
+          ],
+          "OrganizationName": "Department of the Air Force",
+          "DepartmentName": "Department of Defense",
+          "PositionRemuneration": [
+            { "MinimumRange": "88000", "MaximumRange": "115000", "RateIntervalCode": "Per Year" }
+          ],
+          "PublicationStartDate": "2026-07-01",
+          "ApplicationCloseDate": "2026-07-15",
+          "QualificationSummary": "You must have IT security experience.",
+          "UserArea": {
+            "Details": {
+              "MajorDuties": ["Secure and harden networks.", "Monitor systems for intrusions."],
+              "LowGrade": "11",
+              "HighGrade": "12"
+            }
+          }
+        }
+      },
+      {
+        "MatchedObjectId": "812345601",
+        "MatchedObjectDescriptor": {
+          "PositionID": "DHS-25-98765432",
+          "PositionTitle": "Cybersecurity Specialist (Remote)",
+          "PositionURI": "https://www.usajobs.gov/job/812345601",
+          "PositionLocation": [
+            { "LocationName": "Anywhere in the U.S. (remote job)", "CountryCode": "United States" }
+          ],
+          "OrganizationName": "Cybersecurity and Infrastructure Security Agency",
+          "DepartmentName": "Cybersecurity and Infrastructure Security Agency",
+          "PositionRemuneration": [
+            { "MinimumRange": "0", "MaximumRange": "0", "RateIntervalCode": "Per Year" }
+          ],
+          "PublicationStartDate": "2026-07-02",
+          "QualificationSummary": "Defend federal networks.",
+          "UserArea": { "Details": { "MajorDuties": [] } }
+        }
+      }
+    ]
+  }
+}

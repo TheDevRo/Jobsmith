@@ -1,0 +1,125 @@
+name: Jobsmith
+schemes:
+  Jobsmith:
+    build:
+      targets:
+        Jobsmith: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - JobsmithUITests
+options:
+  bundleIdPrefix: com.thedevro
+  deploymentTarget:
+    iOS: "16.4"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: 0.2.2
+    CURRENT_PROJECT_VERSION: 1
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: NO
+
+targets:
+  Jobsmith:
+    type: application
+    platform: iOS
+    sources:
+      - path: Jobsmith
+    dependencies:
+      - target: JobsmithAssist
+    info:
+      path: Jobsmith/Info.plist
+      properties:
+        CFBundleDisplayName: Jobsmith
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # The backend is self-hosted on the user's LAN (plain http, arbitrary
+        # private IPs / hostnames / Tailscale). ATS exceptions are required for
+        # both URLSession (connection test) and WKWebView content.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: >-
+          Jobsmith connects to your self-hosted Jobsmith server on your local
+          network to show your job pipeline.
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+  JobsmithUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [JobsmithUITests]
+    dependencies:
+      - target: Jobsmith
+    settings:
+      base:
+        TEST_TARGET_NAME: Jobsmith
+        PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+  JobsmithAssist:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: JobsmithAssist/SafariWebExtensionHandler.swift
+      # Mirror safari-web-extension-converter layout: top-level files at the
+      # appex root, subdirectories as folder references (preserves the
+      # icons/ and common/ paths that the manifest and HTML reference).
+      - path: JobsmithAssist/Resources/manifest.json
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/background.js
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/assist_handshake.js
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/popup.html
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/popup.js
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/sidepanel.html
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/sidepanel.js
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/icons
+        type: folder
+        buildPhase: resources
+      - path: JobsmithAssist/Resources/common
+        type: folder
+        buildPhase: resources
+    preBuildScripts:
+      - name: Sync web extension resources
+        script: |
+          "$SRCROOT/scripts/sync-extension-resources.sh"
+        basedOnDependencyAnalysis: false
+    info:
+      path: JobsmithAssist/Info.plist
+      properties:
+        CFBundleDisplayName: Jobsmith Assist
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SafariWebExtensionHandler
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.Assist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO

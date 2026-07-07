@@ -1,0 +1,43 @@
+{
+  "data": [
+    {
+      "slug": "ios-developer-acme-gmbh-berlin-321",
+      "company_name": "Acme GmbH",
+      "title": "iOS Developer",
+      "description": "<p>Swift development for our consumer platform.</p>",
+      "remote": true,
+      "url": "https://www.arbeitnow.com/view/ios-developer-acme-gmbh-berlin-321",
+      "tags": ["ios", "swift"],
+      "job_types": ["full time"],
+      "location": "Berlin",
+      "created_at": 1751500800
+    },
+    {
+      "slug": "accountant-numbers-ag-munich-42",
+      "company_name": "Numbers AG",
+      "title": "Accountant",
+      "description": "<p>Keep the books balanced.</p>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/view/accountant-numbers-ag-munich-42",
+      "tags": ["finance"],
+      "job_types": ["full time"],
+      "location": "Munich",
+      "created_at": 1751500900
+    }
+  ],
+  "links": {
+    "first": "https://www.arbeitnow.com/api/job-board-api?page=1",
+    "last": null,
+    "prev": null,
+    "next": null
+  },
+  "meta": {
+    "current_page": 1,
+    "from": 1,
+    "path": "https://www.arbeitnow.com/api/job-board-api",
+    "per_page": 100,
+    "to": 100,
+    "terms": "This API is free to use.",
+    "info": "Jobs are updated every hour."
+  }
+}

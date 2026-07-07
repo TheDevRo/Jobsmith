@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>We Work Remotely: Remote jobs in design, programming, marketing and more</title>
+    <link>https://weworkremotely.com</link>
+    <description>The largest remote work community in the world.</description>
+    <language>en-us</language>
+    <item>
+      <title>Acme Corp: Senior Rails Developer</title>
+      <link>https://weworkremotely.com/remote-jobs/acme-corp-senior-rails-developer</link>
+      <guid>https://weworkremotely.com/remote-jobs/acme-corp-senior-rails-developer</guid>
+      <region>Anywhere (100% Remote) Only</region>
+      <category>All Other Remote</category>
+      <description><![CDATA[<p>Work on our Rails monolith with a small senior team. Salary $140,000&ndash;$170,000.</p>]]></description>
+      <pubDate>Wed, 01 Jul 2026 10:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Beta LLC: Customer Support Specialist</title>
+      <link>https://weworkremotely.com/remote-jobs/beta-llc-customer-support-specialist</link>
+      <guid>https://weworkremotely.com/remote-jobs/beta-llc-customer-support-specialist</guid>
+      <description><![CDATA[<p>Answer tickets with empathy and care.</p>]]></description>
+      <pubDate>Thu, 02 Jul 2026 12:30:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Untitled Posting Without Company</title>
+      <link>https://weworkremotely.com/remote-jobs/untitled-posting</link>
+      <description><![CDATA[<p>A rails adjacent listing with no colon in the title.</p>]]></description>
+      <pubDate>Fri, 03 Jul 2026 09:00:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

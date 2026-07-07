@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Jobsmith Assist",
+  "version": "0.2.3",
+  "description": "Scan, autofill, and attach tailored resumes for the job tab you're on.",
+  "permissions": ["storage", "activeTab", "scripting", "webNavigation", "cookies"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.linkedin.com/*",
+    "https://*.indeed.com/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/assist/launch/*",
+        "https://*/assist/launch/*"
+      ],
+      "js": ["assist_handshake.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sidepanel.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "options_ui": {
+    "page": "popup.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Jobsmith",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

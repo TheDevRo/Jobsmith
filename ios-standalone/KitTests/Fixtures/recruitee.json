@@ -1,0 +1,58 @@
+{
+  "offers": [
+    {
+      "id": 501,
+      "title": "iOS Engineer",
+      "slug": "ios-engineer",
+      "status": "published",
+      "careers_url": "https://acme.recruitee.com/o/ios-engineer",
+      "careers_apply_url": "https://acme.recruitee.com/o/ios-engineer/c/new",
+      "created_at": "2026-06-20 09:15:00 UTC",
+      "published_at": "2026-07-01 10:00:00 UTC",
+      "location": "Amsterdam, Netherlands",
+      "city": "Amsterdam",
+      "country": "Netherlands",
+      "company_name": "Acme BV",
+      "department": "Mobile",
+      "tags": ["swift", "ios"],
+      "remote": true,
+      "hybrid": false,
+      "on_site": false,
+      "description": "<p>Build our iOS app with Swift and GRDB.</p>",
+      "requirements": "<ul><li>5 years of iOS experience</li></ul>",
+      "salary": { "min": "60000", "max": "80000", "period": "yearly", "currency": "EUR" }
+    },
+    {
+      "id": 502,
+      "title": "Android Engineer",
+      "slug": "android-engineer",
+      "status": "draft",
+      "careers_url": "https://acme.recruitee.com/o/android-engineer",
+      "published_at": "2026-07-01 11:00:00 UTC",
+      "location": "Amsterdam, Netherlands",
+      "company_name": "Acme BV",
+      "department": "Mobile",
+      "tags": [],
+      "remote": false,
+      "description": "<p>Kotlin work.</p>",
+      "salary": { "min": null, "max": null, "period": null, "currency": null }
+    },
+    {
+      "id": 503,
+      "title": "Payroll Specialist",
+      "slug": "payroll-specialist",
+      "status": "published",
+      "careers_url": "https://acme.recruitee.com/o/payroll-specialist",
+      "published_at": "2026-07-02 08:00:00 UTC",
+      "location": "",
+      "city": "Rotterdam",
+      "country": "Netherlands",
+      "company_name": "Acme BV",
+      "department": "Finance",
+      "tags": [],
+      "remote": false,
+      "description": "<p>Monthly payroll runs.</p>",
+      "salary": { "min": "3500", "max": "4200", "period": "monthly", "currency": "EUR" }
+    }
+  ]
+}

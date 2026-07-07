@@ -46,4 +46,26 @@ if [ "$BROWSER_HEADLESS" = "false" ]; then
     websockify --web /usr/share/novnc 6080 localhost:5900 >/tmp/websockify.log 2>&1 &
 fi
 
+# ── Server launch ─────────────────────────────────────────────────────────────
+# The default CMD is "serve": launch uvicorn here so the bind interface can
+# come from JOBSMITH_HOST or the mounted config's server.host (set from
+# Settings → Integrations → Network). Loopback values are treated as unset —
+# binding 127.0.0.1 inside the container would make the published port dead
+# (and freshly seeded configs default to 127.0.0.1); to restrict access to
+# the docker host, bind the port mapping instead, e.g. "127.0.0.1:8888:8888".
+if [ "$1" = "serve" ]; then
+    HOST="${JOBSMITH_HOST:-}"
+    if [ -z "$HOST" ]; then
+        HOST=$(python -c 'import yaml; cfg = yaml.safe_load(open("/app/config/config.yaml")) or {}; print((cfg.get("server") or {}).get("host") or "")' 2>/dev/null || true)
+    fi
+    case "$HOST" in ""|127.0.0.1|localhost|::1)
+        [ -n "$HOST" ] && echo "[entrypoint] server.host=$HOST is loopback — binding 0.0.0.0 (use a port mapping like 127.0.0.1:8888:8888 to restrict access)."
+        HOST=0.0.0.0
+        ;;
+    esac
+    PORT="${JOBSMITH_PORT:-8888}"
+    echo "[entrypoint] Starting backend on $HOST:$PORT"
+    exec python -m uvicorn backend.main:app --host "$HOST" --port "$PORT"
+fi
+
 exec "$@"

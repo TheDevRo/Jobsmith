@@ -87,6 +87,21 @@ async function loadSettings() {
         document.getElementById('cfg-workday-password').value = cfg.profile?.workday_password || '';
 
         document.getElementById('cfg-flaresolverr-url').value = cfg.flaresolverr?.url || '';
+
+        const hostSel = document.getElementById('cfg-server-host');
+        if (hostSel) {
+            const host = cfg.server?.host || '127.0.0.1';
+            // A hand-edited config.yaml can hold a specific interface IP the
+            // dropdown doesn't offer — surface it instead of misreporting.
+            if (![...hostSel.options].some(o => o.value === host)) {
+                const opt = document.createElement('option');
+                opt.value = host;
+                opt.textContent = `Custom (${host})`;
+                hostSel.appendChild(opt);
+            }
+            hostSel.value = host;
+            window._loadedServerHost = host;
+        }
     } catch (e) {
         toast('Failed to load settings', 'error');
     }
@@ -591,11 +606,18 @@ async function saveSettings() {
                 api_key: (document.getElementById('cfg-bls-api-key')?.value || '').trim(),
             },
         },
+        server: {
+            host: document.getElementById('cfg-server-host')?.value || '127.0.0.1',
+        },
     };
 
     try {
         await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
         toast('Settings saved!', 'success');
+        if (window._loadedServerHost !== undefined && body.server.host !== window._loadedServerHost) {
+            window._loadedServerHost = body.server.host;
+            toast('Bind interface changed — restart Jobsmith for it to take effect', 'info');
+        }
     } catch (e) {
         toast('Failed to save settings', 'error');
     }

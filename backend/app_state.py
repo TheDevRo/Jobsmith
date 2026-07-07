@@ -59,6 +59,7 @@ _ENV_OVERRIDES = {
     "JOBSMITH_AI_BASE_URL": ("ai", "base_url"),
     "JOBSMITH_AI_API_KEY": ("ai", "api_key"),
     "JOBSMITH_FLARESOLVERR_URL": ("flaresolverr", "url"),
+    "JOBSMITH_HOST": ("server", "host"),
 }
 
 

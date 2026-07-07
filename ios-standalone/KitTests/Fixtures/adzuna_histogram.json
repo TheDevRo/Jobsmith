@@ -1,0 +1,11 @@
+{
+  "__CLASS__": "Adzuna::API::Response::SalaryHistogram",
+  "histogram": {
+    "30000": 10,
+    "40000": 20,
+    "50000": 40,
+    "60000": 20,
+    "70000": 10
+  },
+  "mean": 50000.0
+}

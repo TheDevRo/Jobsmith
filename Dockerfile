@@ -55,5 +55,7 @@ RUN mkdir -p data resumes sessions failed_screenshots .browser-profile
 
 EXPOSE 8888 6080
 
+# "serve" makes the entrypoint launch uvicorn itself, resolving the bind
+# interface from JOBSMITH_HOST / the mounted config's server.host.
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8888"]
+CMD ["serve"]

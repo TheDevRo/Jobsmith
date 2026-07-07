@@ -770,6 +770,19 @@
                             <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
                             <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
                         </div>
+
+                        <div class="section-card settings-advanced">
+                            <h2>Network</h2>
+                            <p class="section-hint">Which network interface the Jobsmith server listens on. Takes effect after restarting Jobsmith (or the Docker container).</p>
+                            <div class="form-group">
+                                <label>Bind Interface</label>
+                                <select id="cfg-server-host" style="width:100%">
+                                    <option value="127.0.0.1">This computer only (127.0.0.1)</option>
+                                    <option value="0.0.0.0">All interfaces &mdash; LAN access (0.0.0.0)</option>
+                                </select>
+                                <span class="hint">&ldquo;All interfaces&rdquo; lets other devices on your network open the dashboard at http://&lt;this-machine's-IP&gt;:8888 &mdash; there is no login, so only enable it on networks you trust. In Docker, loopback is enforced by the port mapping in docker-compose.yml rather than this setting.</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

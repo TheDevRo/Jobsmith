@@ -53,3 +53,4 @@ Thumbs.db
 # Local session notes
 SESSION_CHANGES.md
 AUTO_APPLY_RELIABILITY_REPORT.md
+.aider*

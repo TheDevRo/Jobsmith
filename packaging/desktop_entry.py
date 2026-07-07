@@ -6,7 +6,9 @@ The Tauri shell spawns this as a sidecar. It:
      app-data directory via JOBSMITH_HOME (see backend/paths.py).
   2. Installs Playwright's Chromium into that directory on first run —
      browsers are too big to ship in the installer.
-  3. Boots uvicorn on 127.0.0.1:8888 serving the bundled frontend.
+  3. Boots uvicorn on port 8888 serving the bundled frontend, bound to
+     127.0.0.1 unless server.host in config.yaml (or JOBSMITH_HOST) opts
+     into LAN exposure.
 
 Run outside a bundle it works too (handy for testing):
     venv/bin/python packaging/desktop_entry.py
@@ -41,6 +43,34 @@ def app_home() -> Path:
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", Path.home())) / "Jobsmith"
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "Jobsmith"
+
+
+def bind_host(home: Path) -> str:
+    """Resolve the interface uvicorn binds to.
+
+    Precedence: JOBSMITH_HOST env, then server.host in the app-home
+    config.yaml (set from Settings → Integrations → Network), else loopback.
+
+    The Tauri webview always connects via 127.0.0.1, so a specific
+    non-loopback interface IP would leave the app window unable to reach its
+    own backend — any non-loopback value binds 0.0.0.0 instead, which covers
+    the requested interface and keeps loopback working.
+    """
+    host = os.environ.get("JOBSMITH_HOST", "").strip()
+    if not host:
+        try:
+            import yaml
+            with open(home / "config.yaml") as f:
+                cfg = yaml.safe_load(f) or {}
+            host = str((cfg.get("server") or {}).get("host") or "").strip()
+        except Exception:
+            host = ""  # missing/corrupt config must not block launch
+    if not host or host in ("127.0.0.1", "localhost", "::1"):
+        return "127.0.0.1"
+    if host != "0.0.0.0":
+        print(f"[desktop] server.host={host}: binding 0.0.0.0 so the app window "
+              "(which connects via 127.0.0.1) can still reach the backend.", flush=True)
+    return "0.0.0.0"
 
 
 def ensure_chromium(browsers_dir: Path) -> None:
@@ -89,7 +119,7 @@ def main() -> None:
     # access_log=False: the extension/notification polling would flood it.
     uvicorn.run(
         app,
-        host="127.0.0.1",
+        host=bind_host(home),
         port=int(os.environ.get("JOBSMITH_PORT", "8888")),
         log_level="info",
         log_config=None,
