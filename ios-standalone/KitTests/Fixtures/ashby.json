@@ -1,0 +1,75 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "title": "iOS Engineer",
+      "department": "Engineering",
+      "team": "Mobile",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "secondaryLocations": [],
+      "isRemote": true,
+      "isListed": true,
+      "publishedAt": "2026-07-01T08:00:00.000Z",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/f47ac10b-58cc-4372-a567-0e02b2c3d479/application",
+      "descriptionHtml": "<p>Ship the app used by millions.</p>",
+      "descriptionPlain": "Ship the app used by millions.",
+      "compensation": {
+        "compensationTierSummary": "$140K - $180K + equity",
+        "summaryComponents": [
+          {
+            "compensationType": "EquityPercentage",
+            "interval": "NONE",
+            "currencyCode": null,
+            "minValue": 0.1,
+            "maxValue": 0.5
+          },
+          {
+            "compensationType": "Salary",
+            "interval": "1 YEAR",
+            "currencyCode": "USD",
+            "minValue": 140000,
+            "maxValue": 180000
+          }
+        ]
+      }
+    },
+    {
+      "id": "0e02b2c3-0000-4000-8000-58cc4372a567",
+      "title": "Staff iOS Engineer (Internal)",
+      "department": "Engineering",
+      "team": "Mobile",
+      "location": "San Francisco",
+      "isRemote": false,
+      "isListed": false,
+      "publishedAt": "2026-07-01T08:00:00.000Z",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/0e02b2c3",
+      "descriptionPlain": "Internal only."
+    },
+    {
+      "id": "9b2c3d47-0000-4000-8000-ac10bf5847ac",
+      "title": "Support Engineer",
+      "department": "Support",
+      "team": "",
+      "location": "",
+      "isRemote": false,
+      "isListed": true,
+      "publishedAt": "2026-07-02T08:00:00.000Z",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/9b2c3d47",
+      "descriptionHtml": "<p>Help customers succeed.</p>",
+      "compensation": {
+        "summaryComponents": [
+          {
+            "compensationType": "Salary",
+            "interval": "1 HOUR",
+            "currencyCode": "USD",
+            "minValue": 30,
+            "maxValue": 40
+          }
+        ]
+      }
+    }
+  ]
+}

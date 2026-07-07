@@ -1,0 +1,27 @@
+[
+  {
+    "id": "a1b2c3d4-0000-4000-8000-1234567890ab",
+    "text": "Backend Engineer",
+    "hostedUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-4000-8000-1234567890ab",
+    "applyUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-4000-8000-1234567890ab/apply",
+    "createdAt": 1751328000000,
+    "categories": {
+      "location": "Remote - North America",
+      "team": "Platform",
+      "department": "Engineering",
+      "commitment": "Full-time"
+    },
+    "description": "<div>Build and scale backend services in Go for our security platform.</div>",
+    "descriptionPlain": "Build and scale backend services in Go for our security platform.",
+    "lists": [],
+    "additional": ""
+  },
+  {
+    "id": "e5f6a7b8-0000-4000-8000-abcdefabcdef",
+    "text": "Technical Recruiter",
+    "hostedUrl": "https://jobs.lever.co/acme/e5f6a7b8-0000-4000-8000-abcdefabcdef",
+    "createdAt": 1751414400000,
+    "categories": { "location": "New York, NY", "team": "People", "department": "G&A" },
+    "descriptionPlain": "Source and hire great people."
+  }
+]

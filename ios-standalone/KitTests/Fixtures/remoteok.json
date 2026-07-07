@@ -1,0 +1,38 @@
+[
+  {
+    "last_updated": 1751443953,
+    "legal": "API Terms of Service: linking back to the URL is required."
+  },
+  {
+    "id": 1093221,
+    "slug": "remote-ios-engineer-acme-1093221",
+    "epoch": 1751443953,
+    "date": "2026-07-02T08:12:33+00:00",
+    "company": "Acme",
+    "company_logo": "",
+    "position": "iOS Engineer",
+    "tags": ["swift", "ios", "mobile"],
+    "logo": "",
+    "description": "<p>Build our mobile app in Swift. Fully remote team.</p>",
+    "location": "Worldwide",
+    "salary_min": 90000,
+    "salary_max": 120000,
+    "apply_url": "https://acme.com/careers/ios",
+    "url": "https://remoteok.com/remote-jobs/1093221"
+  },
+  {
+    "id": 1093222,
+    "slug": "remote-growth-marketer-otherco-1093222",
+    "epoch": 1751447553,
+    "date": "2026-07-02T09:12:33+00:00",
+    "company": "OtherCo",
+    "position": "Growth Marketer",
+    "tags": ["marketing", "growth"],
+    "description": "<p>Run paid acquisition campaigns.</p>",
+    "location": "Worldwide",
+    "salary_min": 60000,
+    "salary_max": 80000,
+    "apply_url": "",
+    "url": "https://remoteok.com/remote-jobs/1093222"
+  }
+]

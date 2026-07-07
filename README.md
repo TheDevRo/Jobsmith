@@ -447,7 +447,8 @@ jobsmith/
 │   │                              #   settings, prompts, sessions, onboarding, …
 │   └── style.css                  # Dark/light theme styles
 ├── src-tauri/                     # Tauri desktop shell (macOS app)
-├── extension/                     # Apply Assist browser extension (Chrome/Firefox)
+├── ios/                           # iOS app: SwiftUI shell + Safari Web Extension (see README-IOS.md)
+├── extension/                     # Apply Assist browser extension (Chrome/Firefox/Safari)
 ├── tests/                         # pytest suite (.venv/bin/python -m pytest tests/)
 ├── n8n/
 │   └── workflows.json             # Optional n8n automation workflows

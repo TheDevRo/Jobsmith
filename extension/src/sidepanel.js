@@ -716,10 +716,9 @@ async function checkActiveJobHint(silent = false) {
   // Auto-bind to whichever job the user most recently clicked "Open Job URL"
   // on in the Jobsmith UI. Best-effort; never throws to the caller.
   try {
-    const { backendUrl } = await Jobsmith.jobsmithGetConfig();
-    const resp = await fetch(backendUrl + "/api/extension/active-job");
-    if (!resp.ok) return;
-    const data = await resp.json();
+    // Routed through the shared client so the iOS-standalone build (which
+    // swaps api.js for a native-messaging shim) can answer it from the app.
+    const data = await Jobsmith.jobsmithFetch("/api/extension/active-job");
     const jobId = data && data.job_id ? String(data.job_id) : "";
     if (!jobId) return;
     if (currentJob && String(currentJob.id) === jobId) return; // already bound

@@ -31,6 +31,7 @@ class ConfigUpdate(BaseModel):
     flaresolverr: Optional[dict] = None
     assist: Optional[dict] = None
     salary_estimator: Optional[dict] = None
+    server: Optional[dict] = None
 
 
 class HonestyLevelUpdate(BaseModel):
@@ -169,6 +170,10 @@ async def get_config():
                 "api_key": cfg.get("salary_estimator", {}).get("bls", {}).get("api_key", ""),
             },
         },
+        "server": {
+            "host": (cfg.get("server") or {}).get("host", "127.0.0.1"),
+            "port": (cfg.get("server") or {}).get("port", 8888),
+        },
     }
 
 
@@ -198,6 +203,12 @@ async def update_config(body: ConfigUpdate):
             if sub in body.salary_estimator and isinstance(body.salary_estimator[sub], dict):
                 merged[sub] = {**(existing.get(sub) or {}), **body.salary_estimator[sub]}
         cfg["salary_estimator"] = merged
+    if body.server:
+        # Only host/port are recognized; the bind takes effect on next restart
+        # (uvicorn binds once at startup).
+        allowed = {k: v for k, v in body.server.items() if k in ("host", "port")}
+        if allowed:
+            cfg["server"] = {**(cfg.get("server") or {}), **allowed}
     state.save_config(cfg)
     return {"message": "Config updated"}
 

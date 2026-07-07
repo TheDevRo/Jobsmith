@@ -1,0 +1,44 @@
+{
+  "jobs": [
+    {
+      "id": 4012345,
+      "internal_job_id": 2012345,
+      "title": "Senior Security Engineer",
+      "company_name": "Acme Corp",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012345",
+      "updated_at": "2026-07-01T12:30:45-04:00",
+      "requisition_id": "R-1001",
+      "location": { "name": "Remote - US" },
+      "departments": [{ "id": 77, "name": "Security", "child_ids": [], "parent_id": null }],
+      "offices": [{ "id": 9, "name": "Remote", "location": null }],
+      "content": "&lt;div&gt;&lt;p&gt;We are looking for a &lt;strong&gt;security engineer&lt;/strong&gt; to harden our platform.&lt;/p&gt;&lt;/div&gt;"
+    },
+    {
+      "id": 4012346,
+      "title": "Office Manager",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012346",
+      "updated_at": "2026-07-02T09:00:00-04:00",
+      "location": { "name": "New York, NY" },
+      "departments": [],
+      "content": "&lt;p&gt;Keep the office running.&lt;/p&gt;"
+    },
+    {
+      "id": 4012347,
+      "title": "Security Analyst (TS/SCI required)",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012347",
+      "updated_at": "2026-07-02T10:00:00-04:00",
+      "location": { "name": "Fort Meade, MD" },
+      "departments": [{ "id": 77, "name": "Security" }],
+      "content": "&lt;p&gt;Cleared work.&lt;/p&gt;"
+    },
+    {
+      "id": 4012348,
+      "title": "Security Engineer II",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012348",
+      "updated_at": "2026-06-30T08:00:00-04:00",
+      "location": { "name": "Remote - US" },
+      "departments": [{ "id": 77, "name": "Security" }],
+      "content": "&lt;p&gt;Already stored in the DB.&lt;/p&gt;"
+    }
+  ]
+}
