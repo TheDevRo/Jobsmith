@@ -39,6 +39,25 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts[topTitle].waitForExistence(timeout: 5))
     }
 
+    /// Actually drag the top card to the right (not the button) and confirm it
+    /// triages as a shortlist — covers the finger-swipe gesture path itself.
+    func testSwipeRightShortlistsTopCard() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+
+        let topTitle = topCardTitle(in: app)
+        let name = topTitle.label
+        let start = topTitle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 340, dy: 0))
+        start.press(forDuration: 0.05, thenDragTo: end)
+
+        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5),
+                      "a right drag should remove the top card from the deck")
+        app.tabBars.buttons["Pipeline"].tap()
+        XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5),
+                      "the swiped card should land in the pipeline as shortlisted")
+    }
+
     func testDismissRemovesJobFromDeck() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))

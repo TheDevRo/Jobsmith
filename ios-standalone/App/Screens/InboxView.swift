@@ -4,21 +4,32 @@ import JobsmithKit
 /// Swipe-to-triage deck: right shortlists, left dismisses, tap opens detail.
 struct InboxView: View {
     @Environment(AppModel.self) private var model
-    @State private var dragOffset: CGSize = .zero
+    @State private var path: [String] = []
+    /// Button-driven swipe: targets the top card by id so only that card
+    /// flings (the deck's own gesture handles finger swipes directly).
+    @State private var swipeCommand: SwipeCommand?
+    @State private var swipeToken = 0
     @State private var showAddByURL = false
     @State private var pastedURL = ""
     @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
     @State private var showScoreAllConfirm = false
 
+    /// Absolute ceiling for a single "Score all" run, even when the user's
+    /// standing cap is lower — an unbounded run can never happen.
+    private let scoreAllHardCeiling = 200
+
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
     private var sortedInbox: [Job] { sort.sorted(model.inbox) }
-    /// How many jobs a Score-all run would actually touch: unscored, capped.
-    private var scoreAllCount: Int {
-        min(model.unscoredInboxJobs.count, model.config.ai.scoreAllCap)
-    }
+
+    private var scoreCap: Int { model.config.ai.scoreAllCap }
+    private var unscoredCount: Int { model.unscoredInboxJobs.count }
+    /// A default run: unscored jobs, clamped to the user's standing cap.
+    private var boundedCount: Int { min(unscoredCount, scoreCap) }
+    /// A "score all" run: every unscored job, clamped to the hard ceiling.
+    private var allCount: Int { min(unscoredCount, scoreAllHardCeiling) }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if model.inbox.isEmpty {
                     emptyState
@@ -54,14 +65,23 @@ struct InboxView: View {
             } message: {
                 Text("Paste any job posting link — LinkedIn, Greenhouse, or any ATS page.")
             }
-            .confirmationDialog("Score \(scoreAllCount) job\(scoreAllCount == 1 ? "" : "s")?",
+            .confirmationDialog("\(unscoredCount) unscored job\(unscoredCount == 1 ? "" : "s")",
                                 isPresented: $showScoreAllConfirm, titleVisibility: .visible) {
-                Button("Score \(scoreAllCount)") {
-                    model.scoreAll(cap: model.config.ai.scoreAllCap)
+                Button("Score \(boundedCount)") {
+                    model.scoreAll(cap: scoreCap)
+                }
+                if unscoredCount > scoreCap {
+                    Button("Score all \(allCount)") {
+                        model.scoreAll(cap: scoreAllHardCeiling)
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Makes one AI call per job (hard cap \(model.config.ai.scoreAllCap)). You can Stop anytime.")
+                if unscoredCount > scoreCap {
+                    Text("One AI call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(allCount)” ignores it (max \(scoreAllHardCeiling)). You can Stop anytime.")
+                } else {
+                    Text("One AI call per job. You can Stop anytime.")
+                }
             }
         }
     }
@@ -79,9 +99,9 @@ struct InboxView: View {
             Button {
                 showScoreAllConfirm = true
             } label: {
-                Label("Score all (\(scoreAllCount))", systemImage: "flame")
+                Label("Score jobs (\(unscoredCount))", systemImage: "flame")
             }
-            .disabled(scoreAllCount == 0 || model.isScoringAll)
+            .disabled(unscoredCount == 0 || model.isScoringAll)
         } label: {
             Label("Sort and score", systemImage: "ellipsis.circle")
         }
@@ -114,32 +134,35 @@ struct InboxView: View {
                 scoreAllBanner
             }
             HStack {
-                Eyebrow(text: "\(model.inbox.count) to triage · \(sort.label)")
+                Eyebrow(text: "\(model.inbox.count) to triage")
                 Spacer()
+                Label(sort.label, systemImage: sort.systemImage)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 24)
 
             ZStack {
                 ForEach(Array(sortedInbox.prefix(3).enumerated().reversed()), id: \.element.id) { index, job in
-                    JobCardView(job: job)
-                        .scaleEffect(1 - CGFloat(index) * 0.04)
-                        .offset(y: CGFloat(index) * 10)
-                        .opacity(index == 2 ? 0.4 : 1)
-                        .zIndex(Double(3 - index))
-                        .allowsHitTesting(index == 0)
-                        .modifier(index == 0
-                            ? TriageDragModifier(offset: $dragOffset, onDecision: decide)
-                            : TriageDragModifier(offset: .constant(.zero), onDecision: { _ in }))
+                    SwipeCard(
+                        job: job,
+                        depth: index,
+                        command: swipeCommand,
+                        onTap: { path.append(job.id) },
+                        onSwipe: { direction in
+                            model.triage(job, as: direction == .shortlist ? "shortlisted" : "dismissed")
+                        }
+                    )
                 }
             }
             .padding(.horizontal, 20)
 
             HStack(spacing: 44) {
                 triageButton(icon: "xmark", label: "Pass", tint: .secondary) {
-                    if let top = sortedInbox.first { model.triage(top, as: "dismissed") }
+                    commandSwipe(.dismiss)
                 }
                 triageButton(icon: "star.fill", label: "Shortlist", tint: Theme.ember) {
-                    if let top = sortedInbox.first { model.triage(top, as: "shortlisted") }
+                    commandSwipe(.shortlist)
                 }
             }
             .padding(.bottom, 6)
@@ -147,10 +170,12 @@ struct InboxView: View {
         .padding(.vertical, 8)
     }
 
-    private func decide(_ direction: TriageDirection) {
+    /// Fire a swipe on the current top card from the Pass/Shortlist buttons.
+    /// The bumped token makes repeated same-direction taps register as changes.
+    private func commandSwipe(_ direction: TriageDirection) {
         guard let top = sortedInbox.first else { return }
-        dragOffset = .zero
-        model.triage(top, as: direction == .shortlist ? "shortlisted" : "dismissed")
+        swipeToken += 1
+        swipeCommand = SwipeCommand(targetId: top.id, direction: direction, token: swipeToken)
     }
 
     private func triageButton(icon: String, label: String, tint: Color, action: @escaping () -> Void) -> some View {
@@ -229,42 +254,98 @@ struct InboxView: View {
 
 enum TriageDirection { case shortlist, dismiss }
 
-/// Drag-to-decide for the top card, with directional color feedback.
-struct TriageDragModifier: ViewModifier {
-    @Binding var offset: CGSize
-    let onDecision: (TriageDirection) -> Void
+/// A button-initiated swipe on a specific card. `token` bumps on every press
+/// so repeated same-direction taps are seen as distinct changes.
+struct SwipeCommand: Equatable {
+    var targetId: String
+    var direction: TriageDirection
+    var token: Int
+}
 
-    func body(content: Content) -> some View {
-        content
-            .offset(x: offset.width, y: offset.height * 0.2)
-            .rotationEffect(.degrees(Double(offset.width) / 24))
-            .overlay(alignment: offset.width >= 0 ? .topLeading : .topTrailing) {
-                if abs(offset.width) > 24 {
-                    Text(offset.width > 0 ? "SHORTLIST" : "PASS")
-                        .font(.caption.weight(.heavy))
-                        .fontWidth(.expanded)
-                        .foregroundStyle(offset.width > 0 ? Theme.ember : .secondary)
-                        .padding(8)
-                        .overlay(RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(offset.width > 0 ? Theme.ember : Color.secondary, lineWidth: 2))
-                        .rotationEffect(.degrees(offset.width > 0 ? -12 : 12))
-                        .padding(18)
-                        .opacity(min(Double(abs(offset.width)) / 90, 1))
+/// One triage card. It owns its own drag offset, so the swipe stamp and the
+/// off-screen fling are bound to *this* card and never bleed onto the card
+/// behind it. Only the top card (`depth == 0`) is interactive; the cards
+/// behind simply rest at their stacked positions and raise up (via `depth`
+/// shrinking) when the top card leaves.
+struct SwipeCard: View {
+    let job: Job
+    /// 0 = top/front, 1 and 2 = stacked behind.
+    let depth: Int
+    /// Button-driven swipe target; acts only when it names this card.
+    let command: SwipeCommand?
+    let onTap: () -> Void
+    let onSwipe: (TriageDirection) -> Void
+
+    @State private var offset: CGSize = .zero
+    /// True once this card is flinging off-screen — locks further input and
+    /// hides the stamp so a mid-flight card can't be re-grabbed.
+    @State private var leaving = false
+
+    private var isTop: Bool { depth == 0 }
+    /// Rotation stays gentle by clamping the input before scaling.
+    private var tilt: Double { Double(min(max(offset.width, -300), 300)) / 18 }
+
+    var body: some View {
+        JobCardView(job: job)
+            .overlay(alignment: offset.width >= 0 ? .topLeading : .topTrailing) { stamp }
+            .scaleEffect(1 - CGFloat(depth) * 0.04)
+            .offset(y: CGFloat(depth) * 10)              // resting stack position
+            .offset(x: offset.width, y: offset.height * 0.35)  // live drag / fling
+            .rotationEffect(.degrees(tilt))
+            .opacity(depth == 2 ? 0.4 : 1)
+            .zIndex(Double(3 - depth))
+            .allowsHitTesting(isTop && !leaving)
+            .onTapGesture { if isTop && !leaving { onTap() } }
+            .gesture(dragGesture)
+            .onChange(of: command) { _, cmd in
+                if let cmd, cmd.targetId == job.id, isTop, !leaving {
+                    fling(cmd.direction)
                 }
             }
-            .gesture(
-                DragGesture()
-                    .onChanged { offset = $0.translation }
-                    .onEnded { value in
-                        if value.translation.width > 110 {
-                            withAnimation(.snappy) { onDecision(.shortlist) }
-                        } else if value.translation.width < -110 {
-                            withAnimation(.snappy) { onDecision(.dismiss) }
-                        } else {
-                            withAnimation(.bouncy) { offset = .zero }
-                        }
-                    }
-            )
+    }
+
+    @ViewBuilder private var stamp: some View {
+        if isTop && !leaving && abs(offset.width) > 24 {
+            Text(offset.width > 0 ? "SHORTLIST" : "PASS")
+                .font(.caption.weight(.heavy))
+                .fontWidth(.expanded)
+                .foregroundStyle(offset.width > 0 ? Theme.ember : .secondary)
+                .padding(8)
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(offset.width > 0 ? Theme.ember : Color.secondary, lineWidth: 2))
+                .rotationEffect(.degrees(offset.width > 0 ? -12 : 12))
+                .padding(18)
+                .opacity(min(Double(abs(offset.width)) / 90, 1))
+        }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { if isTop && !leaving { offset = $0.translation } }
+            .onEnded { value in
+                guard isTop, !leaving else { return }
+                if value.translation.width > 110 {
+                    fling(.shortlist)
+                } else if value.translation.width < -110 {
+                    fling(.dismiss)
+                } else {
+                    withAnimation(.bouncy) { offset = .zero }
+                }
+            }
+    }
+
+    /// Animate this card fully off-screen, then hand the decision up. Removal
+    /// happens after the card has left, so the card behind stays put and only
+    /// raises once this one is gone.
+    private func fling(_ direction: TriageDirection) {
+        leaving = true
+        let exitX: CGFloat = direction == .shortlist ? 900 : -900
+        withAnimation(.easeOut(duration: 0.3)) {
+            offset = CGSize(width: exitX, height: offset.height + 40)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+            onSwipe(direction)
+        }
     }
 }
 
@@ -272,62 +353,60 @@ struct JobCardView: View {
     let job: Job
 
     var body: some View {
-        NavigationLink(value: job.id) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(job.title)
-                            .font(.title3.weight(.semibold))
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(3)
-                        Text(job.company.isEmpty ? job.source : job.company)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    HeatChip(score: job.fitScore)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(job.title)
+                        .font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(3)
+                    Text(job.company.isEmpty ? job.source : job.company)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
+                HeatChip(score: job.fitScore)
+            }
 
-                HStack(spacing: 6) {
-                    if job.isRemote {
-                        chip("Remote", system: "wifi")
-                    }
-                    if !job.location.isEmpty {
-                        chip(job.location, system: "mappin")
-                    }
-                    if let salary = salaryText {
-                        chip(salary, system: "dollarsign")
-                    }
+            HStack(spacing: 6) {
+                if job.isRemote {
+                    chip("Remote", system: "wifi")
                 }
-
-                Text(job.description.isEmpty ? "No description captured yet." : job.description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                HStack {
-                    Eyebrow(text: job.source)
-                    Spacer()
-                    if !job.datePosted.isEmpty {
-                        Text(job.datePosted.prefix(10))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                if !job.location.isEmpty {
+                    chip(job.location, system: "mappin")
+                }
+                if let salary = salaryText {
+                    chip(salary, system: "dollarsign")
                 }
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 340, maxHeight: 420, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(.background)
-                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
-            )
-            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.quaternary))
+
+            Text(job.description.isEmpty ? "No description captured yet." : job.description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Eyebrow(text: job.source)
+                Spacer()
+                if !job.datePosted.isEmpty {
+                    Text(job.datePosted.prefix(10))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 340, maxHeight: 420, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 22)
+                .fill(.background)
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.quaternary))
+        .contentShape(RoundedRectangle(cornerRadius: 22))
     }
 
     private var salaryText: String? {
