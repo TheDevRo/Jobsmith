@@ -7,13 +7,37 @@ public enum AppGroup {
     public static let identifier = "group.com.thedevro.jobsmith.standalone"
 
     public static var containerURL: URL {
-        guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else {
-            // Missing entitlement is a build configuration error, not a
-            // recoverable runtime state.
-            fatalError("App Group container unavailable — check entitlements for \(identifier)")
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
+            return url
         }
-        return url
+        // No App Group container — typically an unsigned build (the entitlement
+        // gets stripped when code signing is disabled) or a provisioning gap.
+        // Fall back to the process's own sandbox so the app still launches
+        // rather than trapping. Cross-process sharing with the Safari/Share
+        // extensions is disabled in this mode; a properly signed build carries
+        // the entitlement and never reaches this path.
+        _ = warnedAboutFallback
+        return localFallbackURL
     }
+
+    /// Local, single-process stand-in for the shared container when the App
+    /// Group is unavailable. Application Support is per-app and persists across
+    /// launches; the temporary directory is a last resort.
+    private static let localFallbackURL: URL = {
+        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                 in: .userDomainMask,
+                                                 appropriateFor: nil, create: true))
+            ?? FileManager.default.temporaryDirectory
+        let url = base.appendingPathComponent("JobsmithLocalContainer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }()
+
+    /// Emit the missing-entitlement warning exactly once (static-let init runs
+    /// once, thread-safe).
+    private static let warnedAboutFallback: Void = {
+        NSLog("[Jobsmith] App Group container unavailable for %@; using a local sandbox fallback. Extension data sharing is disabled — sign the build with the App Group entitlement to enable it.", identifier)
+    }()
 
     public static var databaseDirectory: URL { subdirectory("db") }
     public static var documentsDirectory: URL { subdirectory("documents") }
