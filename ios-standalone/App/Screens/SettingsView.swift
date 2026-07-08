@@ -53,6 +53,19 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        row("Sync", system: "arrow.triangle.2.circlepath",
+                            detail: SyncManager.shared.isEnabled() ? "On" : "Off")
+                    }
+                } header: {
+                    Eyebrow(text: "Sync")
+                } footer: {
+                    Text("Sync jobs, applications, and your profile across devices through a shared folder. Serverless — no account.")
+                }
+
+                Section {
                     Button(role: .destructive) {
                         showDeletePostings = true
                     } label: {
