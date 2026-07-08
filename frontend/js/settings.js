@@ -444,6 +444,18 @@ async function saveSyncConfig() {
     }
 }
 
+async function pickSyncFolder() {
+    try {
+        const res = await api('/api/sync/pick-folder', { method: 'POST' });
+        if (!res.path) return;  // user cancelled
+        const folder = document.getElementById('cfg-sync-folder');
+        if (folder) folder.value = res.path;
+        await saveSyncConfig();
+    } catch (e) {
+        toast(`Could not open folder picker: ${e.message}`, 'error');
+    }
+}
+
 async function runSyncNow() {
     const btn = document.getElementById('sync-now-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }

@@ -990,9 +990,12 @@
                                 </label>
                             </div>
                             <div class="form-group">
-                                <label>Shared folder path</label>
-                                <input type="text" id="cfg-sync-folder" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/JobsmithSync" onchange="saveSyncConfig()">
-                                <span class="hint">The same folder you pick on your iPhone. On iCloud Drive it lives under <code>~/Library/Mobile Documents/com~apple~CloudDocs/</code>. Create the folder first, then paste its full path.</span>
+                                <label>Shared folder</label>
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <input type="text" id="cfg-sync-folder" placeholder="No folder chosen" readonly style="flex:1" onchange="saveSyncConfig()">
+                                    <button class="btn btn-secondary btn-sm" style="white-space:nowrap;margin-bottom:0" onclick="pickSyncFolder()">Choose folder…</button>
+                                </div>
+                                <span class="hint">Pick the same folder you use on your iPhone. On iCloud Drive it lives in <code>iCloud Drive</code> (e.g. a <code>JobsmithSync</code> folder you create there).</span>
                             </div>
                             <div class="form-group">
                                 <label>This device's label</label>
