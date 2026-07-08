@@ -229,6 +229,43 @@ final class SmokeTests: XCTestCase {
                       "enabling the limit reveals the role-count stepper")
     }
 
+    /// The board finder opens from Search settings — type a company name instead
+    /// of hunting for a board slug.
+    func testBoardFinderSheetOpens() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.staticTexts["Search & sources"].tap()
+        let find = app.buttons["Find a company's board"]
+        scrollTo(find, in: app)
+        XCTAssertTrue(find.waitForExistence(timeout: 5))
+        find.tap()
+        XCTAssertTrue(app.navigationBars["Find a company"].waitForExistence(timeout: 5),
+                      "the board finder sheet should appear")
+    }
+
+    /// The AI company suggester ("who do you want to work for") opens from Search
+    /// settings.
+    func testCompanySuggestSheetOpens() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.staticTexts["Search & sources"].tap()
+        let suggest = app.buttons["Suggest companies to follow"]
+        scrollTo(suggest, in: app)
+        XCTAssertTrue(suggest.waitForExistence(timeout: 5))
+        suggest.tap()
+        XCTAssertTrue(app.navigationBars["Suggest companies"].waitForExistence(timeout: 5),
+                      "the company suggestion sheet should appear")
+    }
+
+    /// Swipe the Form up until `element` is on screen (it lives below the fold).
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
+        var tries = 0
+        while !element.isHittable && tries < 8 {
+            app.swipeUp()
+            tries += 1
+        }
+    }
+
     private func attach(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
