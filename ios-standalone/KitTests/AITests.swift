@@ -299,6 +299,47 @@ final class ScoringServiceTests: XCTestCase {
     }
 }
 
+// MARK: - Title suggestions
+
+final class TitleSuggestionServiceTests: XCTestCase {
+    func testParsesTitlesWithReasonsAtStrongTier() async {
+        let mock = MockAIEngine()
+        mock.register("Recommend job titles", .text("""
+        {"titles": [{"title": "Backend Engineer", "reason": "Matches your Python work"}, \
+        {"title": "Platform Engineer", "reason": ""}, "Site Reliability Engineer"]}
+        """))
+        let result = try? await TitleSuggestionService.suggest(
+            profile: aiTestProfile(), preferences: [], config: AppConfig(), engine: mock)
+        XCTAssertEqual(result?.map(\.title),
+                       ["Backend Engineer", "Platform Engineer", "Site Reliability Engineer"])
+        XCTAssertEqual(result?.first?.reason, "Matches your Python work")
+        XCTAssertEqual(mock.requests.first?.tier, .strong)
+    }
+
+    func testDedupesAndSalvagesEmbeddedJSON() {
+        let text = "Sure! {\"titles\": [\"Data Engineer\", \"data engineer\", {\"title\": \"ML Engineer\"}]} hope that helps"
+        XCTAssertEqual(TitleSuggestionService.parse(text).map(\.title),
+                       ["Data Engineer", "ML Engineer"])
+    }
+
+    func testPreferencesBecomeAnswerLinesDroppingBlanks() async {
+        let mock = MockAIEngine()
+        mock.register("Recommend job titles", .text("{\"titles\": [\"X\"]}"))
+        _ = try? await TitleSuggestionService.suggest(
+            profile: aiTestProfile(),
+            preferences: [TitlePreference(label: "Seniority", value: "Senior"),
+                          TitlePreference(label: "Avoid", value: "  ")],
+            config: AppConfig(), engine: mock)
+        let prompt = mock.requests.first?.user ?? ""
+        XCTAssertTrue(prompt.contains("- Seniority: Senior"))
+        XCTAssertFalse(prompt.contains("Avoid:"), "blank answers are dropped")
+    }
+
+    func testEmptyOnUnparseable() {
+        XCTAssertTrue(TitleSuggestionService.parse("no json here").isEmpty)
+    }
+}
+
 // MARK: - Resume experience selection
 
 final class RoleSelectionTests: XCTestCase {

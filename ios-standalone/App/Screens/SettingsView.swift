@@ -4,6 +4,8 @@ import JobsmithKit
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var showSetupFlow = false
+    @State private var showDeletePostings = false
+    @State private var showDeleteAllData = false
 
     var body: some View {
         NavigationStack {
@@ -47,12 +49,47 @@ struct SettingsView: View {
                 } footer: {
                     Text("Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeletePostings = true
+                    } label: {
+                        Label("Delete all tracked postings", systemImage: "trash")
+                    }
+                    Button(role: .destructive) {
+                        showDeleteAllData = true
+                    } label: {
+                        Label("Delete all data", systemImage: "exclamationmark.triangle")
+                    }
+                } header: {
+                    Eyebrow(text: "Danger zone")
+                } footer: {
+                    Text("Deleting postings clears your inbox and pipeline and their tailored documents, but keeps your profile and settings. Deleting all data resets the app to a clean install.")
+                }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
             .sheet(isPresented: $showSetupFlow) {
                 OnboardingFlow()
                     .environment(model)
+            }
+            .confirmationDialog("Delete all tracked postings?",
+                                isPresented: $showDeletePostings, titleVisibility: .visible) {
+                Button("Delete all postings", role: .destructive) {
+                    model.deleteAllTrackedPostings()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Removes every job in your inbox and pipeline and their tailored documents. Your profile, settings, and saved answers are kept. This can't be undone.")
+            }
+            .confirmationDialog("Delete all data?",
+                                isPresented: $showDeleteAllData, titleVisibility: .visible) {
+                Button("Erase everything", role: .destructive) {
+                    model.deleteAllData()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Erases all postings, documents, saved answers, and your profile and settings — resetting the app to a clean install. This can't be undone.")
             }
         }
     }
@@ -100,6 +137,7 @@ struct SettingsView: View {
 /// Search keywords, locations, filters, and per-source toggles.
 struct SearchSettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var showTitleSuggest = false
     @State private var keywords = ""
     @State private var locations = ""
     @State private var excludes = ""
@@ -115,8 +153,15 @@ struct SearchSettingsView: View {
         Form {
             Section {
                 TextField("software engineer, backend developer", text: $keywords, axis: .vertical)
+                Button {
+                    showTitleSuggest = true
+                } label: {
+                    Label("Help me pick", systemImage: "sparkles")
+                }
             } header: {
                 Eyebrow(text: "Keywords (comma-separated)")
+            } footer: {
+                Text("Not sure what to search? Let the AI suggest job titles from your profile.")
             }
             Section {
                 TextField("Remote, Denver", text: $locations, axis: .vertical)
@@ -195,6 +240,12 @@ struct SearchSettingsView: View {
             }
         }
         .navigationTitle("Search & sources")
+        .sheet(isPresented: $showTitleSuggest) {
+            TitleSuggestSheet(existing: split(keywords)) { titles in
+                addTitles(titles)
+            }
+            .environment(model)
+        }
         .onAppear {
             let search = model.config.search
             keywords = search.keywords.joined(separator: ", ")
@@ -222,6 +273,19 @@ struct SearchSettingsView: View {
 
     private func split(_ text: String) -> [String] {
         text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Merge AI-suggested titles into the keyword field, skipping duplicates,
+    /// and persist immediately so the choice survives even without leaving the
+    /// screen.
+    private func addTitles(_ titles: [String]) {
+        var current = split(keywords)
+        let seen = Set(current.map { $0.lowercased() })
+        for title in titles where !seen.contains(title.lowercased()) {
+            current.append(title)
+        }
+        keywords = current.joined(separator: ", ")
+        save()
     }
 
     private func save() {

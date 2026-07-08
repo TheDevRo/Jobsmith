@@ -68,6 +68,50 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
     }
 
+    /// Hold a pipeline row to enter selection mode, Select all, then Delete —
+    /// the pipeline should empty out.
+    func testPipelineHoldToSelectAndDelete() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        app.buttons["Shortlist"].tap()
+        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        app.buttons["Shortlist"].tap()
+        XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["Pipeline"].tap()
+        let firstRow = app.staticTexts.matching(
+            NSPredicate(format: "label == %@ OR label == %@",
+                        "Senior Backend Engineer", "Platform Engineer")).firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 5))
+        firstRow.press(forDuration: 0.7)
+
+        let selectAll = app.buttons["Select all"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 3), "selection mode toolbar")
+        selectAll.tap()
+        app.buttons["Delete"].tap()
+        app.buttons["Delete 2"].tap()
+
+        XCTAssertTrue(app.staticTexts["Nothing in flight"].waitForExistence(timeout: 5),
+                      "deleting all selected postings empties the pipeline")
+    }
+
+    /// The buried Settings action wipes tracked postings without touching the
+    /// rest of the app.
+    func testSettingsDeleteAllPostings() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+
+        app.tabBars.buttons["Settings"].tap()
+        let delete = app.buttons["Delete all tracked postings"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        app.buttons["Delete all postings"].tap()
+
+        app.tabBars.buttons["Inbox"].tap()
+        XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5),
+                      "deleting all postings empties the inbox")
+    }
+
     func testScoreJobWithMockAI() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
@@ -128,6 +172,18 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 10),
                       "imported name should appear in the profile review")
         attach(app, "onboarding-profile-imported")
+    }
+
+    /// The "Help me pick" AI title suggester opens from Search settings.
+    func testTitleSuggestSheetOpens() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.staticTexts["Search & sources"].tap()
+        let help = app.buttons["Help me pick"]
+        XCTAssertTrue(help.waitForExistence(timeout: 5))
+        help.tap()
+        XCTAssertTrue(app.navigationBars["Suggest titles"].waitForExistence(timeout: 5),
+                      "the title-suggestion sheet should appear")
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {

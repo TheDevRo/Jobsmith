@@ -1,10 +1,16 @@
 import SwiftUI
 import JobsmithKit
 
-/// Shortlisted jobs grouped by pipeline stage.
+/// Shortlisted jobs grouped by pipeline stage, with a hold-to-select mode for
+/// bulk deletion.
 struct PipelineView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
+
+    @State private var path: [String] = []
+    @State private var isSelecting = false
+    @State private var selection: Set<String> = []
+    @State private var showDeleteConfirm = false
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
 
@@ -22,8 +28,11 @@ struct PipelineView: View {
             .map { (labels[$0.key] ?? $0.key.capitalized, sort.sorted($0.value)) }
     }
 
+    private var allIDs: Set<String> { Set(model.pipeline.map(\.id)) }
+    private var allSelected: Bool { !allIDs.isEmpty && selection == allIDs }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if model.pipeline.isEmpty {
                     ContentUnavailableView {
@@ -36,9 +45,7 @@ struct PipelineView: View {
                         ForEach(stages, id: \.0) { stage, jobs in
                             Section {
                                 ForEach(jobs) { job in
-                                    NavigationLink(value: job.id) {
-                                        JobRowView(job: job)
-                                    }
+                                    row(job)
                                 }
                             } header: {
                                 Eyebrow(text: "\(stage) · \(jobs.count)")
@@ -48,24 +55,98 @@ struct PipelineView: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("Pipeline")
+            .navigationTitle(isSelecting ? "\(selection.count) selected" : "Pipeline")
+            .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
             .navigationDestination(for: String.self) { jobId in
                 JobDetailView(jobId: jobId)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Sort by", selection: $sortRaw) {
-                            ForEach(JobSort.allCases) { option in
-                                Label(option.label, systemImage: option.systemImage).tag(option.rawValue)
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
-                    }
+            .toolbar { toolbarContent }
+            .sensoryFeedback(.selection, trigger: isSelecting)
+            .refreshable { model.refresh() }
+            .confirmationDialog("Delete \(selection.count) posting\(selection.count == 1 ? "" : "s")?",
+                                isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+                Button("Delete \(selection.count)", role: .destructive) {
+                    let ids = selection
+                    exitSelection()
+                    model.deleteJobs(ids)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Removes each posting and its tailored documents. This can't be undone.")
+            }
+        }
+    }
+
+    private func row(_ job: Job) -> some View {
+        HStack(spacing: 12) {
+            if isSelecting {
+                Image(systemName: selection.contains(job.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selection.contains(job.id) ? Theme.ember : .secondary)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            JobRowView(job: job)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isSelecting { toggle(job.id) } else { path.append(job.id) }
+        }
+        // simultaneousGesture (not onLongPressGesture) so the enclosing List
+        // doesn't swallow the press before it's recognized.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                guard !isSelecting else { return }
+                withAnimation(.snappy) {
+                    isSelecting = true
+                    selection = [job.id]
                 }
             }
-            .refreshable { model.refresh() }
+        )
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if isSelecting {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Cancel") { exitSelection() }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(allSelected ? "Deselect all" : "Select all") {
+                    withAnimation(.snappy) { selection = allSelected ? [] : allIDs }
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+                .disabled(selection.isEmpty)
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort by", selection: $sortRaw) {
+                        ForEach(JobSort.allCases) { option in
+                            Label(option.label, systemImage: option.systemImage).tag(option.rawValue)
+                        }
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+    }
+
+    private func exitSelection() {
+        withAnimation(.snappy) {
+            isSelecting = false
+            selection = []
         }
     }
 }
