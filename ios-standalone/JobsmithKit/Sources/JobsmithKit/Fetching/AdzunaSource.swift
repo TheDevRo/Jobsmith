@@ -20,7 +20,10 @@ public struct AdzunaSource: JobSource {
         guard !appID.isEmpty, !appKey.isEmpty else { return [] }
 
         let keywords = config.search.keywords
-        let locations = config.search.locations
+        // A blank `where` searches the whole US. Default an unset locations
+        // list to one blank combo (mirrors the desktop's `[""]` default) so
+        // Adzuna still runs when the user hasn't set a location.
+        let locations = config.search.locations.isEmpty ? [""] : config.search.locations
         let excludePatterns = JobFilters.compileExcludes(config.search.excludeKeywords)
         let maxAge = config.search.maxAgeDays ?? 7
         let limiter = AsyncLimiter(Self.concurrency)
@@ -49,12 +52,18 @@ public struct AdzunaSource: JobSource {
                                    limiter: AsyncLimiter) async -> [NormalizedJob] {
         var jobs: [NormalizedJob] = []
         var seenIDs = Set<String>()
+        // Adzuna's `where` is a geographic filter — "Remote" isn't a place, so
+        // it geocodes to nothing and returns zero results. Map Remote/blank to
+        // a nationwide search (the same normalization USAJobsSource applies);
+        // the global remote/location filter narrows the results afterward.
+        let whereParam = location.trimmingCharacters(in: .whitespaces)
+            .lowercased() == "remote" ? "" : location
         for pageNum in 1...3 {
             guard let url = HTTPClient.url("\(baseURL)/\(pageNum)", query: [
                 ("app_id", appID),
                 ("app_key", appKey),
                 ("what", keyword),
-                ("where", location),
+                ("where", whereParam),
                 ("max_days_old", String(maxAge)),
                 ("results_per_page", "50"),
                 ("content-type", "application/json"),
