@@ -45,10 +45,11 @@ struct SettingsView: View {
                     formatPicker
                     honestyPicker
                     stylePicker
+                    experienceLimit
                 } header: {
                     Eyebrow(text: "Documents")
                 } footer: {
-                    Text("Résumés and cover letters are generated in your chosen format. Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
+                    Text("Résumés and cover letters are generated in your chosen format. Limiting work history keeps only the roles most relevant to each job (pinned roles are always included). Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
                 }
 
                 Section {
@@ -105,6 +106,27 @@ struct SettingsView: View {
             }
         } label: {
             row("File format", system: "doc", detail: nil)
+        }
+    }
+
+    /// Cap the number of work-history entries the AI includes (null = all,
+    /// 1–20 otherwise), mirroring the desktop `max_resume_experience_entries`.
+    @ViewBuilder
+    private var experienceLimit: some View {
+        let limit = model.config.honesty.maxResumeExperienceEntries
+        Toggle(isOn: Binding(
+            get: { limit != nil },
+            set: { on in model.saveConfig { $0.honesty.maxResumeExperienceEntries = on ? (limit ?? 5) : nil } }
+        )) {
+            Label("Limit work history", systemImage: "briefcase")
+        }
+        if let current = limit {
+            Stepper(value: Binding(
+                get: { current },
+                set: { value in model.saveConfig { $0.honesty.maxResumeExperienceEntries = value } }
+            ), in: 1...20) {
+                row("Most relevant roles", system: "list.number", detail: "\(current)")
+            }
         }
     }
 

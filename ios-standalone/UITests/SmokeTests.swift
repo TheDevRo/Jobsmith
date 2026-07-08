@@ -212,6 +212,23 @@ final class SmokeTests: XCTestCase {
                       "the title-suggestion sheet should appear")
     }
 
+    /// The work-history cap is off by default; turning it on reveals the
+    /// "most relevant roles" stepper (mirrors desktop max_resume_experience_entries).
+    func testWorkHistoryLimitControl() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+
+        let toggle = app.switches["Limit work history"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.steppers.firstMatch.exists,
+                       "the count stepper is hidden until the limit is enabled")
+        // Tap the switch itself (trailing edge) — tapping the row label wouldn't
+        // flip a Form toggle.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertTrue(app.steppers.firstMatch.waitForExistence(timeout: 5),
+                      "enabling the limit reveals the role-count stepper")
+    }
+
     private func attach(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
