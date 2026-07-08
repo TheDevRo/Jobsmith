@@ -71,3 +71,60 @@ public final class SyncManager {
         return result
     }
 }
+
+// MARK: - Preferences + folder bookmark (UserDefaults-backed)
+
+public extension SyncManager {
+    private var enabledKey: String { "jobsmith.sync.enabled" }
+    private var bookmarkKey: String { "jobsmith.sync.folderBookmark" }
+
+    func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: enabledKey)
+    }
+    func setEnabled(_ on: Bool, _ defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: enabledKey)
+    }
+
+    /// Persist a user-picked folder as a security-scoped bookmark.
+    func storeFolder(_ url: URL, _ defaults: UserDefaults = .standard) throws {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let data = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        defaults.set(data, forKey: bookmarkKey)
+    }
+
+    /// Resolve the stored folder bookmark, if any.
+    func resolvedFolder(_ defaults: UserDefaults = .standard) -> URL? {
+        guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
+        var stale = false
+        return try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+    }
+
+    func folderName(_ defaults: UserDefaults = .standard) -> String? {
+        resolvedFolder(defaults)?.lastPathComponent
+    }
+
+    /// Default local directory for materialized synced documents.
+    static var defaultDocsDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("JobsmithSyncDocs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Resolve the configured folder and run one cycle. Throws if no folder is set.
+    @discardableResult
+    func syncNow(db: AppDatabase,
+                 configStore: ConfigStore = .shared,
+                 deviceLabel: String? = nil,
+                 defaults: UserDefaults = .standard) async throws -> SyncCoordinator.Result {
+        guard let folder = resolvedFolder(defaults) else {
+            throw NSError(domain: "JobsmithSync", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "No sync folder chosen yet"])
+        }
+        return try await syncOnce(folder: folder, securityScoped: true, db: db,
+                                  configStore: configStore, docsLocalDir: Self.defaultDocsDir,
+                                  deviceLabel: deviceLabel, defaults: defaults)
+    }
+}
