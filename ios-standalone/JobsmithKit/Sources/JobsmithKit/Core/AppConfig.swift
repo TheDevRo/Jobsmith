@@ -199,14 +199,30 @@ public struct HonestyConfig: Codable, Equatable, Sendable {
     /// nil = include all roles; otherwise cap and let the LLM pick.
     public var maxResumeExperienceEntries: Int?
     public var aiEditTier: ModelTier
+    /// Output format for generated resume/cover-letter documents.
+    public var documentFormat: FileVault.Format
 
     public init(level: Level = .honest, coverLetterTone: Tone = .professional,
                 resumeStyle: Style = .standard, maxResumeExperienceEntries: Int? = nil,
-                aiEditTier: ModelTier = .strong) {
+                aiEditTier: ModelTier = .strong, documentFormat: FileVault.Format = .pdf) {
         self.level = level; self.coverLetterTone = coverLetterTone
         self.resumeStyle = resumeStyle
         self.maxResumeExperienceEntries = maxResumeExperienceEntries
         self.aiEditTier = aiEditTier
+        self.documentFormat = documentFormat
+    }
+
+    // Tolerant decoding: documentFormat was added later, so configs written by
+    // older builds (which lack the key) must still decode with the PDF default
+    // rather than failing and resetting the whole config.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        level = try c.decodeIfPresent(Level.self, forKey: .level) ?? .honest
+        coverLetterTone = try c.decodeIfPresent(Tone.self, forKey: .coverLetterTone) ?? .professional
+        resumeStyle = try c.decodeIfPresent(Style.self, forKey: .resumeStyle) ?? .standard
+        maxResumeExperienceEntries = try c.decodeIfPresent(Int.self, forKey: .maxResumeExperienceEntries)
+        aiEditTier = try c.decodeIfPresent(ModelTier.self, forKey: .aiEditTier) ?? .strong
+        documentFormat = try c.decodeIfPresent(FileVault.Format.self, forKey: .documentFormat) ?? .pdf
     }
 }
 

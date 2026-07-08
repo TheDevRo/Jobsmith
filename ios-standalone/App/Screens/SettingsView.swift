@@ -42,12 +42,13 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    formatPicker
                     honestyPicker
                     stylePicker
                 } header: {
                     Eyebrow(text: "Documents")
                 } footer: {
-                    Text("Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
+                    Text("Résumés and cover letters are generated in your chosen format. Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
                 }
 
                 Section {
@@ -91,6 +92,19 @@ struct SettingsView: View {
             } message: {
                 Text("Erases all postings, documents, saved answers, and your profile and settings — resetting the app to a clean install. This can't be undone.")
             }
+        }
+    }
+
+    private var formatPicker: some View {
+        Picker(selection: Binding(
+            get: { model.config.honesty.documentFormat },
+            set: { format in model.saveConfig { $0.honesty.documentFormat = format } }
+        )) {
+            ForEach(FileVault.Format.allCases, id: \.self) { format in
+                Text(format.label).tag(format)
+            }
+        } label: {
+            row("File format", system: "doc", detail: nil)
         }
     }
 
