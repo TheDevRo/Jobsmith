@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ..paths import pick_folder
 from ..sync.service import default_service
 
 logger = logging.getLogger(__name__)
@@ -42,3 +43,11 @@ async def sync_config(update: SyncConfigUpdate):
 @router.post("/api/sync/run")
 async def sync_run():
     return await default_service().sync_once()
+
+
+# NOTE: plain `def` on purpose — the native folder dialog is modal/blocking,
+# so FastAPI runs this in the threadpool and the event loop stays responsive.
+@router.post("/api/sync/pick-folder")
+def sync_pick_folder():
+    """Open the OS folder picker; return {"path": <chosen>} or {"path": null}."""
+    return {"path": pick_folder("Choose the shared Jobsmith sync folder")}
