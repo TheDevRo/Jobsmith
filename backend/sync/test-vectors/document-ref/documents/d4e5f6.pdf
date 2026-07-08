@@ -1,0 +1,1 @@
+placeholder blob — real files are binary PDF/DOCX named by sha256. Merge never reads these; it only carries the reference in the record data.

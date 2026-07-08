@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobsmith.app/sync/manifest.schema.json",
+  "title": "Sync folder manifest",
+  "type": "object",
+  "required": ["format_version", "devices"],
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "description": "Semver of the sync format this folder was last written with."
+    },
+    "devices": {
+      "type": "array",
+      "description": "Known device ids that have participated in this folder.",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "description": "Human name, e.g. 'iPhone 16' — display only." },
+          "platform": { "enum": ["ios", "macos", "linux", "docker", "other"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
