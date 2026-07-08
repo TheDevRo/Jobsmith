@@ -17,7 +17,7 @@ final class LinkedInLiveTests: XCTestCase {
                                "-E2ESources", "linkedin"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         app.buttons["Fetch jobs"].tap()
 
         // LinkedIn is deliberately slow (1.5s search spacing, throttled
@@ -27,7 +27,7 @@ final class LinkedInLiveTests: XCTestCase {
             if app.alerts["Something went wrong"].exists {
                 app.alerts["Something went wrong"].buttons["OK"].tap()
             }
-            if !app.staticTexts["2 TO TRIAGE"].exists {
+            if !app.staticTexts["2 TO SCOUT"].exists {
                 landed = true
                 break
             }

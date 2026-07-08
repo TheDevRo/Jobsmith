@@ -19,7 +19,7 @@ enum NotificationManager {
         let content = UNMutableNotificationContent()
         content.title = "\(summary.inserted) new job\(summary.inserted == 1 ? "" : "s")"
         content.body = strongFits > 0
-            ? "\(strongFits) look like strong fits. Open the Inbox to triage."
+            ? "\(strongFits) look like strong fits. Open the Inbox to scout."
             : "Fresh listings are waiting in your Inbox."
         content.sound = .default
         content.userInfo = ["deepLink": "jobsmith-standalone://inbox"]
