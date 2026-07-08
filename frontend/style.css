@@ -13,7 +13,13 @@
     --text-muted: #5a6178;
     --border: #252a3a;
     --border-light: #2d3348;
-    --accent-blue: #4a90d9;
+    /* Forge/heat identity — ported from ios-standalone Theme.swift.
+       Ember is the signature accent; the steel→ember ramp renders fit "heat". */
+    --accent-ember: #f0863a;      /* signature accent */
+    --accent-ember-deep: #d9541e; /* hot end of the heat ramp */
+    --steel: #5e7ca0;             /* cool end / secondary */
+    --accent: var(--accent-ember);/* semantic primary accent */
+    --accent-blue: #4a90d9;       /* legacy alias (kept so stray refs resolve) */
     --accent-green: #4caf50;
     --accent-yellow: #f5a623;
     --accent-red: #e74c3c;
@@ -94,7 +100,7 @@ body {
     padding: 18px 20px;
     font-size: 16px;
     font-weight: 700;
-    color: var(--accent-blue);
+    color: var(--accent);
     border-bottom: 1px solid var(--border);
 }
 
@@ -127,9 +133,9 @@ body {
 }
 
 .nav-item.active {
-    color: var(--accent-blue);
+    color: var(--accent);
     background: rgba(74, 144, 217, 0.1);
-    border-left-color: var(--accent-blue);
+    border-left-color: var(--accent);
 }
 
 .nav-item svg { flex-shrink: 0; opacity: 0.7; }
@@ -282,7 +288,7 @@ body {
 .btn-link {
     background: none;
     border: none;
-    color: var(--accent-blue);
+    color: var(--accent);
     font-size: 12px;
     cursor: pointer;
     padding: 0;
@@ -356,7 +362,7 @@ main {
     flex-shrink: 0;
 }
 
-.stat-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent-blue); }
+.stat-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent); }
 .stat-icon-green { background: rgba(76, 175, 80, 0.15); color: var(--accent-green); }
 .stat-icon-yellow { background: rgba(245, 166, 35, 0.15); color: var(--accent-yellow); }
 .stat-icon-purple { background: rgba(155, 89, 182, 0.15); color: var(--accent-purple); }
@@ -419,7 +425,7 @@ main {
     flex-shrink: 0;
 }
 
-.action-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent-blue); }
+.action-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent); }
 .action-icon-yellow { background: rgba(245, 166, 35, 0.15); color: var(--accent-yellow); }
 .action-icon-green { background: rgba(76, 175, 80, 0.15); color: var(--accent-green); }
 .action-icon-purple { background: rgba(155, 89, 182, 0.15); color: var(--accent-purple); }
@@ -458,7 +464,7 @@ main {
 }
 
 .source-checkboxes input[type="checkbox"] {
-    accent-color: var(--accent-blue);
+    accent-color: var(--accent);
     width: 14px;
     height: 14px;
 }
@@ -487,7 +493,7 @@ main {
 
 .progress-bar {
     height: 100%;
-    background: var(--accent-blue);
+    background: var(--accent);
     border-radius: 2px;
     transition: width 0.3s;
     width: 0%;
@@ -514,7 +520,7 @@ main {
 
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-primary { background: var(--accent-blue); }
+.btn-primary { background: var(--accent); }
 .btn-primary:hover:not(:disabled) { background: #3a7fc9; }
 
 .btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border); }
@@ -764,9 +770,9 @@ main {
 .filter-bar input[type="date"] { width: 140px; }
 
 .filter-bar select:focus,
-.filter-bar input:focus { border-color: var(--accent-blue); }
+.filter-bar input:focus { border-color: var(--accent); }
 
-.filter-toggle-btn.expanded { color: var(--accent-blue); border-color: var(--accent-blue); }
+.filter-toggle-btn.expanded { color: var(--accent); border-color: var(--accent); }
 
 .remote-toggle {
     display: flex;
@@ -778,7 +784,7 @@ main {
     white-space: nowrap;
 }
 
-.remote-toggle input[type="checkbox"] { accent-color: var(--accent-blue); }
+.remote-toggle input[type="checkbox"] { accent-color: var(--accent); }
 
 .score-filter, .salary-filter {
     display: flex;
@@ -790,7 +796,7 @@ main {
 }
 
 .score-filter input[type="range"],
-.salary-filter input[type="range"] { width: 120px; accent-color: var(--accent-blue); }
+.salary-filter input[type="range"] { width: 120px; accent-color: var(--accent); }
 
 .date-filter {
     display: flex;
@@ -815,14 +821,14 @@ main {
 }
 
 .pill-discovered { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
-.pill-tailoring { background: rgba(74, 144, 217, 0.2); color: var(--accent-blue); animation: pill-pulse 1.5s ease-in-out infinite; }
+.pill-tailoring { background: rgba(74, 144, 217, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
 .pill-review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-pending_review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-approved { background: rgba(76, 175, 80, 0.2); color: var(--accent-green); }
 .pill-applied { background: rgba(155, 89, 182, 0.2); color: var(--accent-purple); }
 .pill-rejected { background: rgba(231, 76, 60, 0.2); color: var(--accent-red); }
 .pill-failed { background: rgba(230, 126, 34, 0.2); color: var(--accent-orange); }
-.pill-applying { background: rgba(74, 144, 217, 0.2); color: var(--accent-blue); animation: pill-pulse 1.5s ease-in-out infinite; }
+.pill-applying { background: rgba(74, 144, 217, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
 .pill-paused { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-manual { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-autofill_complete { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
@@ -833,7 +839,7 @@ main {
 /* Post-apply outcome pills */
 .pill-outcome-offer { background: rgba(76, 175, 80, 0.2); color: var(--accent-green); }
 .pill-outcome-interview,
-.pill-outcome-screening { background: rgba(74, 144, 217, 0.2); color: var(--accent-blue); }
+.pill-outcome-screening { background: rgba(74, 144, 217, 0.2); color: var(--accent); }
 .pill-outcome-rejected { background: rgba(231, 76, 60, 0.2); color: var(--accent-red); }
 .pill-outcome-muted { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
 
@@ -863,7 +869,7 @@ main {
     outline: none;
 }
 
-.outcome-select:focus { border-color: var(--accent-blue); }
+.outcome-select:focus { border-color: var(--accent); }
 
 @keyframes pill-pulse {
     0%, 100% { opacity: 1; }
@@ -879,7 +885,7 @@ main {
     font-weight: 600;
     text-transform: uppercase;
     background: rgba(74, 144, 217, 0.12);
-    color: var(--accent-blue);
+    color: var(--accent);
 }
 
 .easy-apply-badge {
@@ -1077,7 +1083,7 @@ main {
 
 .outcome-bar-fill {
     height: 100%;
-    background: var(--accent-blue);
+    background: var(--accent);
     border-radius: 4px;
     min-width: 0;
 }
@@ -1147,17 +1153,82 @@ main {
     padding: 2px 6px;
     border-radius: 3px;
     background: rgba(74, 144, 217, 0.10);
-    color: var(--accent-blue);
+    color: var(--accent);
 }
 .salary-vs-market.above { color: #2ea043; background: rgba(46, 160, 67, 0.10); }
 .salary-vs-market.below { color: var(--accent-red); background: rgba(255, 87, 87, 0.10); }
 
-/* Score colors */
+/* Score colors (legacy text — heat chip/ring below is the primary treatment) */
 .score { font-weight: 700; font-size: 14px; }
 .score-high { color: var(--accent-green); }
 .score-mid { color: var(--accent-yellow); }
 .score-low { color: var(--accent-red); }
 .score-none { color: var(--text-muted); }
+
+/* ==========================================================================
+   Forge/heat identity — signature components (ported from Theme.swift)
+   ========================================================================== */
+
+/* Eyebrow: small uppercase tracked label — the section voice of the app. */
+.eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-stretch: expanded;
+    color: var(--text-secondary);
+}
+
+/* Heat chip: fit score rendered on the steel→ember ramp. Background color is
+   set inline by heatColor(score); this is layout + the empty ("—") state. */
+.heat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: #fff;
+    white-space: nowrap;
+}
+.heat-chip svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.heat-chip.heat-empty {
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border-light);
+}
+
+/* Heat ring: detail-pane fit dial (score + "FIT"). --heat set inline. */
+.heat-ring {
+    --heat: var(--steel);
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(closest-side, var(--bg-card) 79%, transparent 80% 100%),
+        conic-gradient(var(--heat) calc(var(--pct, 0) * 1%), rgba(255,255,255,0.08) 0);
+    position: relative;
+}
+.heat-ring .heat-ring-score {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    line-height: 1;
+}
+.heat-ring .heat-ring-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    font-stretch: expanded;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
 
 /* ==========================================================================
    Jobs Split Pane
@@ -1215,7 +1286,7 @@ main {
 }
 
 .job-card:hover { background: var(--bg-hover); }
-.job-card.selected { background: var(--bg-active); border-left: 3px solid var(--accent-blue); }
+.job-card.selected { background: var(--bg-active); border-left: 3px solid var(--accent); }
 
 .job-card-header {
     display: flex;
@@ -1234,7 +1305,7 @@ main {
 .job-checkbox {
     width: 15px;
     height: 15px;
-    accent-color: var(--accent-blue);
+    accent-color: var(--accent);
     cursor: pointer;
 }
 
@@ -1370,7 +1441,7 @@ main {
     white-space: nowrap;
 }
 
-.select-all-toggle input[type="checkbox"] { accent-color: var(--accent-blue); }
+.select-all-toggle input[type="checkbox"] { accent-color: var(--accent); }
 
 .selected-count {
     font-size: 13px;
@@ -1402,7 +1473,7 @@ main {
 }
 
 .pagination button:hover { background: var(--bg-hover); color: var(--text-primary); }
-.pagination button.active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+.pagination button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ==========================================================================
    Review Queue
@@ -1429,7 +1500,7 @@ main {
 }
 
 .review-tab-btn:hover { color: var(--text-primary); }
-.review-tab-btn.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+.review-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .review-actions {
     display: flex;
@@ -1480,8 +1551,8 @@ main {
 
 .review-tab.active {
     background: rgba(74, 144, 217, 0.12);
-    color: var(--accent-blue);
-    border-color: var(--accent-blue);
+    color: var(--accent);
+    border-color: var(--accent);
 }
 
 .review-content {
@@ -1550,7 +1621,7 @@ main {
 
 .honesty-stop.active {
     background: rgba(74, 144, 217, 0.15);
-    color: var(--accent-blue);
+    color: var(--accent);
     font-weight: 600;
 }
 
@@ -1698,7 +1769,7 @@ main {
 }
 
 .settings-tab:hover { color: var(--text-primary); }
-.settings-tab.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+.settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .settings-tab-panel { display: none; }
 .settings-tab-panel.active { display: block; }
@@ -1739,7 +1810,7 @@ main {
 
 .form-group input:focus,
 .form-group textarea:focus,
-.form-group select:focus { border-color: var(--accent-blue); }
+.form-group select:focus { border-color: var(--accent); }
 
 .form-row-3 {
     display: grid;
@@ -1756,7 +1827,7 @@ main {
 .toggle-group input[type="checkbox"] {
     width: 18px;
     height: 18px;
-    accent-color: var(--accent-blue);
+    accent-color: var(--accent);
 }
 
 .settings-save {
@@ -1792,7 +1863,7 @@ main {
 }
 
 .ai-tier-badge.fast { background: rgba(76, 175, 80, 0.18); color: var(--accent-green); }
-.ai-tier-badge.strong { background: rgba(52, 152, 219, 0.18); color: var(--accent-blue); }
+.ai-tier-badge.strong { background: rgba(52, 152, 219, 0.18); color: var(--accent); }
 
 .ai-tier-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 
@@ -1864,7 +1935,7 @@ main {
     min-height: 350px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    border: 1px solid var(--accent-blue);
+    border: 1px solid var(--accent);
     border-radius: var(--radius-sm);
     padding: 12px;
     font-size: 13px;
@@ -2222,7 +2293,7 @@ main {
     color: var(--text-primary);
     font-size: 15px;
 }
-.ob-brand svg { color: var(--accent-blue); }
+.ob-brand svg { color: var(--accent); }
 .ob-skip {
     background: none;
     border: none;
@@ -2279,12 +2350,12 @@ main {
 }
 .ob-step.done .ob-dot,
 .ob-step.active .ob-dot {
-    background: var(--accent-blue);
+    background: var(--accent);
     color: #fff;
-    border-color: var(--accent-blue);
+    border-color: var(--accent);
 }
 .ob-step.active { color: var(--text-primary); }
-.ob-step.done:not(:last-child)::after { background: var(--accent-blue); }
+.ob-step.done:not(:last-child)::after { background: var(--accent); }
 .ob-step-label { line-height: 1.2; }
 
 .ob-body {
@@ -2326,7 +2397,7 @@ main {
 }
 .ob-status.ok { color: var(--accent-green); }
 .ob-status.err { color: var(--accent-red); }
-.ob-status.busy { color: var(--accent-blue); }
+.ob-status.busy { color: var(--accent); }
 
 .ob-dropzone {
     border: 2px dashed var(--border-light);
@@ -2341,9 +2412,9 @@ main {
     background: var(--bg-primary);
     transition: border-color 0.15s, background 0.15s;
 }
-.ob-dropzone:hover { border-color: var(--accent-blue); background: var(--bg-hover); }
+.ob-dropzone:hover { border-color: var(--accent); background: var(--bg-hover); }
 .ob-dropzone.has-file { border-color: var(--accent-green); color: var(--text-primary); }
-.ob-dropzone svg { color: var(--accent-blue); }
+.ob-dropzone svg { color: var(--accent); }
 
 .ob-or {
     text-align: center;
@@ -2451,7 +2522,7 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     min-width: 280px;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    border: 2px solid var(--accent-blue);
+    border: 2px solid var(--accent);
     border-radius: var(--radius);
     padding: 16px 18px;
     box-shadow:
@@ -2620,7 +2691,7 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     padding: 2px 8px;
     border-radius: 999px;
     background: rgba(74, 144, 217, 0.15);
-    color: var(--accent-blue);
+    color: var(--accent);
     border: 1px solid rgba(74, 144, 217, 0.4);
 }
 
@@ -2640,7 +2711,7 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     color: var(--text-secondary);
     cursor: pointer;
 }
-.prompt-var-chip:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+.prompt-var-chip:hover { border-color: var(--accent); color: var(--accent); }
 
 .prompt-editor {
     width: 100%;
@@ -2657,7 +2728,7 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     outline: none;
     transition: border-color 0.15s;
 }
-.prompt-editor:focus { border-color: var(--accent-blue); }
+.prompt-editor:focus { border-color: var(--accent); }
 
 .prompt-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .prompt-status { font-size: 12px; color: var(--text-muted); }
@@ -2693,6 +2764,6 @@ body[data-theme="light"] .tour-overlay .tour-dim {
 .settings-mode-toggle button:hover { color: var(--text-primary); }
 
 .settings-mode-toggle button.active {
-    background: var(--accent-blue);
+    background: var(--accent);
     color: #fff;
 }

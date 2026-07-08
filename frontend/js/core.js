@@ -227,6 +227,36 @@ function toggleTheme() {
     }
 }
 
+// ---- Forge/heat identity helpers (ported from ios-standalone Theme.swift) ----
+// Two-segment steel→amber→ember lerp mirroring Theme.heat(for:).
+function heatColor(score) {
+    const t = Math.min(Math.max((Number(score) || 0) / 100, 0), 1);
+    const lerp = (a, b, k) => Math.round(a + (b - a) * k);
+    const mix = (c1, c2, k) => `rgb(${lerp(c1[0], c2[0], k)}, ${lerp(c1[1], c2[1], k)}, ${lerp(c1[2], c2[2], k)})`;
+    const steel = [0x6b, 0x7a, 0x94], amber = [0xe8, 0xa1, 0x3c], emberDeep = [0xd9, 0x54, 0x1e];
+    return t < 0.6 ? mix(steel, amber, t / 0.6) : mix(amber, emberDeep, (t - 0.6) / 0.4);
+}
+
+const FLAME_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2S6 7 6 13a6 6 0 0 0 12 0c0-2-1-3.5-2-5 0 1.5-1 2.5-2 2.5 0-3-2-6.5-2-8.5z"/></svg>';
+
+// Fit score as a heat chip. Null/undefined → outlined empty state.
+function renderHeatChip(score) {
+    if (score === null || score === undefined || score === '' || isNaN(Number(score))) {
+        return `<span class="heat-chip heat-empty">${FLAME_SVG}—</span>`;
+    }
+    const s = Math.round(Number(score));
+    const c = heatColor(s);
+    return `<span class="heat-chip" style="background:linear-gradient(135deg, ${c}, ${heatColor(s + 12)})">${FLAME_SVG}${s}</span>`;
+}
+
+// Fit score as a detail-pane ring (score + "FIT").
+function renderHeatRing(score) {
+    const s = Math.round(Number(score) || 0);
+    return `<div class="heat-ring" style="--heat:${heatColor(s)};--pct:${Math.min(Math.max(s, 0), 100)}">`
+        + `<div style="display:grid;place-items:center"><span class="heat-ring-score">${s}</span>`
+        + `<span class="heat-ring-label">FIT</span></div></div>`;
+}
+
 // ---- Toast Notifications ----
 function toast(message, type = 'info') {
     const container = document.getElementById('toast-container');
