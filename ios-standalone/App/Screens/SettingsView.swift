@@ -251,21 +251,22 @@ struct SearchSettingsView: View {
                     Text("Free at developer.usajobs.gov.")
                 }
             }
+            CompanyFollowControls()
             Section {
                 TextField("stripe, airbnb", text: $greenhouseBoards, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Eyebrow(text: "Greenhouse board slugs")
+                Eyebrow(text: "Greenhouse slugs (manual)")
             } footer: {
-                Text("Company slugs from boards.greenhouse.io/<slug>.")
+                Text("Advanced: enter Greenhouse slugs directly. Most people should use the company finder above instead.")
             }
             Section {
                 TextField("openai", text: $leverCompanies, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Eyebrow(text: "Lever company slugs")
+                Eyebrow(text: "Lever slugs (manual)")
             }
             Section {
                 SecureField("BLS registration key", text: $blsKey)

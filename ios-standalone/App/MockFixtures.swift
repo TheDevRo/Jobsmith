@@ -71,6 +71,12 @@ extension MockAIEngine {
          "education": [], "certifications": []}
         """))
 
+        mock.register("Suggest companies this candidate should follow", .text("""
+        {"companies": [
+          {"name": "Stripe", "why": "Payments infrastructure matches your backend services work."},
+          {"name": "Ramp", "why": "Fintech scale-up hiring for your kind of role."}
+        ]}
+        """))
         mock.register("FORM FIELDS TO MAP", .text("[]"))
         mock.register("Recommend job titles", .text("""
         {"titles": [

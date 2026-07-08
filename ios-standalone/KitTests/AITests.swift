@@ -29,6 +29,7 @@ private let allTemplateVars: [String: String] = [
     "job_title": "iOS Engineer", "job_company": "Acme",
     "job_description": "Build apps", "profile_summary": "Name: Jane",
     "role_lines": "Role 0: Engineer", "answer_lines": "- Direction: mobile",
+    "directions": "- Target companies: Fortune 500",
     "keywords": "swift", "liked": "Acme", "excluded": "None",
     "soc_hints": "15-1252 Software Developers",
     "honesty_instruction": "TAILORING DIRECTIVE: test",
