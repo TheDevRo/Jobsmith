@@ -20,20 +20,46 @@ struct ApplyBrowserView: View {
     @State private var busy = false
     @State private var rows: [ApplyFieldRow] = []
     @State private var showPanel = false
+    @State private var didStart = false
+    @State private var showLinkedInSignIn = false
+
+    private var jobURL: URL? { URL(string: job.url) }
+
+    private var isLinkedIn: Bool {
+        jobURL?.host?.lowercased().hasSuffix("linkedin.com") ?? false
+    }
+
+    /// The stored `li_at` session cookie, or nil if the user hasn't signed in.
+    private var storedLinkedInCookie: String? {
+        let cookie = model.config.apiKeys.linkedInCookie
+        return cookie.isEmpty ? nil : cookie
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if let url = URL(string: job.url) {
-                    ApplyWebView(controller: controller, url: url)
+                if jobURL != nil {
+                    ApplyWebView(controller: controller)
                 } else {
                     ContentUnavailableView("No application URL",
                                            systemImage: "link.badge.plus")
+                }
+                if isLinkedIn && storedLinkedInCookie == nil {
+                    linkedInSignInBanner
                 }
                 bottomBar
             }
             .navigationTitle(job.company.isEmpty ? "Apply" : job.company)
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                guard !didStart, let url = jobURL else { return }
+                didStart = true
+                controller.start(url: url,
+                                 liAtCookie: isLinkedIn ? storedLinkedInCookie : nil)
+            }
+            .sheet(isPresented: $showLinkedInSignIn) {
+                LinkedInSignInSheet { _, cookie in handleLinkedInSignIn(cookie) }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
@@ -89,6 +115,34 @@ struct ApplyBrowserView: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var linkedInSignInBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle.badge.checkmark")
+                .foregroundStyle(.secondary)
+            Text("Sign in to see this LinkedIn posting behind your own session.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Sign in") { showLinkedInSignIn = true }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+    }
+
+    /// Persist the captured `li_at` cookie (same store onboarding writes) and
+    /// reload the posting so it renders behind the fresh session.
+    private func handleLinkedInSignIn(_ cookie: String?) {
+        guard let cookie, !cookie.isEmpty else { return }
+        model.saveConfig { $0.apiKeys.linkedInCookie = cookie }
+        if let url = jobURL {
+            controller.start(url: url, liAtCookie: cookie)
+        }
     }
 
     // MARK: - Autofill flow
@@ -229,8 +283,33 @@ final class ApplyWebController: ObservableObject {
         webView.allowsBackForwardNavigationGestures = true
     }
 
+    /// Inject the stored LinkedIn `li_at` session cookie (if any) into the web
+    /// view's cookie store, then load — so LinkedIn postings render behind the
+    /// user's own session instead of the logged-out wall. The cookie is scoped
+    /// to `.linkedin.com`, so it's never sent to other ATS hosts.
+    func start(url: URL, liAtCookie: String?) {
+        guard let liAtCookie, !liAtCookie.isEmpty,
+              let cookie = Self.linkedInSessionCookie(value: liAtCookie) else {
+            load(url)
+            return
+        }
+        webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { [weak self] in
+            self?.load(url)
+        }
+    }
+
     func load(_ url: URL) {
         webView.load(URLRequest(url: url))
+    }
+
+    static func linkedInSessionCookie(value: String) -> HTTPCookie? {
+        HTTPCookie(properties: [
+            .domain: ".linkedin.com",
+            .path: "/",
+            .name: "li_at",
+            .value: value,
+            .secure: "TRUE",
+        ])
     }
 
     /// Inject snapshot.js; its IIFE returns `{ url, fields }` directly.
@@ -255,13 +334,8 @@ final class ApplyWebController: ObservableObject {
 
 private struct ApplyWebView: UIViewRepresentable {
     let controller: ApplyWebController
-    let url: URL
 
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = controller.webView
-        if webView.url == nil { controller.load(url) }
-        return webView
-    }
+    func makeUIView(context: Context) -> WKWebView { controller.webView }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
