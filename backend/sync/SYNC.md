@@ -22,7 +22,7 @@ per record. Contract lives in the `jobsmith-sync` repo and is vendored under
 | Swift GRDB engine (rows ↔ change log) | `JobsmithKit/.../Sync/SyncEngine.swift` | ✅ simulator-verified |
 | iOS iCloud/Files provider + `NSFileCoordinator` | `JobsmithKit/.../Sync/SyncCoordinator.swift` | 🔶 compiles; device-pending |
 | App glue: Profile⇄dict + device id + cycle | `JobsmithKit/.../Sync/SyncManager.swift` | ✅ simulator-verified |
-| Settings → Sync screen (SwiftUI) | *pending* | ⛔ app UI |
+| Settings → Sync screen (SwiftUI) | `App/Screens/SyncSettingsView.swift` | ✅ app builds on simulator |
 
 ## Verification
 
@@ -59,27 +59,22 @@ cascade, profile base-overlay) and `SyncConformanceTests` (vectors + invariants)
 
 ## Remaining integration
 
-Both the `.gitignore` fix and the iOS integration are done on this branch
-(`sync`, off the iOS app branch): the sync sources, backend wiring, and
-`SyncManager` are present; `JobsmithKitTests` (11) and the Python suite (24)
-pass. What's left:
+The whole feature is on branch `sync` (off the iOS app branch) and builds:
+`.gitignore` fix, sync sources, backend wiring, `SyncManager`, and the
+Settings → Sync screen. `JobsmithKitTests` (11) + Python suite (24) pass; the
+app builds on the iOS Simulator. What's left is user-side:
 
-1. **Settings → Sync screen (SwiftUI)** — a toggle + folder picker (iCloud vs.
-   Files) that calls `SyncManager.shared.syncOnce(...)` and a periodic/background
-   trigger. Deferred here to avoid clobbering in-progress `SettingsView` work.
-   The one call it needs:
-   ```swift
-   try await SyncManager.shared.syncOnce(
-       folder: try SyncCoordinator.resolveFolder(.iCloud(containerId: nil)),
-       db: AppDatabase.shared(),
-       docsLocalDir: AppGroup.containerURL.appendingPathComponent("sync-docs"))
-   ```
-2. **Merge onto the app branch** — this branch's `backend/main.py`,
+1. **Merge onto the app branch** — this branch's `backend/main.py`,
    `routers/__init__.py`, and `config.example.yaml` edits will conflict with the
    uncommitted email-tracking WIP on the app branch (both touch the lifespan /
    router list / example config); resolve by keeping both.
-3. **Device verification** — real iCloud needs the app's iCloud entitlement and
-   a signed-in device; `SyncCoordinator` compiles but isn't device-tested.
+2. **Try it (Files path — no entitlement needed):** desktop Settings → Sync →
+   enable + pick a synced folder; iOS Settings → Sync → enable + pick the *same*
+   folder (a Files/iCloud Drive folder) → Sync now. Changes converge.
+3. **iCloud-container path (optional):** add the iCloud capability +
+   `iCloud.<bundle-id>` to the app, then use
+   `SyncCoordinator.iCloudFolder()` for a zero-config default. Needs a
+   signed-in device; not simulator-testable without entitlement.
 
 ## Manual device end-to-end (Step 8)
 
