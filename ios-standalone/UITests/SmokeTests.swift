@@ -128,6 +128,32 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["WHY THIS SCORE"].exists)
     }
 
+    /// Tailoring must generate the resume + cover letter (PDF by default) and
+    /// reveal the review link — if DocxPDFRenderer threw, tailor() would revert
+    /// status and the link would never appear. Network-free (mock AI).
+    func testTailorGeneratesReviewableDocuments() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+
+        topCardTitle(in: app).tap()
+        let tailor = app.buttons["Tailor"]
+        XCTAssertTrue(tailor.waitForExistence(timeout: 5))
+        tailor.tap()
+
+        let review = app.buttons["Review documents"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30),
+                      "tailoring should generate documents and reveal the review link")
+        review.tap()
+
+        // The tailored resume text loads — documents generated without error.
+        let resumeLine = app.textViews.containing(
+            NSPredicate(format: "value CONTAINS %@", "Backend engineer with 8 years"))
+        XCTAssertTrue(resumeLine.firstMatch.waitForExistence(timeout: 10))
+
+        // Build the PDF preview artifact — exercises DocxPDFRenderer in-app.
+        app.buttons["Preview"].tap()
+    }
+
     func testOnboardingAIStepPrecedesImport() {
         // No -SkipOnboarding: with the seeded (empty) profile, the setup
         // sheet appears. AI comes first so the profile import can use it.

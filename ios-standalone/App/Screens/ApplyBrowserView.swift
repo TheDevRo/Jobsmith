@@ -447,12 +447,14 @@ private struct ApplyFallbackPanel: View {
 /// A tailored DOCX offered via the share sheet ("Save to Files") so the OS file
 /// picker's Recents surfaces it in one tap on the ATS upload control.
 private struct ApplyDocumentTile: View {
+    @Environment(AppModel.self) private var model
     let job: Job
     let kind: FileVault.Kind
     let title: String
 
     private var fileURL: URL? {
-        guard let data = FileVault.read(jobId: job.id, kind: kind, format: .docx) else {
+        let format = model.config.honesty.documentFormat
+        guard let data = FileVault.read(jobId: job.id, kind: kind, format: format) else {
             return nil
         }
         let base = job.company.isEmpty ? "Jobsmith" : job.company
@@ -460,7 +462,7 @@ private struct ApplyDocumentTile: View {
             .filter { !$0.isEmpty }.joined(separator: "-")
         let suffix = kind == .resume ? "Resume" : "CoverLetter"
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(safe)-\(suffix).docx")
+            .appendingPathComponent("\(safe)-\(suffix).\(format.rawValue)")
         do {
             try data.write(to: url, options: .atomic)
             return url

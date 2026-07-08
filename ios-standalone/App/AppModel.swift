@@ -265,16 +265,28 @@ final class AppModel {
             },
             certifications: parsed.certifications)
         let style = HonestyConfig.Style(rawValue: application.stylePreset) ?? .standard
-        let resumeData = try ResumeDocxGenerator.generate(content: content,
-                                                          profile: config.profile, style: style)
-        let resumeURL = try FileVault.write(resumeData, jobId: job.id, kind: .resume, format: .docx)
-        let coverData = try CoverLetterDocxGenerator.generate(
+        let format = config.honesty.documentFormat
+
+        let resumeDoc = ResumeDocxGenerator.build(content: content,
+                                                  profile: config.profile, style: style)
+        let resumeURL = try FileVault.write(render(resumeDoc, as: format),
+                                            jobId: job.id, kind: .resume, format: format)
+        let coverDoc = CoverLetterDocxGenerator.build(
             content: application.coverLetterContent, profile: config.profile,
             jobTitle: job.title, company: job.company)
-        let coverURL = try FileVault.write(coverData, jobId: job.id, kind: .coverLetter, format: .docx)
+        let coverURL = try FileVault.write(render(coverDoc, as: format),
+                                           jobId: job.id, kind: .coverLetter, format: format)
         try applicationStore.setDocumentPaths(id: application.id,
                                               resumePath: resumeURL.path,
                                               coverPath: coverURL.path)
+    }
+
+    /// Render the shared layout model to the user's chosen output format.
+    private func render(_ doc: DocxDocument, as format: FileVault.Format) throws -> Data {
+        switch format {
+        case .docx: return try doc.render()
+        case .pdf: return DocxPDFRenderer.render(doc)
+        }
     }
 
     /// Open the posting in the in-app Apply browser, where we inject the
