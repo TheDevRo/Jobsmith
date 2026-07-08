@@ -1,0 +1,15 @@
+{
+  "_comment": "Document references are just fields in the record data — content-addressed filenames under documents/. Merge carries them through LWW like any other field; the newer version's hashes win. The actual blobs are synced separately and are not part of the merge.",
+  "live": {
+    "application": {
+      "uuid-app-9": {
+        "job_id": "greenhouse:100",
+        "status": "generated",
+        "resume_doc": "d4e5f6.pdf",
+        "cover_doc": "7a8b9c.docx",
+        "_won_from": "C3D4 @ 12:30 — regenerated docs replace A1B2's draft (9f2c4a.pdf, no cover)"
+      }
+    }
+  },
+  "tombstones": {}
+}
