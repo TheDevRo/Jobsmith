@@ -409,6 +409,7 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-integrations')">Integrations</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-sync'); loadSyncSettings()">Sync</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
@@ -974,6 +975,35 @@
                             </div>
                             <pre id="logs-output" class="logs-output">Loading…</pre>
                             <div id="logs-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="stab-sync" class="settings-tab-panel">
+                    <div class="settings-grid">
+                        <div class="section-card">
+                            <h2>Folder Sync</h2>
+                            <p class="section-hint">Two-way sync of jobs, applications, and your profile with the Jobsmith iOS app through a shared folder (iCloud Drive, Dropbox, etc.). No account and no server — each device reads and writes the same folder. Your ATS login passwords are never written to the folder.</p>
+                            <div class="form-group">
+                                <label class="remote-toggle" style="display:flex;align-items:center;gap:8px">
+                                    <input type="checkbox" id="cfg-sync-enabled" onchange="saveSyncConfig()"> Enable folder sync
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label>Shared folder path</label>
+                                <input type="text" id="cfg-sync-folder" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/JobsmithSync" onchange="saveSyncConfig()">
+                                <span class="hint">The same folder you pick on your iPhone. On iCloud Drive it lives under <code>~/Library/Mobile Documents/com~apple~CloudDocs/</code>. Create the folder first, then paste its full path.</span>
+                            </div>
+                            <div class="form-group">
+                                <label>This device's label</label>
+                                <input type="text" id="cfg-sync-label" placeholder="e.g. MacBook" onchange="saveSyncConfig()">
+                                <span class="hint">Shown to your other devices so you can tell which one made a change.</span>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+                                <button class="btn btn-primary btn-sm" id="sync-now-btn" onclick="runSyncNow()">Sync now</button>
+                                <button class="btn btn-secondary btn-sm" onclick="loadSyncSettings()">Refresh status</button>
+                            </div>
+                            <div id="sync-status" style="margin-top:12px;font-size:0.9rem;color:var(--text-secondary)"></div>
                         </div>
                     </div>
                 </div>
