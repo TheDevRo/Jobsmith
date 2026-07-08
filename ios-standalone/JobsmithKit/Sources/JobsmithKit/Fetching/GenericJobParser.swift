@@ -160,13 +160,9 @@ public enum GenericJobParser {
         return (sMin, sMax, period)
     }
 
-    /// Approximation of BeautifulSoup's get_text(separator="\n"): tags become
-    /// newlines, entities decode, 3+ blank lines collapse.
+    /// Delegate to the shared, structure-aware sanitizer so JSON-LD bodies get
+    /// the same bullet/paragraph handling as every other source.
     static func stripHTML(_ html: String) -> String {
-        guard !html.isEmpty else { return "" }
-        var text = html.replacingOccurrences(of: "<[^>]+>", with: "\n", options: .regularExpression)
-        text = (try? Entities.unescape(text)) ?? text
-        text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        JobFilters.cleanDescription(html)
     }
 }

@@ -49,6 +49,98 @@ final class HistogramPercentileTests: XCTestCase {
     }
 }
 
+// MARK: - Salary extraction from description prose
+
+final class SalaryTextParsingTests: XCTestCase {
+    func testHourlyRateWithSlash() {
+        let hit = JobFilters.parseSalaryFromText("Pay: $25/hr plus benefits.")
+        XCTAssertEqual(hit?.min, 25)
+        XCTAssertNil(hit?.max)
+        XCTAssertEqual(hit?.period, "hourly")
+    }
+
+    func testHourlyPhrasings() {
+        for text in ["$30 per hour", "$30 an hour", "$30.00 / hour", "$30 hourly"] {
+            let hit = JobFilters.parseSalaryFromText(text)
+            XCTAssertEqual(hit?.min, 30, "\(text)")
+            XCTAssertEqual(hit?.period, "hourly", "\(text)")
+        }
+    }
+
+    func testHourlyRange() {
+        let hit = JobFilters.parseSalaryFromText("Compensation is $25 - $32 per hour DOE.")
+        XCTAssertEqual(hit?.min, 25)
+        XCTAssertEqual(hit?.max, 32)
+        XCTAssertEqual(hit?.period, "hourly")
+    }
+
+    func testHourlyRangeWithDashAndNoSecondDollar() {
+        let hit = JobFilters.parseSalaryFromText("Rate: $18–22/hr")
+        XCTAssertEqual(hit?.min, 18)
+        XCTAssertEqual(hit?.max, 22)
+        XCTAssertEqual(hit?.period, "hourly")
+    }
+
+    func testAnnualWithKSuffix() {
+        let hit = JobFilters.parseSalaryFromText("Base salary around $120k.")
+        XCTAssertEqual(hit?.min, 120_000)
+        XCTAssertEqual(hit?.period, "annual")
+    }
+
+    func testAnnualRangeSharedKAppliesToBothEnds() {
+        let hit = JobFilters.parseSalaryFromText("Range: $120–150k")
+        XCTAssertEqual(hit?.min, 120_000)
+        XCTAssertEqual(hit?.max, 150_000)
+        XCTAssertEqual(hit?.period, "annual")
+    }
+
+    func testAnnualRangeWithCommasAndYearCue() {
+        let hit = JobFilters.parseSalaryFromText("We offer $120,000 - $150,000 a year.")
+        XCTAssertEqual(hit?.min, 120_000)
+        XCTAssertEqual(hit?.max, 150_000)
+        XCTAssertEqual(hit?.period, "annual")
+    }
+
+    func testMixedRangeDoesNotRescaleBigEnd() {
+        // "$120,000 – $150k": the comma-grouped end is already whole dollars and
+        // must not be multiplied again, while the "150k" shorthand expands.
+        let hit = JobFilters.parseSalaryFromText("Salary $120,000 – $150k per year")
+        XCTAssertEqual(hit?.min, 120_000)
+        XCTAssertEqual(hit?.max, 150_000)
+    }
+
+    func testBareSmallDollarAmountIsIgnored() {
+        // No period cue and a tiny magnitude — a gift card, not a wage.
+        XCTAssertNil(JobFilters.parseSalaryFromText("Enjoy a $25 welcome gift on day one."))
+    }
+
+    func testRetirementMatchIsNotSalary() {
+        XCTAssertNil(JobFilters.parseSalaryFromText("We match 401(k) up to $6,000 a year."))
+    }
+
+    func testSigningBonusIsIgnored() {
+        XCTAssertNil(JobFilters.parseSalaryFromText("Includes a $20k signing bonus."))
+    }
+
+    func testOutOfBoundsHourlyRejected() {
+        // "$1000/hr" is implausible — bounds reject it rather than store noise.
+        XCTAssertNil(JobFilters.parseSalaryFromText("Consulting at $1000/hr."))
+    }
+
+    func testFindsSalaryAfterEarlierNoiseAmount() {
+        let text = "Relocation up to $5,000. Base pay is $28 per hour."
+        let hit = JobFilters.parseSalaryFromText(text)
+        XCTAssertEqual(hit?.min, 28)
+        XCTAssertEqual(hit?.period, "hourly")
+    }
+
+    func testNoSalaryReturnsNil() {
+        XCTAssertNil(JobFilters.parseSalaryFromText("A great team with no pay listed."))
+        XCTAssertNil(JobFilters.parseSalaryFromText(nil))
+        XCTAssertNil(JobFilters.parseSalaryFromText(""))
+    }
+}
+
 // MARK: - Seniority multipliers
 
 final class SeniorityMultiplierTests: XCTestCase {

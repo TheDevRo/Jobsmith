@@ -44,6 +44,26 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(job.timesSeen, 3)
     }
 
+    func testUpsertRecoversHourlyRateFromDescription() throws {
+        let store = try makeStore()
+        try store.upsert([sample(externalId: "hr-1",
+                                 description: "Great team! Pay is $28 - $34 per hour.")])
+        let job = try store.jobs()[0]
+        XCTAssertEqual(job.salaryMin, 28)
+        XCTAssertEqual(job.salaryMax, 34)
+        XCTAssertEqual(job.salaryPeriod, "hourly")
+    }
+
+    func testUpsertDoesNotOverrideStructuredSalaryWithText() throws {
+        let store = try makeStore()
+        // Structured salary present → the description text is not consulted.
+        try store.upsert([sample(externalId: "sal-1", description: "Also mentions $28/hr.",
+                                 salaryMin: 120000)])
+        let job = try store.jobs()[0]
+        XCTAssertEqual(job.salaryMin, 120000)
+        XCTAssertEqual(job.salaryPeriod, "unknown")
+    }
+
     func testDuplicateNeverRegressesApplyType() throws {
         let store = try makeStore()
         try store.upsert([sample(applyType: "external")])
