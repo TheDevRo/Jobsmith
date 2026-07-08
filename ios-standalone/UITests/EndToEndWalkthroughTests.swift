@@ -11,14 +11,14 @@ final class EndToEndWalkthroughTests: XCTestCase {
                                "-E2EKeywords", "engineer,developer,designer,manager,analyst"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         snap(app, "1-inbox-deck")
 
         // Real fetch from the default sources (RemoteOK, WWR, Arbeitnow).
         app.buttons["Fetch jobs"].tap()
         for _ in 0..<60 {
             dismissErrorAlert(app)
-            if !app.staticTexts["2 TO TRIAGE"].exists { break }
+            if !app.staticTexts["2 TO SCOUT"].exists { break }
             sleep(1)
         }
         dismissErrorAlert(app)

@@ -29,11 +29,11 @@ final class SmokeTests: XCTestCase {
 
     func testShortlistMovesJobToPipeline() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         let topTitle = topCardTitle(in: app).label
         app.buttons["Shortlist"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
 
         app.tabBars.buttons["Pipeline"].tap()
         XCTAssertTrue(app.staticTexts[topTitle].waitForExistence(timeout: 5))
@@ -43,7 +43,7 @@ final class SmokeTests: XCTestCase {
     /// triages as a shortlist — covers the finger-swipe gesture path itself.
     func testSwipeRightShortlistsTopCard() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         let topTitle = topCardTitle(in: app)
         let name = topTitle.label
@@ -51,7 +51,7 @@ final class SmokeTests: XCTestCase {
         let end = start.withOffset(CGVector(dx: 340, dy: 0))
         start.press(forDuration: 0.05, thenDragTo: end)
 
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5),
                       "a right drag should remove the top card from the deck")
         app.tabBars.buttons["Pipeline"].tap()
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5),
@@ -60,9 +60,9 @@ final class SmokeTests: XCTestCase {
 
     func testDismissRemovesJobFromDeck() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         app.buttons["Pass"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
         app.buttons["Pass"].tap()
         // Deck empty → inbox-clear state.
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
@@ -72,9 +72,9 @@ final class SmokeTests: XCTestCase {
     /// the pipeline should empty out.
     func testPipelineHoldToSelectAndDelete() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         app.buttons["Shortlist"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
         app.buttons["Shortlist"].tap()
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
 
@@ -99,7 +99,7 @@ final class SmokeTests: XCTestCase {
     /// rest of the app.
     func testSettingsDeleteAllPostings() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         app.tabBars.buttons["Settings"].tap()
         let delete = app.buttons["Delete all tracked postings"]
@@ -114,7 +114,7 @@ final class SmokeTests: XCTestCase {
 
     func testScoreJobWithMockAI() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         topCardTitle(in: app).tap()
         let scoreButton = app.buttons["Score"]
@@ -133,7 +133,7 @@ final class SmokeTests: XCTestCase {
     /// status and the link would never appear. Network-free (mock AI).
     func testTailorGeneratesReviewableDocuments() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         topCardTitle(in: app).tap()
         let tailor = app.buttons["Tailor"]

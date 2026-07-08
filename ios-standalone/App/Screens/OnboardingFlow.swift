@@ -155,7 +155,7 @@ struct OnboardingFlow: View {
             Button {
                 dismiss()
             } label: {
-                Text("Start triaging")
+                Text("Start scouting")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
             }
