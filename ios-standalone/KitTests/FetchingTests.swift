@@ -405,6 +405,26 @@ final class JobFiltersTests: XCTestCase {
                        "Hello world")
         XCTAssertEqual(JobFilters.cleanDescription(nil), "")
     }
+
+    /// Block tags become line breaks and <li> items become bullets, so a
+    /// paragraph + list no longer collapses into one run-on line.
+    func testCleanDescriptionPreservesStructure() {
+        let html = "<p>About the role</p><ul><li>Ship features</li><li>Mentor peers</li></ul>"
+        XCTAssertEqual(JobFilters.cleanDescription(html),
+                       "About the role\n• Ship features\n• Mentor peers")
+    }
+
+    func testCleanDescriptionInlineTagsDoNotBreakLines() {
+        XCTAssertEqual(
+            JobFilters.cleanDescription("We use <strong>Swift</strong> and <em>GRDB</em> daily."),
+            "We use Swift and GRDB daily.")
+    }
+
+    func testCleanDescriptionDropsEmptyBulletsAndBlankRuns() {
+        XCTAssertEqual(
+            JobFilters.cleanDescription("<p>One</p><ul><li></li></ul><br><br><br><p>Two</p>"),
+            "One\n\nTwo")
+    }
 }
 
 // MARK: - Dedup
