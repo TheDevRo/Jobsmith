@@ -41,6 +41,7 @@ struct RootTabView: View {
     @State private var showOnboarding = false
 
     var body: some View {
+        @Bindable var model = model
         TabView {
             InboxView()
                 .tabItem { Label("Inbox", systemImage: "tray.full") }
@@ -72,11 +73,6 @@ struct RootTabView: View {
             Button("Not yet — keep it in the pipeline") { model.resolvePendingApply(applied: false) }
             Button("Still working on it", role: .cancel) {}
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active && model.pendingApplyJob != nil {
-                showApplyPrompt = true
-            }
-        }
         .task {
             // Give ConfigStore a beat to load, then gate on an empty profile.
             try? await Task.sleep(for: .milliseconds(300))
@@ -88,8 +84,14 @@ struct RootTabView: View {
             OnboardingFlow()
                 .environment(model)
         }
+        .fullScreenCover(item: $model.applyBrowserJob, onDismiss: {
+            // Closing the Apply browser is the signal to ask what happened.
+            if model.pendingApplyJob != nil { showApplyPrompt = true }
+        }) { job in
+            ApplyBrowserView(job: job)
+                .environment(model)
+        }
     }
 
     @State private var showApplyPrompt = false
-    @Environment(\.scenePhase) private var scenePhase
 }

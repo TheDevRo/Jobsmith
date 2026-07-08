@@ -17,7 +17,7 @@ Apple's on-device foundation model for the lighter tasks.
 | Job sources | All pure-HTTP sources ported natively: RemoteOK, WeWorkRemotely, Arbeitnow, Greenhouse, Lever, Ashby, Workable, Recruitee, Adzuna, USAJobs, plus the LinkedIn guest scraper (throttled) and paste-a-URL/JSON-LD generic parsing. **Indeed is out** — it needs a real browser + Cloudflare solver. |
 | Scoring / tailoring / AI Edit / honesty levels | Full port — same 17 prompt templates, same honesty/tone directives, same lenient JSON salvage. |
 | DOCX resume + cover letter | Native OOXML writer, same three style presets (standard/minimal/modern), same layout. |
-| Apply Assist extension | Bundled as a Safari Web Extension that talks to the app via **native messaging** — profile, tailored DOCX files, answer bank, and LLM field-mapping all come from the app. No token pairing, no backend URL. |
+| Apply Assist | An **in-app Apply browser** (WKWebView) opens the posting inside Jobsmith, injects the same `snapshot.js`/`fill.js` scripts, and runs the LLM field-mapper **in-process** — no Safari extension, no native messaging, no per-site permission. A fallback panel offers tap-to-copy answers and one-tap document export for anything the injector can't set. |
 | Review Queue / AI Edit | Native SwiftUI editor with per-edit honesty + model overrides and QuickLook DOCX preview. |
 | n8n scheduled fetch | `BGAppRefreshTask` (cheap JSON sources) + `BGProcessingTask` (LinkedIn + scoring), with summary notifications. |
 | Add job by URL | Inbox toolbar button **and** a share extension — share any posting from Safari or the LinkedIn app straight into Jobsmith. |
@@ -42,8 +42,9 @@ ios-standalone/
 │       ├── Salary/              # SOC classification + Adzuna histogram + BLS estimates
 │       └── Importing/           # Resume text extraction (PDF/DOCX/TXT)
 ├── App/                         # SwiftUI app: Inbox/Pipeline/Activity/Settings, onboarding,
-│                                #   background tasks, apply handoff
-├── SafariExt/                   # Safari Web Extension target (JS synced from extension/src)
+│                                #   background tasks, in-app Apply browser
+│   └── Apply/JS/                # snapshot.js/fill.js (copied from extension/src/common)
+│                                #   injected into the Apply browser's WKWebView
 ├── ShareExt/                    # Share-sheet ingestion
 ├── KitTests/                    # Unit tests (parsers, filters, prompts, OOXML, mapping)
 └── UITests/                     # XCUITest smoke suite (-UseMockAI)
@@ -86,24 +87,29 @@ xcodebuild -project JobsmithStandalone.xcodeproj -scheme JobsmithStandalone \
 3. Pick sources and keywords, then **Fetch** from the Inbox and start
    swiping: right to shortlist, left to pass.
 4. On a shortlisted job: **Score** → **Tailor** → **Review** (AI Edit,
-   preview, approve) → **Apply**, which opens the posting in Safari where
-   the **Jobsmith Assist** extension scans the form, autofills from your
-   profile + answer bank + LLM mapping, and attaches the tailored DOCX.
-   Back in the app, confirm whether you submitted.
+   preview, approve) → **Apply**, which opens the posting in the **in-app
+   Apply browser**. Tap **Autofill** to scan the form and fill it from your
+   profile + answer bank + LLM mapping. Attach the tailored résumé/cover
+   letter from the answers panel, submit, then confirm whether you applied.
 
-Enable the extension once: Settings → Apps → Safari → Extensions →
-Jobsmith Assist → allow on the sites you apply on.
+No setup — the Apply browser is built in. Nothing to enable in Safari.
 
 ## The apply flow, exactly
 
-The app writes the active job to the shared App Group
-(`active_job.json`) and opens the posting in the real Safari app — Safari
-Web Extensions do not run inside in-app browser views. The extension asks
-the app for the active job over native messaging, scans the DOM, and
-requests field mappings; the handler runs the same 4-phase mapper as the
-desktop (file inputs → deterministic profile rules → answer bank → LLM),
-reading everything from the App Group. Tailored DOCX bytes cross the same
-bridge base64-encoded.
+**Apply** presents `ApplyBrowserView`, a WKWebView loading the posting
+inside the app. Tapping **Autofill** injects the bundled `snapshot.js`
+(returns the form's fields), runs the same 4-phase mapper as the desktop
+in-process (`FieldMapper`: file inputs → deterministic profile rules →
+answer bank → LLM), then injects `fill.js` to set the values and outline
+each field by outcome. Because this all runs inside the app, there is no
+extension, no native messaging, and no App-Group handoff for apply.
+
+The one thing a WKWebView can't do is set `<input type=file>` — so the
+**answers panel** offers tap-to-copy values for anything the injector
+missed and a one-tap "Save to Files" export of the tailored DOCX, which
+then surfaces in the OS file picker's Recents when you tap the upload
+control. An **Open in Safari** button is there as an escape hatch for
+pages that block embedded web views or require a login.
 
 ## Known gaps
 
