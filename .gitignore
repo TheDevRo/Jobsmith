@@ -20,9 +20,10 @@ src-tauri/gen/schemas/
 # Extension build output
 extension/dist/
 
-# Runtime data
-data/
-resumes/
+# Runtime data (repo-root dirs only — anchored so they don't match nested
+# source dirs like ios-standalone/.../JobsmithKit/Data on a case-insensitive FS)
+/data/
+/resumes/
 
 # Personal config (copy config.example.yaml to config.yaml and fill in your details)
 config.yaml
