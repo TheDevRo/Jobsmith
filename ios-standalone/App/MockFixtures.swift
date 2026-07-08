@@ -72,6 +72,13 @@ extension MockAIEngine {
         """))
 
         mock.register("FORM FIELDS TO MAP", .text("[]"))
+        mock.register("Recommend job titles", .text("""
+        {"titles": [
+          {"title": "Senior Backend Engineer", "reason": "Matches your Python and Go services experience."},
+          {"title": "Platform Engineer", "reason": "Fits your Kubernetes and CI/CD background."},
+          {"title": "Staff Software Engineer", "reason": "A step up that your scope supports."}
+        ]}
+        """))
         mock.setModels(["mock-model"])
         return mock
     }

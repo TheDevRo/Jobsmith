@@ -320,4 +320,53 @@ final class AppModel {
             lastError = "Some sources had trouble: \(names)"
         }
     }
+
+    // MARK: - Deletion
+
+    /// Delete specific jobs (Pipeline multi-select). The FK cascade removes
+    /// each job's application row; document files are cleaned up separately.
+    func deleteJobs(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            try? jobStore.delete(jobId: id)
+            FileVault.deleteDocuments(jobId: id)
+        }
+        activityStore.log("deleted", "Deleted \(ids.count) posting\(ids.count == 1 ? "" : "s")")
+        refresh()
+    }
+
+    /// Clear every tracked posting and its tailored documents, plus the fetch
+    /// caches — but keep the profile, settings, and answer bank. "Start the
+    /// job list over" without a full reset.
+    func deleteAllTrackedPostings() {
+        wipeTables(["applications", "jobs", "activity_log",
+                    "source_stats", "geo_cache", "ai_cache"])
+        try? FileManager.default.removeItem(at: AppGroup.documentsDirectory)
+        refresh()
+    }
+
+    /// Factory reset: wipe all database tables, generated documents, imports,
+    /// and the saved config/profile, then reseed the default answer bank.
+    /// Leaves the app as if freshly installed.
+    func deleteAllData() {
+        wipeTables(["applications", "jobs", "activity_log", "answer_bank",
+                    "source_stats", "geo_cache", "ai_cache"])
+        try? FileManager.default.removeItem(at: AppGroup.documentsDirectory)
+        try? FileManager.default.removeItem(at: AppGroup.importsDirectory)
+        try? FileManager.default.removeItem(at: AppGroup.configURL)
+        try? AnswerBankMatcher(store: answerBank).seedIfEmpty()
+        Task {
+            config = await configStore.reload()
+            refresh()
+        }
+        refresh()
+    }
+
+    private func wipeTables(_ tables: [String]) {
+        try? database.writer.write { db in
+            for table in tables {
+                try db.execute(sql: "DELETE FROM \(table)")
+            }
+        }
+    }
 }
