@@ -13,25 +13,29 @@
     --text-muted: #5a6178;
     --border: #252a3a;
     --border-light: #2d3348;
-    /* Forge/heat identity — ported from ios-standalone Theme.swift.
+    /* Forge/heat identity — exact palette from ios-standalone Theme.swift.
        Ember is the signature accent; the steel→ember ramp renders fit "heat". */
-    --accent-ember: #f0863a;      /* signature accent */
-    --accent-ember-deep: #d9541e; /* hot end of the heat ramp */
-    --steel: #5e7ca0;             /* cool end / secondary */
+    --accent-ember: #f0863a;      /* Theme.ember — signature accent */
+    --accent-ember-deep: #d9541e; /* Theme.emberDeep — hot end of the ramp */
+    --steel: #5e7ca0;             /* Theme.steel — cool secondary */
     --accent: var(--accent-ember);/* semantic primary accent */
-    --accent-blue: #4a90d9;       /* legacy alias (kept so stray refs resolve) */
-    --accent-green: #4caf50;
+    --accent-tint: rgba(240, 134, 58, 0.12); /* ember wash for active/selected */
+    --accent-blue: var(--steel);  /* legacy alias now resolves to steel, not blue */
+    --accent-green: #4caf7d;      /* Theme.success */
     --accent-yellow: #f5a623;
     --accent-red: #e74c3c;
     --accent-purple: #9b59b6;
     --accent-orange: #e67e22;
-    --accent-gray: #6b7280;
-    --sidebar-width: 220px;
+    --accent-gray: var(--steel);
+    /* Type: San Francisco everywhere; SF Rounded for numerals + headings to
+       match the iOS app's rounded, monospaced-digit numbers and titles. */
+    --font-rounded: ui-rounded, "SF Pro Rounded", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --sidebar-width: 216px;
     --topbar-height: 56px;
-    --radius: 10px;
-    --radius-sm: 6px;
+    --radius: 14px;
+    --radius-sm: 9px;
     --shadow: 0 1px 3px rgba(0,0,0,0.4);
-    --shadow-lg: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
     --transition: all 0.2s ease;
 }
 
@@ -109,20 +113,23 @@ body {
 .sidebar nav {
     display: flex;
     flex-direction: column;
-    padding: 12px 10px;
-    gap: 2px;
+    padding: 8px 0;
+    gap: 1px;
 }
 
+/* Full-bleed, squared nav rows — an app tab bar laid on its side, not
+   floating rounded pills. The active row is a flush ember wash with a solid
+   ember rail on the left edge. */
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: 13px;
+    padding: 11px 20px;
     color: var(--text-secondary);
     text-decoration: none;
     font-size: 14px;
-    font-weight: 500;
-    border-radius: 8px;
+    font-weight: 600;
+    border-radius: 0;
     transition: var(--transition);
     border-left: 3px solid transparent;
 }
@@ -134,11 +141,11 @@ body {
 
 .nav-item.active {
     color: var(--accent);
-    background: rgba(74, 144, 217, 0.1);
+    background: var(--accent-tint);
     border-left-color: var(--accent);
 }
 
-.nav-item svg { flex-shrink: 0; opacity: 0.7; }
+.nav-item svg { flex-shrink: 0; opacity: 0.65; }
 .nav-item.active svg { opacity: 1; }
 
 /* ==========================================================================
@@ -362,7 +369,7 @@ main {
     flex-shrink: 0;
 }
 
-.stat-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent); }
+.stat-icon-blue { background: rgba(240, 134, 58, 0.15); color: var(--accent); }
 .stat-icon-green { background: rgba(76, 175, 80, 0.15); color: var(--accent-green); }
 .stat-icon-yellow { background: rgba(245, 166, 35, 0.15); color: var(--accent-yellow); }
 .stat-icon-purple { background: rgba(155, 89, 182, 0.15); color: var(--accent-purple); }
@@ -425,7 +432,7 @@ main {
     flex-shrink: 0;
 }
 
-.action-icon-blue { background: rgba(74, 144, 217, 0.15); color: var(--accent); }
+.action-icon-blue { background: rgba(240, 134, 58, 0.15); color: var(--accent); }
 .action-icon-yellow { background: rgba(245, 166, 35, 0.15); color: var(--accent-yellow); }
 .action-icon-green { background: rgba(76, 175, 80, 0.15); color: var(--accent-green); }
 .action-icon-purple { background: rgba(155, 89, 182, 0.15); color: var(--accent-purple); }
@@ -826,14 +833,14 @@ main {
 
 /* Inbox scout action buttons (Shortlist / Pass) */
 .scout-actions { display: inline-flex; gap: 6px; }
-.pill-tailoring { background: rgba(74, 144, 217, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
+.pill-tailoring { background: rgba(240, 134, 58, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
 .pill-review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-pending_review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-approved { background: rgba(76, 175, 80, 0.2); color: var(--accent-green); }
 .pill-applied { background: rgba(155, 89, 182, 0.2); color: var(--accent-purple); }
 .pill-rejected { background: rgba(231, 76, 60, 0.2); color: var(--accent-red); }
 .pill-failed { background: rgba(230, 126, 34, 0.2); color: var(--accent-orange); }
-.pill-applying { background: rgba(74, 144, 217, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
+.pill-applying { background: rgba(240, 134, 58, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
 .pill-paused { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-manual { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-autofill_complete { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
@@ -844,7 +851,7 @@ main {
 /* Post-apply outcome pills */
 .pill-outcome-offer { background: rgba(76, 175, 80, 0.2); color: var(--accent-green); }
 .pill-outcome-interview,
-.pill-outcome-screening { background: rgba(74, 144, 217, 0.2); color: var(--accent); }
+.pill-outcome-screening { background: rgba(240, 134, 58, 0.2); color: var(--accent); }
 .pill-outcome-rejected { background: rgba(231, 76, 60, 0.2); color: var(--accent-red); }
 .pill-outcome-muted { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
 
@@ -889,7 +896,7 @@ main {
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
-    background: rgba(74, 144, 217, 0.12);
+    background: rgba(240, 134, 58, 0.12);
     color: var(--accent);
 }
 
@@ -1157,7 +1164,7 @@ main {
     font-size: 12px;
     padding: 2px 6px;
     border-radius: 3px;
-    background: rgba(74, 144, 217, 0.10);
+    background: rgba(240, 134, 58, 0.10);
     color: var(--accent);
 }
 .salary-vs-market.above { color: #2ea043; background: rgba(46, 160, 67, 0.10); }
@@ -1205,6 +1212,24 @@ main {
     background: transparent;
     border: 1px solid var(--border-light);
 }
+
+/* SF Rounded on the app's prominent numerals + titles + brand, matching the
+   iOS app's rounded, monospaced-digit numbers. Body/list text stays SF. */
+.sidebar-brand,
+#page-title,
+.stat-value,
+.heat-chip,
+.heat-ring .heat-ring-score,
+.detail-title,
+.action-card-header h3,
+.section-card > h2,
+.settings-section h2,
+.fit-pie-avg,
+.review-tab-btn {
+    font-family: var(--font-rounded);
+}
+.stat-value { font-weight: 700; letter-spacing: -0.01em; }
+.detail-title { font-family: var(--font-rounded); font-weight: 700; letter-spacing: -0.01em; }
 
 /* Apply the eyebrow "section voice" to existing label/heading elements
    without touching markup — this is the iOS Eyebrow treatment. */
@@ -1577,7 +1602,7 @@ main {
 }
 
 .review-tab.active {
-    background: rgba(74, 144, 217, 0.12);
+    background: rgba(240, 134, 58, 0.12);
     color: var(--accent);
     border-color: var(--accent);
 }
@@ -1647,7 +1672,7 @@ main {
 }
 
 .honesty-stop.active {
-    background: rgba(74, 144, 217, 0.15);
+    background: rgba(240, 134, 58, 0.15);
     color: var(--accent);
     font-weight: 600;
 }
@@ -1922,9 +1947,9 @@ main {
     box-shadow: var(--shadow-lg);
 }
 
-.toast-success { background: rgba(76, 175, 80, 0.95); color: #fff; border-left: 4px solid #2e7d32; }
+.toast-success { background: rgba(76, 175, 125, 0.95); color: #fff; border-left: 4px solid #2e7d54; }
 .toast-error { background: rgba(231, 76, 60, 0.95); color: #fff; border-left: 4px solid #c0392b; }
-.toast-info { background: rgba(74, 144, 217, 0.95); color: #fff; border-left: 4px solid #2471a3; }
+.toast-info { background: rgba(94, 124, 160, 0.96); color: #fff; border-left: 4px solid #46617f; }
 
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
@@ -1972,7 +1997,7 @@ main {
     outline: none;
 }
 
-.edit-textarea:focus { box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2); }
+.edit-textarea:focus { box-shadow: 0 0 0 2px rgba(240, 134, 58, 0.2); }
 
 .edit-actions { margin-top: 8px; display: flex; gap: 8px; }
 
@@ -2717,9 +2742,9 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     font-weight: 600;
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(74, 144, 217, 0.15);
+    background: rgba(240, 134, 58, 0.15);
     color: var(--accent);
-    border: 1px solid rgba(74, 144, 217, 0.4);
+    border: 1px solid rgba(240, 134, 58, 0.4);
 }
 
 .prompt-card-body { padding: 0 14px 14px; border-top: 1px solid var(--border); }
