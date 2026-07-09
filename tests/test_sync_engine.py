@@ -358,9 +358,9 @@ async def test_delete_propagates_through_import_first_cycle(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_newer_edit_overrides_a_deletion(tmp_path, monkeypatch):
-    """LWW still holds: if a peer edits the job AFTER we deleted it, the newer
-    edit wins and the deletion is cleared (not a permanent gravestone)."""
+async def test_deletion_is_a_permanent_latch(tmp_path, monkeypatch):
+    """A delete is permanent: even a peer's live record stamped AFTER the
+    deletion (a re-fetch of a still-open posting) cannot resurrect the job."""
     path_a = tmp_path / "a.db"
     folder = tmp_path / "sync"
     (folder / "changes").mkdir(parents=True)
@@ -378,19 +378,19 @@ async def test_newer_edit_overrides_a_deletion(tmp_path, monkeypatch):
     jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'")[0]["id"]
     assert await dbmod.delete_jobs([jid]) == 1
 
-    # A peer's edit stamped AFTER the deletion arrives in the folder.
+    # A peer re-fetched the same posting AFTER the deletion (newer timestamp).
     peer = folder / "changes" / "PEER.jsonl"
     peer.write_text(json.dumps({
         "v": 1, "entity": "job", "id": "greenhouse:777",
         "updated_at": "2026-07-08T19:00:00.000Z", "device": "PEER", "deleted": False,
-        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev (edited)",
-                 "status": "shortlisted", "date_discovered": "2026-07-08T09:00:00Z"},
+        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev (refetched)",
+                 "status": "discovered", "date_discovered": "2026-07-08T09:00:00Z"},
     }) + "\n")
 
     a = SyncEngine(path_a, "A1B2", now_fn=clock)
     await a.import_changes(folder)
 
-    # Newer edit wins: job restored, deletion tombstone cleared.
-    rows = _rows(path_a, "SELECT title FROM jobs WHERE external_id='777'")
-    assert rows and rows[0]["title"] == "Dev (edited)"
-    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []
+    # Latch holds: the newer re-fetch does NOT resurrect the job, and the
+    # deletion tombstone is retained so A keeps broadcasting it.
+    assert _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'") == []
+    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:777"}]
