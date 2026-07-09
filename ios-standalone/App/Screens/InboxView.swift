@@ -134,7 +134,7 @@ struct InboxView: View {
                 scoreAllBanner
             }
             HStack {
-                Eyebrow(text: "\(model.inbox.count) to triage")
+                Eyebrow(text: "\(model.inbox.count) to scout")
                 Spacer()
                 Label(sort.label, systemImage: sort.systemImage)
                     .font(.caption2.weight(.medium))
@@ -233,8 +233,8 @@ struct InboxView: View {
             Label("Inbox clear", systemImage: "tray")
         } description: {
             Text(model.stats.totalJobs == 0
-                 ? "Fetch jobs from your configured sources to start triaging."
-                 : "You've triaged everything. Fetch again for fresh listings.")
+                 ? "Fetch jobs from your configured sources to start scouting."
+                 : "You've scouted the whole board — fetch again for fresh listings.")
         } actions: {
             Button {
                 Task { await model.fetchJobs() }

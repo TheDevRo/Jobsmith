@@ -1,0 +1,2 @@
+{"v":1,"entity":"job","id":"greenhouse:100","updated_at":"2026-07-08T12:00:00.000Z","device":"C3D4","deleted":false,"data":{"title":"Backend Engineer","company":"Acme","status":"interested"}}
+{"v":1,"entity":"job","id":"lever:200","updated_at":"2026-07-08T15:00:00.000Z","device":"C3D4","deleted":false,"data":{"title":"Platform Engineer","company":"Globex","status":"new"}}

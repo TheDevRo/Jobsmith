@@ -1,6 +1,5 @@
 import SwiftUI
 import Observation
-import UIKit
 import JobsmithKit
 
 /// App-wide state and actions. Owns the shared database and stores; screens
@@ -146,8 +145,12 @@ final class AppModel {
         inbox.filter { ($0.fitScore ?? 0) <= 0 }
     }
 
-    /// The job currently handed off to Safari for Apply Assist.
+    /// The job whose apply flow is in progress — set while the in-app Apply
+    /// browser is open, resolved by the "Did you submit?" prompt on dismiss.
     var pendingApplyJob: Job?
+
+    /// Non-nil drives the in-app Apply browser sheet (ApplyBrowserView).
+    var applyBrowserJob: Job?
 
     /// Market salary estimate from real data sources (Adzuna/BLS); the LLM
     /// only canonicalizes the title. Nil result means "no data", not zero.
@@ -262,37 +265,58 @@ final class AppModel {
             },
             certifications: parsed.certifications)
         let style = HonestyConfig.Style(rawValue: application.stylePreset) ?? .standard
-        let resumeData = try ResumeDocxGenerator.generate(content: content,
-                                                          profile: config.profile, style: style)
-        let resumeURL = try FileVault.write(resumeData, jobId: job.id, kind: .resume, format: .docx)
-        let coverData = try CoverLetterDocxGenerator.generate(
+        let format = config.honesty.documentFormat
+
+        let resumeDoc = ResumeDocxGenerator.build(content: content,
+                                                  profile: config.profile, style: style)
+        let resumeURL = try FileVault.write(render(resumeDoc, as: format),
+                                            jobId: job.id, kind: .resume, format: format)
+        let coverDoc = CoverLetterDocxGenerator.build(
             content: application.coverLetterContent, profile: config.profile,
             jobTitle: job.title, company: job.company)
-        let coverURL = try FileVault.write(coverData, jobId: job.id, kind: .coverLetter, format: .docx)
+        let coverURL = try FileVault.write(render(coverDoc, as: format),
+                                           jobId: job.id, kind: .coverLetter, format: format)
         try applicationStore.setDocumentPaths(id: application.id,
                                               resumePath: resumeURL.path,
                                               coverPath: coverURL.path)
     }
 
-    /// Hand the job to Safari, where the Jobsmith Assist extension picks it
-    /// up via the App Group active-job file.
-    func applyInSafari(_ job: Job) {
-        guard let url = URL(string: job.url) else {
+    /// Render the shared layout model to the user's chosen output format.
+    private func render(_ doc: DocxDocument, as format: FileVault.Format) throws -> Data {
+        switch format {
+        case .docx: return try doc.render()
+        case .pdf: return DocxPDFRenderer.render(doc)
+        }
+    }
+
+    /// Open the posting in the in-app Apply browser, where we inject the
+    /// autofill scripts and map fields on-device. No Safari, no extension.
+    func applyInApp(_ job: Job) {
+        guard URL(string: job.url) != nil else {
             lastError = "This job has no application URL."
             return
         }
-        try? ActiveJobStore().write(ActiveJob(job: job))
         pendingApplyJob = job
-        activityStore.log("apply_started", "Opened \(job.title) in Safari", jobId: job.id)
-        UIApplication.shared.open(url)
+        applyBrowserJob = job
+        activityStore.log("apply_started", "Opened \(job.title) in the Apply browser", jobId: job.id)
     }
 
-    /// Called when the app returns to the foreground with an apply handoff
-    /// outstanding — asks the user what happened.
+    /// Map a page's scanned form fields to values on-device, reusing the same
+    /// pipeline the Safari extension used to reach over native messaging
+    /// (FieldMapper → profile/answer-bank/LLM). `rawFields` is the snapshot.js
+    /// `fields` array; the return is FieldValue dicts keyed by `field_id`.
+    func mapApplyFields(_ rawFields: [[String: Any]], job: Job) async -> [[String: Any]] {
+        let router = NativeMessageRouter(db: database, engine: aiEngine, configStore: configStore)
+        let body: [String: Any] = ["url": job.url, "job_id": job.id, "fields": rawFields]
+        let response = await router.handle(name: "scan", body: body)
+        let result = response["result"] as? [String: Any]
+        return (result?["fields"] as? [[String: Any]]) ?? []
+    }
+
+    /// Called when the Apply browser dismisses — asks the user what happened.
     func resolvePendingApply(applied: Bool) {
         guard let job = pendingApplyJob else { return }
         pendingApplyJob = nil
-        ActiveJobStore().clear()
         let status = applied ? "applied" : "manual"
         try? jobStore.setStatus(status, jobId: job.id)
         if let application = try? applicationStore.application(jobId: job.id) {

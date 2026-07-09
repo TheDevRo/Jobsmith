@@ -375,6 +375,104 @@ async function revealLogFile() {
     }
 }
 
+// ---- Folder Sync ----
+
+function summarizeSync(r) {
+    if (!r) return 'ok';
+    if (r.error) return `error — ${r.error}`;
+    if (r.skipped) return r.reason === 'disabled' ? 'disabled' : 'not configured';
+    const inC = (r.imported?.upserts || 0) + (r.imported?.deletes || 0);
+    const outC = (r.exported?.live || 0) + (r.exported?.tombstones || 0);
+    const parts = [`${inC} pulled`, `${outC} pushed`];
+    if (r.imported?.profile) parts.push('profile updated');
+    return parts.join(', ');
+}
+
+function renderSyncStatus(st) {
+    const el = document.getElementById('sync-status');
+    if (!el) return;
+    if (!st) { el.innerHTML = ''; return; }
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const rows = [];
+    rows.push(`<div>Device&nbsp;ID: <code>${esc(st.device_id)}</code></div>`);
+    const others = (st.known_devices || []).filter(d => d && d !== st.device_id);
+    if (others.length) {
+        rows.push(`<div>Other devices: ${others.map(d => esc(d)).join(', ')}</div>`);
+    } else if (st.enabled) {
+        rows.push(`<div>No other devices seen yet.</div>`);
+    }
+    if (st.last_result) {
+        rows.push(`<div>Last sync: ${esc(summarizeSync(st.last_result))}</div>`);
+    }
+    if (st.last_error) {
+        rows.push(`<div style="color:var(--accent-red)">Last error: ${esc(st.last_error)}</div>`);
+    }
+    el.innerHTML = rows.join('');
+}
+
+async function loadSyncSettings() {
+    try {
+        const st = await api('/api/sync/status');
+        const en = document.getElementById('cfg-sync-enabled');
+        const folder = document.getElementById('cfg-sync-folder');
+        const label = document.getElementById('cfg-sync-label');
+        if (en) en.checked = !!st.enabled;
+        // Don't clobber an unsaved value the user is mid-typing on refresh.
+        if (folder && document.activeElement !== folder) folder.value = st.folder || '';
+        if (label && document.activeElement !== label) label.value = st.device_label || '';
+        renderSyncStatus(st);
+    } catch (e) {
+        renderSyncStatus(null);
+        const el = document.getElementById('sync-status');
+        if (el) el.innerHTML = `<span style="color:var(--accent-red)">Could not load sync status: ${e.message}</span>`;
+    }
+}
+
+async function saveSyncConfig() {
+    const enabled = document.getElementById('cfg-sync-enabled')?.checked;
+    const folder = document.getElementById('cfg-sync-folder')?.value.trim() || null;
+    const device_label = document.getElementById('cfg-sync-label')?.value.trim() || null;
+    try {
+        const st = await api('/api/sync/config', {
+            method: 'POST',
+            body: JSON.stringify({ enabled, folder, device_label }),
+        });
+        renderSyncStatus(st);
+        toast('Sync settings saved', 'success');
+    } catch (e) {
+        toast(`Could not save sync settings: ${e.message}`, 'error');
+    }
+}
+
+async function pickSyncFolder() {
+    try {
+        const res = await api('/api/sync/pick-folder', { method: 'POST' });
+        if (!res.path) return;  // user cancelled
+        const folder = document.getElementById('cfg-sync-folder');
+        if (folder) folder.value = res.path;
+        await saveSyncConfig();
+    } catch (e) {
+        toast(`Could not open folder picker: ${e.message}`, 'error');
+    }
+}
+
+async function runSyncNow() {
+    const btn = document.getElementById('sync-now-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+    try {
+        const res = await api('/api/sync/run', { method: 'POST' });
+        if (res.error) toast(`Sync failed: ${res.error}`, 'error');
+        else if (res.skipped) toast(`Sync ${summarizeSync(res)} — check the folder and enable toggle`, 'info');
+        else toast(`Synced — ${summarizeSync(res)}`, 'success');
+        await loadSyncSettings();
+    } catch (e) {
+        toast(`Sync failed: ${e.message}`, 'error');
+        await loadSyncSettings();
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+    }
+}
+
 async function loadAIStatus() {
     // Piggyback on the existing testAI() which uses #ai-status element
     // Just call testAI() silently when loading settings

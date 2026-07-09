@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobsmith.app/sync/profile.schema.json",
+  "title": "Canonical profile payload",
+  "description": "The 'data' payload of a profile change record (entity=profile, id=me). Superset of the desktop config.yaml profile block and the iOS Profile struct, in snake_case. ATS login credentials (workday_email/workday_password/ats_login_password) are intentionally NOT part of this schema — they are never synced. additionalProperties is true for forward-compatibility (base-overlay preservation).",
+  "type": "object",
+  "properties": {
+    "full_name": { "type": "string" },
+    "middle_name": { "type": "string" },
+    "email": { "type": "string" },
+    "phone": { "type": "string" },
+    "location": { "type": "string" },
+    "street_address": { "type": "string" },
+    "street_address_2": { "type": "string" },
+    "city": { "type": "string" },
+    "state": { "type": "string" },
+    "zip_code": { "type": "string" },
+    "desired_salary": { "type": "string" },
+    "linkedin": { "type": "string" },
+    "github": { "type": "string" },
+    "portfolio": { "type": "string" },
+    "summary": { "type": "string" },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "certifications": { "type": "array", "items": { "type": "string" } },
+    "experience": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "company": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "bullets": { "type": "array", "items": { "type": "string" } },
+          "pinned": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "education": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "degree": { "type": "string" },
+          "school": { "type": "string" },
+          "year": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "position": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "gender": { "type": "string" },
+    "race_ethnicity": { "type": "string" },
+    "veteran_status": { "type": "string" },
+    "disability_status": { "type": "string" },
+    "work_authorization": { "type": "string" },
+    "sponsorship_required": { "type": "string" },
+    "notice_period": { "type": "string" },
+    "available_start": { "type": "string" }
+  },
+  "additionalProperties": true
+}

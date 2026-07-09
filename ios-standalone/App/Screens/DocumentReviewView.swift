@@ -114,7 +114,8 @@ struct DocumentReviewView: View {
         updated.coverLetterContent = coverText
         try? model.regenerateDocuments(for: updated, job: job)
         let kind: FileVault.Kind = selected == .resume ? .resume : .coverLetter
-        previewURL = FileVault.url(jobId: job.id, kind: kind, format: .docx)
+        previewURL = FileVault.url(jobId: job.id, kind: kind,
+                                   format: model.config.honesty.documentFormat)
     }
 
     private func approve() {
