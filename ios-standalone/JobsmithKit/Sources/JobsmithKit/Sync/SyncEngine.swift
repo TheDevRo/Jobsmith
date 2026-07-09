@@ -149,10 +149,6 @@ public final class SyncEngine {
             arguments: [syncId, deletedAt])
     }
 
-    private func clearDeletion(_ dbc: Database, _ syncId: String) throws {
-        try dbc.execute(sql: "DELETE FROM deleted_jobs WHERE sync_id = ?", arguments: [syncId])
-    }
-
     private struct Snap { var updatedAt: String; var deleted: Bool; var dataJSON: String? }
 
     private func loadSnapshot(_ dbc: Database, _ entity: String) throws -> [String: Snap] {
@@ -356,7 +352,8 @@ public final class SyncEngine {
 
     @discardableResult
     public func importChanges(from folder: URL) throws -> ImportStats {
-        let winners = SyncMerge.winners(SyncMerge.loadLogs(folder))
+        let logs = SyncMerge.loadLogs(folder)
+        let winners = SyncMerge.winners(logs)
         var stats = ImportStats()
         let store = store(folder)
 
@@ -366,30 +363,36 @@ public final class SyncEngine {
             var deferred = Set<String>()
             var deletions = try loadDeletions(dbc)
 
+            // A job deletion is a permanent latch. Fold EVERY job tombstone in
+            // the logs into the authoritative deletion set — including any that
+            // lost last-writer-wins to a newer re-fetch — and drop the row, so a
+            // re-discovered posting can't out-vote a delete: once deleted, a job
+            // stays deleted on every device.
+            for rec in logs where rec.entity == "job" && rec.deleted {
+                if deletions[rec.id] == nil {
+                    deletions[rec.id] = rec.updatedAt
+                    try putDeletion(dbc, rec.id, rec.updatedAt)
+                    try deleteJob(dbc, rec.id); stats.deletes += 1
+                } else if rec.updatedAt > deletions[rec.id]! {
+                    deletions[rec.id] = rec.updatedAt
+                    try putDeletion(dbc, rec.id, rec.updatedAt)
+                }
+            }
+
             // Live: jobs before applications (FK).
             for (key, rec) in winners where key.entity == "job" && !rec.deleted {
-                // Resurrection guard: don't re-add a job we've tombstoned unless
-                // this live record is newer than the deletion (a genuine edit/
-                // un-delete — then the deletion is overridden and cleared).
-                if let delAt = deletions[key.id] {
-                    if rec.updatedAt <= delAt { continue }
-                    try clearDeletion(dbc, key.id); deletions[key.id] = nil
-                }
+                // Permanent latch: a job we've tombstoned never comes back, even
+                // when a live record (a re-fetch) is newer.
+                if deletions[key.id] != nil { continue }
                 try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
                 do { try applyApplication(dbc, key.id, rec.data ?? [:], store); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application:\(key.id)"); stats.deferred += 1 }
             }
-            // Tombstones: applications before jobs.
+            // Tombstones: applications only — jobs are handled by the fold above.
             for (key, rec) in winners where key.entity == "application" && rec.deleted {
                 try dbc.execute(sql: "DELETE FROM applications WHERE id = ?", arguments: [key.id]); stats.deletes += 1
-            }
-            for (key, rec) in winners where key.entity == "job" && rec.deleted {
-                try deleteJob(dbc, key.id); stats.deletes += 1
-                // Persist an incoming job tombstone so this device also
-                // broadcasts it and resists re-discovery.
-                try putDeletion(dbc, key.id, rec.updatedAt)
             }
             // Profile.
             if let rec = winners[SyncMerge.Key(entity: "profile", id: "me")], !rec.deleted {

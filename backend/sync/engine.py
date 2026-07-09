@@ -163,9 +163,6 @@ class SyncEngine:
             (sync_id, deleted_at),
         )
 
-    async def _clear_deletion(self, conn, sync_id) -> None:
-        await conn.execute("DELETE FROM deleted_jobs WHERE sync_id = ?", (sync_id,))
-
     async def _put_snapshot(self, conn, entity, sid, updated_at, deleted, data_json):
         await conn.execute(
             """INSERT INTO sync_snapshot (entity, id, updated_at, deleted, data_json)
@@ -321,21 +318,36 @@ class SyncEngine:
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
             deletions = await self._load_deletions(conn)
+            # A job deletion is a permanent latch. Fold EVERY job tombstone in
+            # the logs into the authoritative deletion set — including any that
+            # lost last-writer-wins to a newer re-fetch — and drop the row. This
+            # is what stops a re-discovered posting from out-voting a delete:
+            # once deleted, a job stays deleted on every device.
+            job_adapter = adapters_by_entity.get("job")
+            for rec in records:
+                if rec.get("entity") != "job" or not rec.get("deleted"):
+                    continue
+                sid, ts = rec["id"], rec["updated_at"]
+                if sid not in deletions:
+                    deletions[sid] = ts
+                    await self._put_deletion(conn, sid, ts)
+                    if job_adapter is not None:
+                        await job_adapter.apply_tombstone(conn, sid)
+                        stats.deletes += 1
+                elif ts > deletions[sid]:
+                    deletions[sid] = ts
+                    await self._put_deletion(conn, sid, ts)
+
             # Live upserts, FK order (job -> answer -> application).
             deferred: set[tuple[str, str]] = set()
             for adapter in adapters:
                 for (entity, sid), rec in winners.items():
                     if entity != adapter.entity or rec.get("deleted"):
                         continue
-                    # Resurrection guard: don't re-add a job we've tombstoned
-                    # unless this live record is newer than the deletion (a
-                    # genuine edit/un-delete after the fact — then the deletion
-                    # is overridden and cleared).
+                    # Permanent latch: a job we've tombstoned never comes back,
+                    # even when a live record (a re-fetch) is newer.
                     if entity == "job" and sid in deletions:
-                        if rec["updated_at"] <= deletions[sid]:
-                            continue
-                        await self._clear_deletion(conn, sid)
-                        del deletions[sid]
+                        continue
                     try:
                         await adapter.apply_live(conn, sid, rec.get("data", {}))
                         stats.upserts += 1
@@ -345,16 +357,15 @@ class SyncEngine:
                         stats.deferred_keys.append(f"{entity}:{sid}")
                         logger.info("sync import deferred: %s", e)
 
-            # Tombstones, reverse FK order (children before parents).
+            # Tombstones, reverse FK order (children before parents). Jobs are
+            # already handled by the permanent-latch fold above.
             for adapter in reversed(adapters):
+                if adapter.entity == "job":
+                    continue
                 for (entity, sid), rec in winners.items():
                     if entity == adapter.entity and rec.get("deleted"):
                         await adapter.apply_tombstone(conn, sid)
                         stats.deletes += 1
-                        # Persist an incoming job tombstone locally so this
-                        # device also broadcasts it and resists re-discovery.
-                        if entity == "job":
-                            await self._put_deletion(conn, sid, rec["updated_at"])
 
             # Profile.
             prof_winner = winners.get((PROFILE_ENTITY, PROFILE_ID))

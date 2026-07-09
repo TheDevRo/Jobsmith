@@ -308,9 +308,9 @@ final class SyncEngineTests: XCTestCase {
         try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
     }
 
-    func testNewerEditOverridesDeletion() throws {
-        // LWW still holds: a peer edit stamped after our delete wins, and the
-        // deletion tombstone is cleared (not a permanent gravestone).
+    func testDeletionIsPermanentLatch() throws {
+        // A delete is permanent: even a peer's live record stamped AFTER the
+        // deletion (a re-fetch of a still-open posting) can't resurrect the job.
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("synctest-\(UUID().uuidString)")
@@ -319,22 +319,23 @@ final class SyncEngineTests: XCTestCase {
         let jobId = try seedJob(dbA, externalId: "777", fitScore: 5)
         try JobStore(dbA).delete(jobId: jobId)   // tombstone at real-now
 
-        // Peer edit stamped far in the future (strictly after the deletion).
+        // Peer re-fetch stamped far in the future (strictly after the deletion).
         let changes = folder.appendingPathComponent("changes")
         try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
         let rec = "{\"v\":1,\"entity\":\"job\",\"id\":\"greenhouse:777\","
             + "\"updated_at\":\"2099-01-01T00:00:00.000Z\",\"device\":\"PEER\",\"deleted\":false,"
-            + "\"data\":{\"source\":\"greenhouse\",\"external_id\":\"777\",\"title\":\"Dev (edited)\","
-            + "\"status\":\"shortlisted\",\"date_discovered\":\"2026-07-08T09:00:00Z\"}}\n"
+            + "\"data\":{\"source\":\"greenhouse\",\"external_id\":\"777\",\"title\":\"Dev (refetched)\","
+            + "\"status\":\"discovered\",\"date_discovered\":\"2026-07-08T09:00:00Z\"}}\n"
         try rec.write(to: changes.appendingPathComponent("PEER.jsonl"), atomically: true, encoding: .utf8)
 
         let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
         try a.importChanges(from: folder)
 
+        // Latch holds: the newer re-fetch does NOT resurrect the job, and the
+        // deletion tombstone is retained so A keeps broadcasting it.
         try dbA.writer.read { dbc in
-            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT title FROM jobs WHERE externalId='777'"),
-                           "Dev (edited)")
-            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
+            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs WHERE externalId='777'"), 0)
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:777")
         }
     }
 }
