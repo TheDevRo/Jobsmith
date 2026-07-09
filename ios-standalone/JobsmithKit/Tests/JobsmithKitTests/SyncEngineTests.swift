@@ -257,4 +257,84 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedB["summary"], .string("iOS dev"))
         XCTAssertEqual(savedB["noticePeriod"], .string("2 weeks"))  // preserved
     }
+
+    func testDeletePropagatesThroughImportFirstCycle() throws {
+        // A hard delete must survive a real cycle (import BEFORE export) and
+        // reach the other device. Without a durable tombstone the import re-adds
+        // the job from the folder's still-live record — the resurrection bug.
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 42)
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let dbB = try AppDatabase.inMemory()
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        // Both devices hold the job.
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 1) }
+
+        // A deletes through the real delete path (records a durable tombstone).
+        try JobStore(dbA).delete(jobId: jobId)
+        try dbA.writer.read {
+            XCTAssertEqual(try String.fetchOne($0, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:111")
+        }
+
+        // Full cycle, import first: the old live record must NOT resurrect it.
+        try a.importChanges(from: folder)
+        try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+        try a.export(to: folder)
+
+        // B converges: job gone, and the tombstone is recorded durably on B too.
+        let imp = try b.importChanges(from: folder)
+        XCTAssertGreaterThanOrEqual(imp.deletes, 1)
+        try dbB.writer.read { dbc in
+            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs"), 0)
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:111")
+        }
+
+        // B, now holding the marker, also refuses to re-discover the posting.
+        let summary = try JobStore(dbB).upsert(
+            [NormalizedJob(source: "greenhouse", externalId: "111", title: "Engineer", company: "Acme")])
+        XCTAssertEqual(summary.inserted, 0)
+        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+
+        // Stays gone across another A cycle — no flip-flop.
+        try a.importChanges(from: folder)
+        try a.export(to: folder)
+        try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+    }
+
+    func testNewerEditOverridesDeletion() throws {
+        // LWW still holds: a peer edit stamped after our delete wins, and the
+        // deletion tombstone is cleared (not a permanent gravestone).
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "777", fitScore: 5)
+        try JobStore(dbA).delete(jobId: jobId)   // tombstone at real-now
+
+        // Peer edit stamped far in the future (strictly after the deletion).
+        let changes = folder.appendingPathComponent("changes")
+        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+        let rec = "{\"v\":1,\"entity\":\"job\",\"id\":\"greenhouse:777\","
+            + "\"updated_at\":\"2099-01-01T00:00:00.000Z\",\"device\":\"PEER\",\"deleted\":false,"
+            + "\"data\":{\"source\":\"greenhouse\",\"external_id\":\"777\",\"title\":\"Dev (edited)\","
+            + "\"status\":\"shortlisted\",\"date_discovered\":\"2026-07-08T09:00:00Z\"}}\n"
+        try rec.write(to: changes.appendingPathComponent("PEER.jsonl"), atomically: true, encoding: .utf8)
+
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        try a.importChanges(from: folder)
+
+        try dbA.writer.read { dbc in
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT title FROM jobs WHERE externalId='777'"),
+                           "Dev (edited)")
+            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
+        }
+    }
 }

@@ -64,6 +64,14 @@ public struct JobStore: Sendable {
                     try existing.update(dbc)
                     if changed { summary.updated += 1 }
                 } else {
+                    // Re-discovery guard: a job the user hard-deleted stays
+                    // deleted even if a later fetch re-finds the same posting.
+                    if !item.externalId.isEmpty,
+                       try Int.fetchOne(dbc,
+                            sql: "SELECT 1 FROM deleted_jobs WHERE sync_id = ?",
+                            arguments: ["\(item.source):\(item.externalId)"]) != nil {
+                        continue
+                    }
                     try Job(from: item).insert(dbc)
                     summary.inserted += 1
                 }
@@ -141,7 +149,29 @@ public struct JobStore: Sendable {
     }
 
     public func delete(jobId: String) throws {
-        _ = try db.writer.write { try Job.deleteOne($0, key: jobId) }
+        try db.writer.write { dbc in
+            // Record a durable tombstone (same "{source}:{externalId}" sync id
+            // the sync layer uses) so the deletion propagates to other devices
+            // and a later fetch can't silently re-discover the same posting.
+            if let job = try Job.fetchOne(dbc, key: jobId), !job.externalId.isEmpty {
+                try dbc.execute(
+                    sql: "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
+                       + "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
+                    arguments: ["\(job.source):\(job.externalId)", Self.syncNow()])
+            }
+            _ = try Job.deleteOne(dbc, key: jobId)
+        }
+    }
+
+    /// Deletion clock in the sync layer's exact format (RFC3339 UTC, ms, 'Z')
+    /// so `deleted_jobs.deleted_at` compares correctly against a change
+    /// record's `updated_at` under last-writer-wins. Matches SyncEngine.isoMs.
+    static func syncNow() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return f.string(from: Date())
     }
 
     public struct Stats: Sendable, Equatable {
