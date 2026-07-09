@@ -3,16 +3,19 @@
    ========================================================================== */
 
 :root {
-    --bg-primary: #0c0e14;
-    --bg-secondary: #13161f;
-    --bg-card: #1a1e2a;
-    --bg-hover: #222838;
-    --bg-active: #2a3040;
-    --text-primary: #e8eaf0;
-    --text-secondary: #8b92a8;
-    --text-muted: #5a6178;
-    --border: #252a3a;
-    --border-light: #2d3348;
+    /* Neutral charcoal base — black/grey, no blue cast (matches the iOS app's
+       dark chrome). The only blue in the system is `steel`, reserved for the
+       cool end of the fit-heat ramp. */
+    --bg-primary: #0c0c0e;
+    --bg-secondary: #151517;
+    --bg-card: #1c1c1f;
+    --bg-hover: #26262a;
+    --bg-active: #2f2f34;
+    --text-primary: #eae9ec;
+    --text-secondary: #99979e;
+    --text-muted: #625f68;
+    --border: #2a292e;
+    --border-light: #343239;
     /* Forge/heat identity — exact palette from ios-standalone Theme.swift.
        Ember is the signature accent; the steel→ember ramp renders fit "heat". */
     --accent-ember: #f0863a;      /* Theme.ember — signature accent */
@@ -41,16 +44,16 @@
 
 /* Light theme overrides (applied via data-theme="light" on <body>) */
 body[data-theme="light"] {
-    --bg-primary: #f4f5f7;
+    --bg-primary: #f5f4f6;
     --bg-secondary: #ffffff;
     --bg-card: #ffffff;
-    --bg-hover: #e8eaf0;
-    --bg-active: #dde2ee;
-    --text-primary: #1a1d26;
-    --text-secondary: #4a5068;
-    --text-muted: #7b84a0;
-    --border: #d4d8e8;
-    --border-light: #c0c6da;
+    --bg-hover: #ececee;
+    --bg-active: #e2e0e5;
+    --text-primary: #1b1a1e;
+    --text-secondary: #55535c;
+    --text-muted: #86838d;
+    --border: #dad8de;
+    --border-light: #c8c6cf;
     --shadow: 0 1px 3px rgba(0,0,0,0.12);
     --shadow-lg: 0 4px 12px rgba(0,0,0,0.15);
 }
@@ -532,7 +535,7 @@ main {
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary { background: var(--accent); }
-.btn-primary:hover:not(:disabled) { background: #3a7fc9; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-ember-deep); }
 
 .btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--bg-active); border-color: var(--border-light); }
