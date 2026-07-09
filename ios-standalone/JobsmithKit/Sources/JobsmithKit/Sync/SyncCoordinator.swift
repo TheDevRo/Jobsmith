@@ -82,8 +82,12 @@ public final class SyncCoordinator {
                 let sf = SyncFolder(url)
                 try sf.ensureDirs()
                 try sf.registerDevice(deviceId, label: deviceLabel, platform: "ios")
-                let imported = try engine.importChanges(from: url)
+                // Export BEFORE import: a just-made local shortlist must reach
+                // the folder (stamped now) before import evaluates any incoming
+                // deletion tombstone, or the engagement-override can't see it and
+                // the stale tombstone wipes the fresh shortlist. See engine.py.
                 let exported = try engine.export(to: url)
+                let imported = try engine.importChanges(from: url)
                 let compacted = try sf.compactOwnLog(deviceId)
                 result = Result(imported: imported, exported: exported, compacted: compacted)
             } catch { thrown = error }

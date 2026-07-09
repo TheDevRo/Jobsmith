@@ -351,4 +351,43 @@ final class SyncEngineTests: XCTestCase {
             XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
         }
     }
+
+    func testFreshShortlistSurvivesStaleTombstoneInCycle() throws {
+        // The reported bug: shortlist a job on THIS device while the folder
+        // already holds a peer's older delete for it. A full cycle must not wipe
+        // the fresh shortlist. Only holds if the cycle EXPORTS BEFORE IMPORT —
+        // the shortlist must reach the folder (stamped now) before import
+        // evaluates the incoming tombstone. Mirrors SyncCoordinator.syncOnce.
+        let clock = Clock()  // ~2026, strictly after the tombstone below
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        _ = try seedJob(dbA, externalId: "555", fitScore: 5)
+
+        // A peer deleted the same posting earlier — its tombstone is already in
+        // the folder, at a time BEFORE this device's clock.
+        let changes = folder.appendingPathComponent("changes")
+        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+        let tomb = "{\"v\":1,\"entity\":\"job\",\"id\":\"greenhouse:555\","
+            + "\"updated_at\":\"2026-01-01T00:00:00.000Z\",\"device\":\"PEER\",\"deleted\":true}\n"
+        try tomb.write(to: changes.appendingPathComponent("PEER.jsonl"), atomically: true, encoding: .utf8)
+
+        // The user swipes to shortlist.
+        try dbA.writer.write { dbc in
+            try dbc.execute(sql: "UPDATE jobs SET triage = 'shortlisted' WHERE externalId = '555'")
+        }
+
+        // One cycle in the real coordinator order: EXPORT then IMPORT.
+        let engine = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        try engine.export(to: folder)
+        try engine.importChanges(from: folder)
+
+        // The shortlist survived and the stale delete did not take.
+        try dbA.writer.read { dbc in
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='555'"),
+                           "shortlisted")
+            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
+        }
+    }
 }
