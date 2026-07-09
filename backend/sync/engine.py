@@ -46,6 +46,11 @@ RECORD_VERSION = 1
 PROFILE_ENTITY = "profile"
 PROFILE_ID = "me"
 
+# Canonical job statuses that do NOT count as the user keeping/advancing a job:
+# a fresh re-discovery and a dismiss. A deletion is resurrected only by a newer
+# live record whose status is anything else (shortlisted or a pipeline stage).
+_UNENGAGED_STATUSES = frozenset({"discovered", "passed"})
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -162,6 +167,9 @@ class SyncEngine:
             "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
             (sync_id, deleted_at),
         )
+
+    async def _clear_deletion(self, conn, sync_id) -> None:
+        await conn.execute("DELETE FROM deleted_jobs WHERE sync_id = ?", (sync_id,))
 
     async def _put_snapshot(self, conn, entity, sid, updated_at, deleted, data_json):
         await conn.execute(
@@ -318,16 +326,32 @@ class SyncEngine:
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
             deletions = await self._load_deletions(conn)
-            # A job deletion is a permanent latch. Fold EVERY job tombstone in
-            # the logs into the authoritative deletion set — including any that
-            # lost last-writer-wins to a newer re-fetch — and drop the row. This
-            # is what stops a re-discovered posting from out-voting a delete:
-            # once deleted, a job stays deleted on every device.
             job_adapter = adapters_by_entity.get("job")
+
+            # A deletion is overridden only by a newer *engaged* live record —
+            # one where the user kept/advanced the job (shortlisted or into the
+            # pipeline). A plain re-discovery ('discovered') or a dismiss
+            # ('passed') never resurrects a delete. Find the newest engaged live
+            # timestamp per job so a stale tombstone can't nuke a job the user
+            # just shortlisted on another device.
+            newest_engaged: dict[str, str] = {}
+            for rec in records:
+                if rec.get("entity") == "job" and not rec.get("deleted"):
+                    st = (rec.get("data") or {}).get("status", "discovered")
+                    if st not in _UNENGAGED_STATUSES:
+                        sid, ts = rec["id"], rec["updated_at"]
+                        if ts > newest_engaged.get(sid, ""):
+                            newest_engaged[sid] = ts
+
+            # Fold job tombstones into the durable deletion set (and drop the
+            # row) unless a newer engaged live record supersedes them. This is
+            # how a re-fetched posting stays deleted while a shortlist wins.
             for rec in records:
                 if rec.get("entity") != "job" or not rec.get("deleted"):
                     continue
                 sid, ts = rec["id"], rec["updated_at"]
+                if newest_engaged.get(sid, "") > ts:
+                    continue  # user re-engaged after this delete — keep the job
                 if sid not in deletions:
                     deletions[sid] = ts
                     await self._put_deletion(conn, sid, ts)
@@ -344,10 +368,15 @@ class SyncEngine:
                 for (entity, sid), rec in winners.items():
                     if entity != adapter.entity or rec.get("deleted"):
                         continue
-                    # Permanent latch: a job we've tombstoned never comes back,
-                    # even when a live record (a re-fetch) is newer.
+                    # A tombstoned job comes back only via a newer engaged live
+                    # record (shortlist/pipeline); a re-fetch stays deleted.
                     if entity == "job" and sid in deletions:
-                        continue
+                        st = (rec.get("data") or {}).get("status", "discovered")
+                        if rec["updated_at"] > deletions[sid] and st not in _UNENGAGED_STATUSES:
+                            await self._clear_deletion(conn, sid)
+                            del deletions[sid]
+                        else:
+                            continue
                     try:
                         await adapter.apply_live(conn, sid, rec.get("data", {}))
                         stats.upserts += 1

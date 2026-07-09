@@ -357,10 +357,9 @@ async def test_delete_propagates_through_import_first_cycle(tmp_path, monkeypatc
     assert _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'") == []
 
 
-@pytest.mark.asyncio
-async def test_deletion_is_a_permanent_latch(tmp_path, monkeypatch):
-    """A delete is permanent: even a peer's live record stamped AFTER the
-    deletion (a re-fetch of a still-open posting) cannot resurrect the job."""
+async def _delete_then_import_peer_live(tmp_path, monkeypatch, status):
+    """Delete greenhouse:777 on A, then import a peer live record (newer than
+    the deletion) with the given status. Returns (path_a, _rows)."""
     path_a = tmp_path / "a.db"
     folder = tmp_path / "sync"
     (folder / "changes").mkdir(parents=True)
@@ -370,7 +369,6 @@ async def test_deletion_is_a_permanent_latch(tmp_path, monkeypatch):
     monkeypatch.setattr(dbmod, "DB_PATH", path_a)
     monkeypatch.setattr(dbmod, "_sync_now", lambda: "2026-07-08T18:00:00.000Z")
 
-    # A had, then deleted, greenhouse:777.
     await dbmod.upsert_job(
         {"source": "greenhouse", "external_id": "777", "title": "Dev",
          "company": "Acme", "url": "https://x/777", "description": "d"}
@@ -378,19 +376,33 @@ async def test_deletion_is_a_permanent_latch(tmp_path, monkeypatch):
     jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'")[0]["id"]
     assert await dbmod.delete_jobs([jid]) == 1
 
-    # A peer re-fetched the same posting AFTER the deletion (newer timestamp).
     peer = folder / "changes" / "PEER.jsonl"
     peer.write_text(json.dumps({
         "v": 1, "entity": "job", "id": "greenhouse:777",
         "updated_at": "2026-07-08T19:00:00.000Z", "device": "PEER", "deleted": False,
-        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev (refetched)",
-                 "status": "discovered", "date_discovered": "2026-07-08T09:00:00Z"},
+        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev",
+                 "status": status, "date_discovered": "2026-07-08T09:00:00Z"},
     }) + "\n")
 
     a = SyncEngine(path_a, "A1B2", now_fn=clock)
     await a.import_changes(folder)
+    return path_a
 
-    # Latch holds: the newer re-fetch does NOT resurrect the job, and the
-    # deletion tombstone is retained so A keeps broadcasting it.
+
+@pytest.mark.asyncio
+async def test_plain_refetch_stays_deleted(tmp_path, monkeypatch):
+    """A re-fetch ('discovered') of a still-open posting, even stamped after the
+    deletion, does NOT resurrect it — the delete sticks and keeps broadcasting."""
+    path_a = await _delete_then_import_peer_live(tmp_path, monkeypatch, "discovered")
     assert _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'") == []
     assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:777"}]
+
+
+@pytest.mark.asyncio
+async def test_shortlist_overrides_a_deletion(tmp_path, monkeypatch):
+    """Engagement wins: a peer that shortlisted the job after the delete brings
+    it back (and clears the tombstone) — you can't lose a job by shortlisting it."""
+    path_a = await _delete_then_import_peer_live(tmp_path, monkeypatch, "shortlisted")
+    rows = _rows(path_a, "SELECT status FROM jobs WHERE external_id='777'")
+    assert rows and rows[0]["status"] == "shortlisted"
+    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []

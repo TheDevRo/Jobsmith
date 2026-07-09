@@ -142,11 +142,20 @@ public final class SyncEngine {
         return out
     }
 
+    /// Canonical job statuses that do NOT count as the user keeping/advancing a
+    /// job (a fresh re-discovery and a dismiss). A deletion is resurrected only
+    /// by a newer live record whose status is anything else.
+    private static let unengagedStatuses: Set<String> = ["discovered", "passed"]
+
     private func putDeletion(_ dbc: Database, _ syncId: String, _ deletedAt: String) throws {
         try dbc.execute(
             sql: "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
                + "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
             arguments: [syncId, deletedAt])
+    }
+
+    private func clearDeletion(_ dbc: Database, _ syncId: String) throws {
+        try dbc.execute(sql: "DELETE FROM deleted_jobs WHERE sync_id = ?", arguments: [syncId])
     }
 
     private struct Snap { var updatedAt: String; var deleted: Bool; var dataJSON: String? }
@@ -363,12 +372,25 @@ public final class SyncEngine {
             var deferred = Set<String>()
             var deletions = try loadDeletions(dbc)
 
-            // A job deletion is a permanent latch. Fold EVERY job tombstone in
-            // the logs into the authoritative deletion set — including any that
-            // lost last-writer-wins to a newer re-fetch — and drop the row, so a
-            // re-discovered posting can't out-vote a delete: once deleted, a job
-            // stays deleted on every device.
+            // A deletion is overridden only by a newer *engaged* live record —
+            // one where the user kept/advanced the job (shortlisted or into the
+            // pipeline). A plain re-discovery ('discovered') or a dismiss
+            // ('passed') never resurrects a delete. Newest engaged live ts per
+            // job, so a stale tombstone can't nuke a job just shortlisted
+            // elsewhere.
+            var newestEngaged: [String: String] = [:]
+            for rec in logs where rec.entity == "job" && !rec.deleted {
+                let st = rec.data?["status"]?.stringValue ?? "discovered"
+                if !Self.unengagedStatuses.contains(st), rec.updatedAt > (newestEngaged[rec.id] ?? "") {
+                    newestEngaged[rec.id] = rec.updatedAt
+                }
+            }
+
+            // Fold job tombstones into the durable deletion set (and drop the
+            // row) unless a newer engaged live record supersedes them — so a
+            // re-fetch stays deleted while a shortlist wins.
             for rec in logs where rec.entity == "job" && rec.deleted {
+                if (newestEngaged[rec.id] ?? "") > rec.updatedAt { continue }
                 if deletions[rec.id] == nil {
                     deletions[rec.id] = rec.updatedAt
                     try putDeletion(dbc, rec.id, rec.updatedAt)
@@ -381,9 +403,16 @@ public final class SyncEngine {
 
             // Live: jobs before applications (FK).
             for (key, rec) in winners where key.entity == "job" && !rec.deleted {
-                // Permanent latch: a job we've tombstoned never comes back, even
-                // when a live record (a re-fetch) is newer.
-                if deletions[key.id] != nil { continue }
+                // A tombstoned job comes back only via a newer engaged live
+                // record (shortlist/pipeline); a re-fetch stays deleted.
+                if let delAt = deletions[key.id] {
+                    let st = rec.data?["status"]?.stringValue ?? "discovered"
+                    if rec.updatedAt > delAt, !Self.unengagedStatuses.contains(st) {
+                        try clearDeletion(dbc, key.id); deletions[key.id] = nil
+                    } else {
+                        continue
+                    }
+                }
                 try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
