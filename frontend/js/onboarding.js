@@ -627,7 +627,7 @@ const TOUR_STEPS = [
     {
         hash: '#dashboard',
         selector: '.stats-row',
-        title: 'Your dashboard',
+        title: 'Your Activity view',
         body: 'This is your command center. These stat cards summarize jobs ingested, pending review, submitted applications, and your overall fit. Click any of them to jump to filtered views.',
     },
     {
@@ -639,8 +639,8 @@ const TOUR_STEPS = [
     {
         hash: '#jobs',
         selector: '.filter-bar',
-        title: 'Find jobs',
-        body: 'Filter your ingested jobs by keyword, location, salary, score, and more. The advanced toggle exposes finer controls like source, status, and date range.',
+        title: 'Your Inbox',
+        body: 'Newly fetched jobs land here to scout. Shortlist the ones worth pursuing (→ or S) and pass on the rest (← or P) — keyboard or buttons. Filter by keyword, location, salary, score, and more; the advanced toggle exposes source, status, and date range.',
     },
     {
         hash: '#jobs',
@@ -651,8 +651,8 @@ const TOUR_STEPS = [
     {
         hash: '#review',
         selector: '.review-tab-bar',
-        title: 'Review queue',
-        body: 'Once you tailor a job, its tailored resume and cover letter live here. Open the Pending tab to read through what the AI produced, use AI Edit to revise anything, then launch Apply Assist from this view (or from the Job Feed detail pane). Submitted / Failed / In Progress tabs let you audit past applications. Note: "Approve" is an audit-trail status — it does not submit.',
+        title: 'Your Pipeline',
+        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from this view (or from the Inbox detail pane). Applied / Failed / In Progress tabs let you audit past applications. Note: "Approve" is an audit-trail status — it does not submit.',
     },
     {
         hash: '#settings',

@@ -87,7 +87,7 @@ function renderQualitySection(job) {
 function renderJobs(jobs, total) {
     const container = document.getElementById('jobs-list');
     if (jobs.length === 0) {
-        container.innerHTML = '<p class="placeholder">No jobs found. Try fetching new jobs or adjusting filters.</p>';
+        container.innerHTML = '<p class="placeholder">Nothing to scout right now. <a href="#dashboard" style="color:var(--accent)">Fetch new jobs</a> from Activity, or adjust your filters.</p>';
         document.getElementById('jobs-pagination').innerHTML = '';
         clearDetailPane();
         return;
@@ -102,10 +102,8 @@ function renderJobs(jobs, total) {
     if (selectModeActive) container.classList.add('select-mode');
 
     container.innerHTML = jobs.map(job => {
-        const scoreClass = job.fit_score >= 70 ? 'score-high' : job.fit_score >= 40 ? 'score-mid' : job.fit_score > 0 ? 'score-low' : 'score-none';
-        const scoreText = job.fit_score ? Math.round(job.fit_score) : '--';
         const status = job.app_status || job.status;
-        const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
+        const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
         const isSelected = job.id === selectedJobId;
 
         return `
@@ -126,8 +124,13 @@ function renderJobs(jobs, total) {
                         </div>
                     </div>
                     <div class="job-card-right">
-                        <span class="score ${scoreClass}">${scoreText}</span>
+                        ${renderHeatChip(job.fit_score)}
                         <span class="pill pill-${status}">${statusLabel}</span>
+                        ${status === 'discovered' ? `
+                        <div class="scout-actions" onclick="event.stopPropagation()">
+                            <button class="btn btn-green btn-xs" onclick="shortlistJob('${job.id}')" title="Shortlist  (→ or S)">Shortlist</button>
+                            <button class="btn btn-ghost btn-xs" onclick="passJob('${job.id}')" title="Pass  (← or P)">Pass</button>
+                        </div>` : ''}
                         ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${job.id}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
                     </div>
                 </div>
@@ -162,23 +165,24 @@ function selectJob(jobId) {
 
     const pane = document.getElementById('job-detail-pane');
     const tags = safeParseJSON(job.tags, []);
-    const scoreClass = job.fit_score >= 70 ? 'score-high' : job.fit_score >= 40 ? 'score-mid' : job.fit_score > 0 ? 'score-low' : 'score-none';
-    const scoreText = job.fit_score ? Math.round(job.fit_score) : '--';
+    const hasScore = job.fit_score !== null && job.fit_score !== undefined && job.fit_score !== '' && !isNaN(Number(job.fit_score)) && Number(job.fit_score) > 0;
     const status = job.app_status || job.status;
-    const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
+    const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
 
     pane.innerHTML = `
-        <div class="detail-header">
-            <div class="detail-title">${escapeHtml(job.title)}</div>
-            <div class="detail-company">${escapeHtml(job.company || 'Unknown')}${job.location ? ' \u2014 ' + escapeHtml(job.location) : ''}</div>
-            <div class="detail-meta">
-                <span class="score ${scoreClass}" style="font-size:16px">${scoreText}</span>
-                <span class="pill pill-${status}">${statusLabel}</span>
-                <span class="source-badge">${escapeHtml(job.source)}</span>
-                ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
-                ${qualityBadge(job)}
-                <span style="font-size:12px;color:var(--text-muted)">${timeAgo(job.date_discovered)}</span>
+        <div class="detail-header" style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between">
+            <div style="min-width:0;flex:1">
+                <div class="detail-title">${escapeHtml(job.title)}</div>
+                <div class="detail-company">${escapeHtml(job.company || 'Unknown')}${job.location ? ' \u2014 ' + escapeHtml(job.location) : ''}</div>
+                <div class="detail-meta">
+                    <span class="pill pill-${status}">${statusLabel}</span>
+                    <span class="source-badge">${escapeHtml(job.source)}</span>
+                    ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
+                    ${qualityBadge(job)}
+                    <span style="font-size:12px;color:var(--text-muted)">${timeAgo(job.date_discovered)}</span>
+                </div>
             </div>
+            ${hasScore ? renderHeatRing(job.fit_score) : renderHeatChip(null)}
         </div>
 
         ${renderSalarySection(job)}
@@ -396,6 +400,88 @@ async function markApplied(jobId) {
         toast('Failed to mark as applied', 'error');
     }
 }
+
+// ---- Inbox scouting (the desktop translation of the iOS swipe deck) ----
+// Shortlist/Pass write a free-text job status via the existing PATCH endpoint
+// ('shortlisted' surfaces in Pipeline; 'passed' clears it from the Inbox).
+// No backend changes — j.status is a free-text column.
+
+async function shortlistJob(jobId) {
+    try {
+        await api(`/api/jobs/${jobId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'shortlisted' }),
+        });
+        toast('Shortlisted — moved to Pipeline', 'success');
+        _afterScout(jobId);
+    } catch (e) {
+        toast('Failed to shortlist', 'error');
+    }
+}
+
+async function passJob(jobId) {
+    try {
+        await api(`/api/jobs/${jobId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'passed' }),
+        });
+        toast('Passed', 'info');
+        _afterScout(jobId);
+    } catch (e) {
+        toast('Failed to pass', 'error');
+    }
+}
+
+// Optimistically remove the scouted card and advance to the next one, so the
+// Inbox feels like working through a deck. Reloads when the list empties.
+function _afterScout(jobId) {
+    const card = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
+    const next = card ? (card.nextElementSibling || card.previousElementSibling) : null;
+    if (card) card.remove();
+    if (window._currentJobs) delete window._currentJobs[jobId];
+    if (next && next.classList.contains('job-card')) {
+        selectJob(next.dataset.jobId);
+        next.scrollIntoView({ block: 'nearest' });
+    } else if (document.querySelectorAll('#jobs-list .job-card').length === 0) {
+        loadJobs();
+    } else {
+        clearDetailPane();
+    }
+}
+
+function navigateInbox(delta) {
+    const cards = Array.from(document.querySelectorAll('#jobs-list .job-card'));
+    if (!cards.length) return;
+    let idx = cards.findIndex(c => c.dataset.jobId === selectedJobId);
+    if (idx < 0) idx = delta > 0 ? -1 : 0;
+    idx = Math.min(Math.max(idx + delta, 0), cards.length - 1);
+    const card = cards[idx];
+    if (card) { selectJob(card.dataset.jobId); card.scrollIntoView({ block: 'nearest' }); }
+}
+
+function _selectedIsDiscovered() {
+    const job = window._currentJobs && window._currentJobs[selectedJobId];
+    return !!(job && (job.app_status || job.status) === 'discovered');
+}
+
+// Keyboard scouting — only on the Inbox tab and never while typing in a field.
+document.addEventListener('keydown', (e) => {
+    if ((location.hash.replace('#', '') || 'jobs') !== 'jobs') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    switch (e.key) {
+        case 'ArrowDown': case 'j': e.preventDefault(); navigateInbox(1); break;
+        case 'ArrowUp': case 'k': e.preventDefault(); navigateInbox(-1); break;
+        case 'ArrowRight': case 's': case 'S':
+            if (selectedJobId && _selectedIsDiscovered()) { e.preventDefault(); shortlistJob(selectedJobId); }
+            break;
+        case 'ArrowLeft': case 'p': case 'P':
+            if (selectedJobId && _selectedIsDiscovered()) { e.preventDefault(); passJob(selectedJobId); }
+            break;
+    }
+});
 
 // ---- Applicant Assist ----
 
