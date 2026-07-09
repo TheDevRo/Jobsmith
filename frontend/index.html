@@ -1010,6 +1010,18 @@
                                 <input type="text" id="cfg-sync-label" placeholder="e.g. MacBook" onchange="saveSyncConfig()">
                                 <span class="hint">Shown to your other devices so you can tell which one made a change.</span>
                             </div>
+                            <div class="form-group">
+                                <label>Sync every</label>
+                                <select id="cfg-sync-interval" onchange="saveSyncConfig()">
+                                    <option value="10">10 seconds</option>
+                                    <option value="30">30 seconds</option>
+                                    <option value="60">1 minute</option>
+                                    <option value="300">5 minutes</option>
+                                    <option value="900">15 minutes</option>
+                                    <option value="0">Manual only</option>
+                                </select>
+                                <span class="hint">How often this device checks the shared folder for changes and pushes its own. Lower is more responsive; higher is lighter on the folder provider.</span>
+                            </div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
                                 <button class="btn btn-primary btn-sm" id="sync-now-btn" onclick="runSyncNow()">Sync now</button>
                                 <button class="btn btn-secondary btn-sm" onclick="loadSyncSettings()">Refresh status</button>
@@ -1244,7 +1256,7 @@
     <script src="js/dashboard.js?v=35"></script>
     <script src="js/jobs.js?v=38"></script>
     <script src="js/review.js?v=38"></script>
-    <script src="js/settings.js?v=39"></script>
+    <script src="js/settings.js?v=40"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=35"></script>

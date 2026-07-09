@@ -73,9 +73,24 @@ class SyncService:
     def folder(self) -> Optional[str]:
         return self._sync_cfg(self._load_config()).get("folder") or None
 
+    @property
+    def interval_seconds(self) -> int:
+        """Poll cadence for the background loop; 0 disables auto-sync (manual
+        only). Defaults to 60s. Clamped to a sane floor so a bad value can't
+        busy-loop."""
+        raw = self._sync_cfg(self._load_config()).get("interval_seconds", 60)
+        try:
+            secs = int(raw)
+        except (TypeError, ValueError):
+            return 60
+        if secs <= 0:
+            return 0
+        return max(10, secs)
+
     def update_config(self, *, enabled: Optional[bool] = None,
                       folder: Optional[str] = None,
-                      device_label: Optional[str] = None) -> dict:
+                      device_label: Optional[str] = None,
+                      interval_seconds: Optional[int] = None) -> dict:
         cfg = self._load_config()
         section = self._sync_cfg(cfg)
         if enabled is not None:
@@ -84,6 +99,8 @@ class SyncService:
             section["folder"] = folder
         if device_label is not None:
             section["device_label"] = device_label
+        if interval_seconds is not None:
+            section["interval_seconds"] = interval_seconds
         cfg["sync"] = section
         self._save_config(cfg)
         return self.status()
@@ -100,6 +117,7 @@ class SyncService:
             "folder": folder,
             "device_id": section.get("device_id"),
             "device_label": section.get("device_label"),
+            "interval_seconds": self.interval_seconds,
             "known_devices": devices,
             "last_result": self.last_result,
             "last_error": self.last_error,
@@ -161,16 +179,20 @@ class SyncService:
                 self.last_error = str(e)
                 return {"skipped": False, "error": str(e)}
 
-    async def run_periodic(self, interval_seconds: int = 60) -> None:
+    async def run_periodic(self, interval_seconds: Optional[int] = None) -> None:
         """Background loop; reloads config each tick so it's safe to always
-        start (self-gates on `sync.enabled`)."""
+        start (self-gates on `sync.enabled`) and picks up interval changes live.
+        Pass `interval_seconds` to override the configured cadence (tests)."""
         while True:
             try:
                 if self.enabled and self.folder:
                     await self.sync_once()
             except Exception:
                 logger.exception("sync periodic tick failed")
-            await asyncio.sleep(interval_seconds)
+            # Re-read each tick so a Settings change takes effect without a
+            # restart; 0 means "manual only" — idle at a slow heartbeat.
+            configured = self.interval_seconds if interval_seconds is None else interval_seconds
+            await asyncio.sleep(configured if configured > 0 else 60)
 
 
 _default: Optional[SyncService] = None

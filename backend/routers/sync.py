@@ -22,6 +22,7 @@ class SyncConfigUpdate(BaseModel):
     enabled: Optional[bool] = None
     folder: Optional[str] = None
     device_label: Optional[str] = None
+    interval_seconds: Optional[int] = None
 
 
 @router.get("/api/sync/status")
@@ -37,6 +38,7 @@ async def sync_config(update: SyncConfigUpdate):
         enabled=update.enabled,
         folder=update.folder,
         device_label=update.device_label,
+        interval_seconds=update.interval_seconds,
     )
 
 

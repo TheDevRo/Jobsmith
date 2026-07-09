@@ -22,15 +22,19 @@ struct JobsmithStandaloneApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .background:
+                        model.stopAutoSync()
                         BackgroundScheduler.scheduleNext()
                     case .active:
                         // Pick up jobs saved by the share extension while
-                        // the app was backgrounded.
+                        // the app was backgrounded, then resume foreground
+                        // auto-sync (an immediate catch-up cycle + polling).
                         model.refresh()
+                        model.startAutoSync()
                     default:
                         break
                     }
                 }
+                .task { model.startAutoSync() }  // cover the initial launch
         }
     }
 }

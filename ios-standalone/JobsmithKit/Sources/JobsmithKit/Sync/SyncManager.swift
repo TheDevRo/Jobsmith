@@ -78,11 +78,22 @@ public extension SyncManager {
     private var enabledKey: String { "jobsmith.sync.enabled" }
     private var bookmarkKey: String { "jobsmith.sync.folderBookmark" }
 
+    private var intervalKey: String { "jobsmith.sync.intervalSeconds" }
+
     func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: enabledKey)
     }
     func setEnabled(_ on: Bool, _ defaults: UserDefaults = .standard) {
         defaults.set(on, forKey: enabledKey)
+    }
+
+    /// Foreground auto-sync cadence in seconds while the app is open; 0 means
+    /// "manual only". Defaults to 60s to match the desktop poller.
+    func syncIntervalSeconds(_ defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: intervalKey) as? Int ?? 60
+    }
+    func setSyncIntervalSeconds(_ seconds: Int, _ defaults: UserDefaults = .standard) {
+        defaults.set(seconds, forKey: intervalKey)
     }
 
     /// Persist a user-picked folder as a security-scoped bookmark.
