@@ -16,6 +16,9 @@ Grab the [latest release](https://github.com/TheDevRo/Jobsmith/releases/latest):
   sideloaded (Chrome: Load unpacked; Firefox: Load Temporary Add-on).
 - **Windows / Linux / Intel macOS** — use Docker:
   `docker pull ghcr.io/thedevro/jobsmith:latest` (see [Docker](#docker)).
+- **iOS** — a fully standalone native app (no server needed); build it
+  yourself or install via TestFlight. See
+  [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md).
 
 AI features need an OpenAI-compatible server — [LM Studio](https://lmstudio.ai)
 running locally (recommended, fully private), Ollama, or a hosted provider like
@@ -42,7 +45,9 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **Basic / Advanced settings** — Settings opens in Basic mode with just the essentials; flip the toggle to Advanced to expose every knob (auto-apply tuning, prompt editor, scoring tier, context window, logs, and more)
 - **Session persistence** — Per-domain browser session management so you stay logged in across runs
 - **FlareSolverr integration** — Bypasses Cloudflare challenges on protected job boards
-- **Modern dashboard** — Sidebar navigation, split-pane job feed, real-time notifications, batch controls with stop/pause
+- **Modern dashboard** — Sidebar navigation (**Inbox** → **Pipeline** → **Activity**), split-pane job feed, real-time notifications, batch controls with stop/pause
+- **Folder sync (desktop ↔ iOS)** — Optional serverless two-way sync of jobs, applications, and your profile through a shared folder (iCloud Drive, Dropbox, …). No account and no server — each device reads and writes the same folder (last-writer-wins merge); ATS login passwords are never written to the folder. Configure in **Settings → Sync**.
+- **Native iOS app** — A fully standalone SwiftUI app (`ios-standalone/`) runs the whole pipeline on-device (fetch, score, tailor, review, apply) and syncs with the desktop; see [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md)
 
 ## Architecture
 
@@ -324,11 +329,11 @@ for the mounts and env overrides).
 
 ## Daily Workflow
 
-1. **Fetch jobs** — Select sources on the Dashboard, click "Fetch New Jobs". You can also paste a single job URL into the **Add Job by URL** box for one-off ingestion.
-2. **Score** — Click "Score All" to rank jobs by fit. Click any score for a per-criterion breakdown.
+1. **Fetch jobs** — On the **Inbox** tab, select sources and click "Fetch New Jobs". You can also paste a single job URL into the **Add Job by URL** box for one-off ingestion.
+2. **Score** — Click "Score Unscored" to rank jobs by fit. Click any score for a per-criterion breakdown.
 3. **Tailor** — Click "Tailor All Unprocessed" to generate tailored resumes and cover letters.
-4. **Review & edit** — Browse the Job Feed (split-pane view with detail panel), filter by score/source/status. Use **AI Edit** in the application detail to revise resumes or cover letters with natural-language instructions (per-edit honesty + model tier overrides available).
-5. **Apply (recommended: Apply Assist)** — From the job detail pane, click **Apply Assist** to open the posting in your browser with a sidebar holding your tailored resume, cover letter, and pre-filled answers. Standard fields autofill; you fill any custom questions and click Submit. The Review Queue lets you "Approve" tailored apps for your own audit trail — note that Approve **does not** submit anything by itself.
+4. **Review & edit** — Browse the **Inbox** feed (split-pane view with detail panel), filter by score/source/status. Use **AI Edit** in the application detail to revise resumes or cover letters with natural-language instructions (per-edit honesty + model tier overrides available).
+5. **Apply (recommended: Apply Assist)** — From the job detail pane, click **Apply Assist** to open the posting in your browser with a sidebar holding your tailored resume, cover letter, and pre-filled answers. Standard fields autofill; you fill any custom questions and click Submit. The **Pipeline** tab (Shortlisted → Ready to Review → Applied) lets you "Approve" tailored apps for your own audit trail — note that Approve **does not** submit anything by itself.
 
 Batch operations (fetch, score, tailor) have **Stop** buttons so you can cancel mid-run. Real-time **notifications** appear in the bell icon when background tasks complete.
 
@@ -435,6 +440,8 @@ jobsmith/
 │   ├── extension_api.py           # Browser-extension API (token auth, autofill data)
 │   ├── browser_use_agent.py       # Browser-Use autonomous agent wrapper (legacy auto-apply)
 │   ├── session_manager.py         # Per-domain browser session persistence
+│   ├── sync/                      # Serverless folder-sync engine (last-writer-wins merge,
+│   │                              #   entity adapters, content-addressed documents) — desktop↔iOS
 │   ├── auto_apply/                # Legacy auto-apply: field mapping, LLM client, answer bank
 │   ├── routers/                   # One APIRouter per area (jobs, pipeline, settings,
 │   │                              #   prompts, applications, assist, extension, …)
@@ -446,9 +453,15 @@ jobsmith/
 │   ├── js/                        # Plain-JS modules: core, dashboard, jobs, review,
 │   │                              #   settings, prompts, sessions, onboarding, …
 │   └── style.css                  # Dark/light theme styles
-├── src-tauri/                     # Tauri desktop shell (macOS app)
-├── ios/                           # iOS app: SwiftUI shell + Safari Web Extension (see README-IOS.md)
+├── src-tauri/                     # Tauri desktop shell (macOS .app / .dmg — see README-DESKTOP.md)
+├── ios-standalone/                # Fully standalone native iOS app (SwiftUI + GRDB; runs the
+│                                  #   whole pipeline on-device, syncs with desktop) —
+│                                  #   see README-IOS-STANDALONE.md
+├── ios/                           # Thin server-connector iOS app: SwiftUI shell + Safari Web
+│                                  #   Extension, needs a running backend (see README-IOS.md)
 ├── extension/                     # Apply Assist browser extension (Chrome/Firefox/Safari)
+├── packaging/                     # PyInstaller spec + splash page for the desktop build
+├── scripts/                       # build_desktop.sh (DMG) and other build helpers
 ├── tests/                         # pytest suite (.venv/bin/python -m pytest tests/)
 ├── n8n/
 │   └── workflows.json             # Optional n8n automation workflows
@@ -462,5 +475,7 @@ jobsmith/
 ├── config.yaml                    # Your config (gitignored — never committed)
 ├── .env                           # Feature flags and runtime paths (gitignored)
 ├── requirements.txt               # Python dependencies
+├── Dockerfile                     # Container image (Playwright + Chromium base)
+├── docker-compose.yml             # Compose service (ports, volume mounts, env overrides)
 └── setup.sh                       # One-command setup script
 ```
