@@ -416,10 +416,14 @@ async function loadSyncSettings() {
         const en = document.getElementById('cfg-sync-enabled');
         const folder = document.getElementById('cfg-sync-folder');
         const label = document.getElementById('cfg-sync-label');
+        const interval = document.getElementById('cfg-sync-interval');
         if (en) en.checked = !!st.enabled;
         // Don't clobber an unsaved value the user is mid-typing on refresh.
         if (folder && document.activeElement !== folder) folder.value = st.folder || '';
         if (label && document.activeElement !== label) label.value = st.device_label || '';
+        if (interval && document.activeElement !== interval && st.interval_seconds != null) {
+            interval.value = String(st.interval_seconds);
+        }
         renderSyncStatus(st);
     } catch (e) {
         renderSyncStatus(null);
@@ -432,10 +436,12 @@ async function saveSyncConfig() {
     const enabled = document.getElementById('cfg-sync-enabled')?.checked;
     const folder = document.getElementById('cfg-sync-folder')?.value.trim() || null;
     const device_label = document.getElementById('cfg-sync-label')?.value.trim() || null;
+    const rawInterval = document.getElementById('cfg-sync-interval')?.value;
+    const interval_seconds = rawInterval != null ? parseInt(rawInterval, 10) : null;
     try {
         const st = await api('/api/sync/config', {
             method: 'POST',
-            body: JSON.stringify({ enabled, folder, device_label }),
+            body: JSON.stringify({ enabled, folder, device_label, interval_seconds }),
         });
         renderSyncStatus(st);
         toast('Sync settings saved', 'success');

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Observation
 import JobsmithKit
 
@@ -92,6 +93,50 @@ final class AppModel {
         pipeline = (try? jobStore.jobs(triage: "shortlisted")) ?? []
         stats = (try? jobStore.stats()) ?? JobStore.Stats()
         activity = (try? activityStore.recent()) ?? []
+    }
+
+    // MARK: foreground auto-sync
+
+    private var autoSyncTask: Task<Void, Never>?
+
+    /// Run one sync cycle now (if enabled and a folder is set), then refresh the
+    /// UI. Silent on failure: cycles are frequent and a transient folder/iCloud
+    /// hiccup shouldn't raise the blocking error alert.
+    @discardableResult
+    func syncNow() async -> Bool {
+        guard SyncManager.shared.isEnabled(), SyncManager.shared.resolvedFolder() != nil else { return false }
+        do {
+            _ = try await SyncManager.shared.syncNow(
+                db: database, configStore: configStore, deviceLabel: UIDevice.current.name)
+            refresh()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Foreground auto-sync: an immediate catch-up cycle, then one every
+    /// `SyncManager.syncIntervalSeconds` while the app is active. A cadence of 0
+    /// ("manual only") runs the single catch-up cycle and stops. Idempotent —
+    /// cancels any existing loop first.
+    func startAutoSync() {
+        stopAutoSync()
+        guard SyncManager.shared.isEnabled() else { return }
+        autoSyncTask = Task { @MainActor [weak self] in
+            await self?.syncNow()
+            while !Task.isCancelled {
+                let secs = SyncManager.shared.syncIntervalSeconds()
+                guard secs > 0 else { break }
+                try? await Task.sleep(for: .seconds(secs))
+                if Task.isCancelled { break }
+                await self?.syncNow()
+            }
+        }
+    }
+
+    func stopAutoSync() {
+        autoSyncTask?.cancel()
+        autoSyncTask = nil
     }
 
     func saveConfig(_ mutate: @escaping (inout AppConfig) -> Void) {

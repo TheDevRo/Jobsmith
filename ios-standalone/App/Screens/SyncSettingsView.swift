@@ -11,6 +11,7 @@ struct SyncSettingsView: View {
 
     @State private var enabled = SyncManager.shared.isEnabled()
     @State private var folderName = SyncManager.shared.folderName()
+    @State private var interval = SyncManager.shared.syncIntervalSeconds()
     @State private var showPicker = false
     @State private var syncing = false
     @State private var status = ""
@@ -19,7 +20,10 @@ struct SyncSettingsView: View {
         Form {
             Section {
                 Toggle("Enable sync", isOn: $enabled)
-                    .onChange(of: enabled) { _, on in SyncManager.shared.setEnabled(on) }
+                    .onChange(of: enabled) { _, on in
+                        SyncManager.shared.setEnabled(on)
+                        if on { model.startAutoSync() } else { model.stopAutoSync() }
+                    }
             } footer: {
                 Text("Two-way sync with your other devices through a shared folder "
                      + "(iCloud Drive, Dropbox, a synced folder). No account, no server. "
@@ -39,6 +43,25 @@ struct SyncSettingsView: View {
                 Text("Tip: pick the same folder in Files here and on your Mac (e.g. an "
                      + "iCloud Drive subfolder) so both devices read and write it.")
                     .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Sync every", selection: $interval) {
+                    Text("30 seconds").tag(30)
+                    Text("1 minute").tag(60)
+                    Text("5 minutes").tag(300)
+                    Text("15 minutes").tag(900)
+                    Text("Manual only").tag(0)
+                }
+                .onChange(of: interval) { _, secs in
+                    SyncManager.shared.setSyncIntervalSeconds(secs)
+                    model.startAutoSync()   // apply the new cadence immediately
+                }
+            } header: {
+                Text("Automatic sync")
+            } footer: {
+                Text("How often to sync while the app is open. Sync also runs the "
+                     + "moment you open the app. \"Manual only\" syncs just when you tap Sync now.")
             }
 
             Section {
