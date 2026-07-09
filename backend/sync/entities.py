@@ -20,6 +20,16 @@ Identity (must match every other implementation):
 Booleans are carried as JSON true/false; JSON-string columns (tags, reports,
 custom_answers) are carried as parsed objects so the payload is clean and
 language-neutral.
+
+Lifecycle field (status vs. triage):
+  The desktop models the inbox/shortlist/dismiss lifecycle on the single `job.status`
+  column (discovered | shortlisted | passed | <pipeline sub-stage>). iOS splits it
+  across two columns — `triage` (new | shortlisted | dismissed) and `status` (the
+  pipeline sub-stage). The canonical wire uses the desktop's `status` vocabulary, so
+  the desktop maps 1:1 here while iOS folds its (triage, status) pair into `status`
+  on export and unfolds it on import (SyncEntities.foldStatus / unfoldStatus). That
+  is why `triage` is NOT a synced column on this side: a shortlist or a dismiss on
+  either app must reach the other's Pipeline/Inbox through `status` alone.
 """
 from __future__ import annotations
 

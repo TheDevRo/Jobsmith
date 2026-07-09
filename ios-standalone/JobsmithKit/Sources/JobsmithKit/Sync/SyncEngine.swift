@@ -20,6 +20,11 @@ public final class SyncEngine {
 
     enum Kind { case text, int, double, bool, json }
 
+    /// Bumped when the canonical wire format changes in a way that makes this
+    /// device's previously-emitted records wrong (v2: fold triage into status).
+    /// A device whose stored `sync_format` is older force-re-exports once.
+    static let syncFormatVersion = 2
+
     let db: AppDatabase
     let deviceId: String
     let loadProfile: () -> [String: JSONValue]?
@@ -151,6 +156,19 @@ public final class SyncEngine {
             """, arguments: [entity, id, ts, deleted ? 1 : 0, dataJSON])
     }
 
+    /// Flag a one-time re-export when the wire format version has advanced and
+    /// this device already holds old-format snapshot rows (a fresh device has
+    /// nothing to migrate, so it must not re-broadcast what it just imported).
+    /// Runs at the head of both import and export so whichever fires first — and
+    /// reads the pre-rebuild snapshot — decides; export consumes the flag.
+    private func markMigrationIfNeeded(_ dbc: Database) throws {
+        let stored = (try meta(dbc, "sync_format")).flatMap { Int($0) } ?? 0
+        guard stored < Self.syncFormatVersion else { return }
+        let count = try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM sync_snapshot") ?? 0
+        if count > 0 { try setMeta(dbc, "pending_migration", "1") }
+        try setMeta(dbc, "sync_format", String(Self.syncFormatVersion))
+    }
+
     private func meta(_ dbc: Database, _ key: String) throws -> String? {
         try Row.fetchOne(dbc, sql: "SELECT value FROM sync_meta WHERE key = ?", arguments: [key])?["value"]
     }
@@ -226,7 +244,18 @@ public final class SyncEngine {
 
         try db.writer.write { dbc in
             try ensureTables(dbc)
+            try markMigrationIfNeeded(dbc)
             let ts = try nextTS(dbc)
+
+            // One-time format migration: records this device emitted under the
+            // old format carry the wrong canonical `status` (a shortlisted job
+            // as 'discovered', see SyncEntities). When flagged, re-emit every
+            // current row once, ignoring the snapshot diff, so fresh correctly-
+            // folded records supersede the stale ones for every other device.
+            // This also defeats the case where a prior import rebuilt the
+            // snapshot to match the DB and would otherwise suppress the fix.
+            let force = (try meta(dbc, "pending_migration")) == "1"
+            if force { try setMeta(dbc, "pending_migration", "0") }
 
             func diff(entity: String, current: [String: [String: JSONValue]]) throws {
                 let snap = try loadSnapshot(dbc, entity)
@@ -234,7 +263,7 @@ public final class SyncEngine {
                     let merged = prevData(snap[id]).merging(data) { _, new in new }
                     let cj = canon(merged)
                     let prev = snap[id]
-                    if prev == nil || prev!.deleted || prev!.dataJSON != cj {
+                    if force || prev == nil || prev!.deleted || prev!.dataJSON != cj {
                         records.append(ChangeRecord(entity: entity, id: id, updatedAt: ts,
                                                     device: deviceId, deleted: false, data: merged))
                         try putSnapshot(dbc, entity, id, ts, false, cj)
@@ -256,7 +285,7 @@ public final class SyncEngine {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
                 let cj = canon(canonProfile)
                 let snap = try loadSnapshot(dbc, "profile")["me"]
-                if snap == nil || snap!.deleted || snap!.dataJSON != cj {
+                if force || snap == nil || snap!.deleted || snap!.dataJSON != cj {
                     records.append(ChangeRecord(entity: "profile", id: "me", updatedAt: ts,
                                                 device: deviceId, deleted: false, data: canonProfile))
                     try putSnapshot(dbc, "profile", "me", ts, false, cj)
@@ -291,6 +320,7 @@ public final class SyncEngine {
 
         try db.writer.write { dbc in
             try ensureTables(dbc)
+            try markMigrationIfNeeded(dbc)
             var deferred = Set<String>()
 
             // Live: jobs before applications (FK).

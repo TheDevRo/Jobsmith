@@ -61,13 +61,16 @@ async def test_swift_emitted_log_imports_into_desktop(tool, tmp_path, monkeypatc
     imp = await engine.import_changes(folder)
     assert imp.upserts == 2 and imp.profile_updated  # job + application, profile
 
-    # `triage` is an iOS-only field: desktop has no such column, so it's
-    # preserved as an unknown key rather than stored — hence not queried here.
+    # Lifecycle fold: the iOS row is triage='shortlisted' + status='discovered'.
+    # The Swift mapper folds that pair into the canonical status the desktop
+    # speaks, so a shortlist on iOS lands the job in the desktop's Pipeline
+    # (status='shortlisted') rather than being lost as an unknown `triage` key.
     job = sqlite3.connect(db).execute(
-        "SELECT title, fit_score, is_remote FROM jobs WHERE source='greenhouse' AND external_id='777'"
+        "SELECT title, fit_score, is_remote, status FROM jobs WHERE source='greenhouse' AND external_id='777'"
     ).fetchone()
     assert job is not None
     assert job[0] == "iOS Engineer" and job[1] == 91.0 and job[2] == 1
+    assert job[3] == "shortlisted"  # triage='shortlisted' folded into status
 
     app = sqlite3.connect(db).execute(
         "SELECT status, honesty_level FROM applications WHERE id='app-ios-1'"
