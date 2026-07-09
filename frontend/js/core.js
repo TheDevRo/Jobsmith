@@ -64,11 +64,11 @@ document.addEventListener('click', (ev) => {
 let _notificationItems = [];
 const MAX_NOTIFICATION_ITEMS = 30;
 
-// Page titles for topbar
+// Page titles for topbar (iOS-aligned IA: Inbox / Pipeline / Activity)
 const PAGE_TITLES = {
-    dashboard: 'Dashboard',
-    jobs: 'Job Feed',
-    review: 'Review Queue',
+    dashboard: 'Activity',
+    jobs: 'Inbox',
+    review: 'Pipeline',
     settings: 'Settings',
     'fit-breakdown': 'Fit Score Breakdown',
 };
@@ -103,7 +103,7 @@ function setupTabs() {
 }
 
 function handleHash() {
-    const hash = location.hash.replace('#', '') || 'dashboard';
+    const hash = location.hash.replace('#', '') || 'jobs';
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('nav .tab').forEach(el => el.classList.remove('active'));
 
@@ -130,7 +130,7 @@ function handleHash() {
     switch (hash) {
         case 'dashboard': loadDashboard(); loadSources(); statsInterval = setInterval(loadDashboard, 30000); break;
         case 'jobs': loadJobs(); break;
-        case 'review': switchReviewView('pending'); break;
+        case 'review': switchReviewView('shortlisted'); break;
         case 'settings': loadSettings(); break;
         case 'fit-breakdown':
             loadFitBreakdown();
@@ -386,12 +386,12 @@ async function pollNotifications() {
 
             // Auto-refresh relevant views
             if (n.type === 'fetch') {
-                const hash = location.hash.replace('#', '') || 'dashboard';
+                const hash = location.hash.replace('#', '') || 'jobs';
                 if (hash === 'dashboard') loadDashboard();
                 if (hash === 'jobs') loadJobs();
             }
             if (n.type === 'tailor') {
-                const hash = location.hash.replace('#', '') || 'dashboard';
+                const hash = location.hash.replace('#', '') || 'jobs';
                 if (hash === 'dashboard') loadDashboard();
                 if (hash === 'jobs') loadJobs();
                 if (hash === 'review') {
@@ -399,7 +399,7 @@ async function pollNotifications() {
                 }
             }
             if (n.type === 'apply') {
-                const hash = location.hash.replace('#', '') || 'dashboard';
+                const hash = location.hash.replace('#', '') || 'jobs';
                 if (hash === 'dashboard') loadDashboard();
                 if (hash === 'review') {
                     if (currentReviewView === 'submitted') loadSubmittedApplications();
@@ -410,7 +410,7 @@ async function pollNotifications() {
         }
         // Refresh In Progress tab on every 2nd poll tick (~6s) or immediately on apply events
         _inProgressPollTick++;
-        const _hash = location.hash.replace('#', '') || 'dashboard';
+        const _hash = location.hash.replace('#', '') || 'jobs';
         if (_hash === 'review' && currentReviewView === 'in-progress' && _inProgressPollTick % 2 === 0) {
             loadInProgress();
         }

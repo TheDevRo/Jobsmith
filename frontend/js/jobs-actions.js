@@ -507,7 +507,7 @@ function renderFitBreakdown(data) {
     // Status bars (clickable)
     const statusBarsEl = document.getElementById('fit-status-bars');
     const statusLabels = {
-        discovered: 'New', tailoring: 'Tailoring', review: 'In Review',
+        discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', tailoring: 'Tailoring', review: 'In Review',
         approved: 'Approved', applied: 'Applied', manual: 'Manual', rejected: 'Rejected',
     };
     const statusColors = {

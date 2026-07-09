@@ -7,18 +7,77 @@ let currentReviewView = 'pending';
 
 function switchReviewView(view) {
     currentReviewView = view;
+    document.getElementById('review-tab-shortlisted').classList.toggle('active', view === 'shortlisted');
     document.getElementById('review-tab-pending').classList.toggle('active', view === 'pending');
     document.getElementById('review-tab-submitted').classList.toggle('active', view === 'submitted');
     document.getElementById('review-tab-failed').classList.toggle('active', view === 'failed');
     document.getElementById('review-tab-in-progress').classList.toggle('active', view === 'in-progress');
+    document.getElementById('review-shortlisted-view').style.display = view === 'shortlisted' ? '' : 'none';
     document.getElementById('review-pending-view').style.display = view === 'pending' ? '' : 'none';
     document.getElementById('review-submitted-view').style.display = view === 'submitted' ? '' : 'none';
     document.getElementById('review-failed-view').style.display = view === 'failed' ? '' : 'none';
     document.getElementById('review-in-progress-view').style.display = view === 'in-progress' ? '' : 'none';
-    if (view === 'pending') loadReviewQueue();
+    if (view === 'shortlisted') loadShortlisted();
+    else if (view === 'pending') loadReviewQueue();
     else if (view === 'submitted') loadSubmittedApplications();
     else if (view === 'in-progress') loadInProgress();
     else loadFailedApplications();
+}
+
+// Pipeline → Shortlisted stage: jobs the user kept while scouting the Inbox
+// (job.status === 'shortlisted'), before an application exists. Reuses the
+// job list endpoint; no application row yet, so these render as job cards.
+async function loadShortlisted() {
+    try {
+        const data = await api('/api/jobs?status=shortlisted&limit=50&sort_by=fit_score&sort_dir=desc');
+        renderShortlisted(data);
+    } catch (e) {
+        document.getElementById('shortlisted-list').innerHTML = '<p class="placeholder">Failed to load shortlisted jobs</p>';
+    }
+}
+
+function renderShortlisted(data) {
+    const jobs = (data && data.jobs) || [];
+    const el = document.getElementById('shortlisted-list');
+    if (!jobs.length) {
+        el.innerHTML = '<p class="placeholder">No shortlisted jobs yet. Scout your Inbox and shortlist the ones worth pursuing.</p>';
+        return;
+    }
+    el.innerHTML = jobs.map(job => `
+        <div class="job-card" style="cursor:default">
+            <div class="job-card-header">
+                <div class="job-card-info">
+                    <div class="job-card-title">${escapeHtml(job.title)}</div>
+                    <div class="job-card-company">${escapeHtml(job.company || 'Unknown')}</div>
+                    <div class="job-card-meta">
+                        <span>${escapeHtml(job.location || '')}</span>
+                        <span class="source-badge">${escapeHtml(job.source)}</span>
+                    </div>
+                </div>
+                <div class="job-card-right">
+                    ${renderHeatChip(job.fit_score)}
+                    <div class="scout-actions">
+                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${job.id}')">Tailor</button>
+                        <button class="btn btn-secondary btn-xs" onclick="scoreJob('${job.id}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
+                        <button class="btn btn-ghost btn-xs" onclick="passShortlisted('${job.id}')">Pass</button>
+                    </div>
+                </div>
+            </div>
+        </div>`).join('');
+}
+
+async function passShortlisted(jobId) {
+    try {
+        await api(`/api/jobs/${jobId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'passed' }),
+        });
+        toast('Passed', 'info');
+        loadShortlisted();
+    } catch (e) {
+        toast('Failed to update', 'error');
+    }
 }
 
 async function loadReviewQueue() {
@@ -302,7 +361,6 @@ function renderFailedApplications(apps) {
             rate_limited:      { label: 'Rate Limited',          cls: 'pill-rate_limited' },
         };
         const { label: statusLabel, cls: statusClass } = _statusInfo[app.status] || { label: 'Failed', cls: 'pill-rejected' };
-        const scoreClass = app.fit_score >= 70 ? 'score-high' : app.fit_score >= 40 ? 'score-mid' : 'score-low';
         const isReset = app.error_message && app.error_message.startsWith('Reset:');
         const displayMessage = app.status === 'rate_limited'
             ? (app.error_message || 'Rate limited — retry later')
@@ -322,7 +380,7 @@ function renderFailedApplications(apps) {
                         <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${timeAgo(app.created_at)}</div>
                     </div>
                     <div class="job-card-right">
-                        <span class="score ${scoreClass}">${app.fit_score ? Math.round(app.fit_score) : '--'}</span>
+                        ${renderHeatChip(app.fit_score)}
                         <span class="pill ${statusClass}">${statusLabel}</span>
                         ${attemptBadge}
                     </div>
@@ -404,7 +462,6 @@ function renderSubmittedApplications(apps) {
         const statusLabel = {applied: 'Applied', manual: 'Manual Apply', approved: 'Approved', failed: 'Failed', applying: 'Applying...', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[app.status] || app.status;
         const isApplying = app.status === 'applying';
         const appliedDate = app.applied_at ? timeAgo(app.applied_at) : timeAgo(app.created_at);
-        const scoreClass = app.fit_score >= 70 ? 'score-high' : app.fit_score >= 40 ? 'score-mid' : 'score-low';
 
         return `
             <div class="review-card" id="submitted-${app.id}">
@@ -415,7 +472,7 @@ function renderSubmittedApplications(apps) {
                         <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${appliedDate}</div>
                     </div>
                     <div class="job-card-right">
-                        <span class="score ${scoreClass}">${app.fit_score ? Math.round(app.fit_score) : '--'}</span>
+                        ${renderHeatChip(app.fit_score)}
                         <span class="pill ${statusClass}">${statusLabel}</span>
                     </div>
                 </div>
@@ -528,7 +585,6 @@ function renderReviewQueue(apps) {
     }
 
     container.innerHTML = apps.map(app => {
-        const scoreClass = app.fit_score >= 70 ? 'score-high' : app.fit_score >= 40 ? 'score-mid' : 'score-low';
         const isPaused = app.status === 'paused';
         return `
             <div class="review-card" id="review-${app.id}">
@@ -538,7 +594,7 @@ function renderReviewQueue(apps) {
                         <div class="review-card-company">${escapeHtml(app.company || '')} &mdash; ${escapeHtml(app.location || '')}</div>
                     </div>
                     <div class="job-card-right">
-                        <span class="score ${scoreClass}">${app.fit_score ? Math.round(app.fit_score) : '--'}</span>
+                        ${renderHeatChip(app.fit_score)}
                         ${isPaused ? '<span class="pill pill-paused">Paused</span>' : `<span class="source-badge">${escapeHtml(app.source)}</span>`}
                     </div>
                 </div>

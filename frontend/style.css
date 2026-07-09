@@ -821,6 +821,11 @@ main {
 }
 
 .pill-discovered { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
+.pill-shortlisted { background: rgba(240, 134, 58, 0.2); color: var(--accent-ember); }
+.pill-passed { background: rgba(107, 114, 128, 0.16); color: var(--text-muted); }
+
+/* Inbox scout action buttons (Shortlist / Pass) */
+.scout-actions { display: inline-flex; gap: 6px; }
 .pill-tailoring { background: rgba(74, 144, 217, 0.2); color: var(--accent); animation: pill-pulse 1.5s ease-in-out infinite; }
 .pill-review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
 .pill-pending_review { background: rgba(245, 166, 35, 0.2); color: var(--accent-yellow); }
@@ -1199,6 +1204,28 @@ main {
     color: var(--text-muted);
     background: transparent;
     border: 1px solid var(--border-light);
+}
+
+/* Apply the eyebrow "section voice" to existing label/heading elements
+   without touching markup — this is the iOS Eyebrow treatment. */
+.stat-label {
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-stretch: expanded;
+    font-weight: 600;
+}
+.detail-section h4 {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-stretch: expanded;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.action-card-header h3,
+.section-card > h2,
+.settings-section h2 {
+    letter-spacing: 0.03em;
+    font-stretch: expanded;
 }
 
 /* Heat ring: detail-pane fit dial (score + "FIT"). --heat set inline. */
