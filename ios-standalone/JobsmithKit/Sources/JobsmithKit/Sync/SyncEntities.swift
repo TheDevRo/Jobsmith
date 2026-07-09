@@ -10,14 +10,23 @@ import Foundation
 /// these dictionaries and defers all field naming to here.
 ///
 /// Cross-schema rule: map only the keys this side models; carry everything else
-/// verbatim (the write-back invariant). iOS-only keys (triage, salary_estimate,
+/// verbatim (the write-back invariant). iOS-only keys (salary_estimate,
 /// style_preset) travel in canonical snake_case so desktop preserves them.
+///
+/// Lifecycle folding: iOS models the inbox/shortlist/dismiss lifecycle on two
+/// columns (`triage` + `status`), the desktop on the single `status` column.
+/// The canonical wire uses the desktop's `status` vocabulary, so iOS folds its
+/// (triage, status) pair into canonical `status` on the way out and unfolds it
+/// on the way in (see foldStatus / unfoldStatus). `triage` is therefore never
+/// carried raw — it is derived from `status` — so a shortlist or a dismiss on
+/// one app reaches the pipeline (or clears the inbox) on the other.
 public enum SyncEntities {
 
     // MARK: job
 
     /// canonical(snake) -> iOS(camel). Excludes volatile local columns
-    /// (lastSeen/timesSeen), matching the Python job column exclusions.
+    /// (lastSeen/timesSeen), matching the Python job column exclusions. `triage`
+    /// is intentionally absent: it is folded into `status`, not mapped 1:1.
     public static let jobCanonToIOS: [String: String] = [
         "source": "source", "external_id": "externalId", "title": "title",
         "company": "company", "location": "location", "url": "url",
@@ -30,8 +39,34 @@ public enum SyncEntities {
         "tags": "tags", "match_report": "matchReport",
         "embellishment_log": "embellishmentLog",
         // iOS-only, but synced so it round-trips iOS<->iOS and survives desktop:
-        "triage": "triage", "salary_estimate": "salaryEstimate",
+        "salary_estimate": "salaryEstimate",
     ]
+
+    // MARK: lifecycle fold (iOS triage+status  <->  desktop status)
+
+    /// Fold the iOS (triage, status) pair into the single canonical `status`.
+    /// Desktop's vocabulary is canonical: new->discovered, shortlisted->
+    /// shortlisted, dismissed->passed. Once shortlisted, iOS carries the
+    /// pipeline sub-stage (tailoring/review/applied/manual) on `status`, which
+    /// passes through unchanged.
+    static func foldStatus(triage: String, status: String) -> String {
+        switch triage {
+        case "dismissed":   return "passed"
+        case "new":         return "discovered"
+        case "shortlisted": return status == "discovered" ? "shortlisted" : status
+        default:            return status  // unknown triage: pass status through
+        }
+    }
+
+    /// Inverse of foldStatus: canonical `status` -> iOS (triage, status).
+    static func unfoldStatus(_ canon: String) -> (triage: String, status: String) {
+        switch canon {
+        case "passed":      return ("dismissed", "discovered")
+        case "discovered":  return ("new", "discovered")
+        case "shortlisted": return ("shortlisted", "discovered")
+        default:            return ("shortlisted", canon)  // tailoring/review/applied/...
+        }
+    }
 
     // MARK: application
 
@@ -99,7 +134,20 @@ public enum SyncEntities {
     // MARK: job / application dict mapping
 
     public static func jobCanonicalToIOS(_ canon: [String: JSONValue]) -> [String: JSONValue] {
-        remap(canon, jobCanonToIOS)
+        var out = remap(canon, jobCanonToIOS)
+        // Unfold the canonical status into the iOS (triage, status) pair.
+        let (triage, status) = unfoldStatus(canon["status"]?.stringValue ?? "discovered")
+        out["status"] = .string(status)
+        // Back-compat: an old-format record (pre-fold) carries `status`
+        // ('discovered') AND a raw `triage` ('shortlisted'). Honor that explicit
+        // triage so importing such a record can't reset a shortlisted job to the
+        // inbox; new-format records omit `triage`, so we derive it from status.
+        if let rawTriage = canon["triage"]?.stringValue {
+            out["triage"] = .string(rawTriage)
+        } else {
+            out["triage"] = .string(triage)
+        }
+        return out
     }
 
     /// iOS row -> canonical, overlaid on `base` so keys iOS doesn't model
@@ -107,6 +155,12 @@ public enum SyncEntities {
     public static func jobIOSToCanonical(_ ios: [String: JSONValue], base: [String: JSONValue] = [:]) -> [String: JSONValue] {
         var out = base
         for (from, to) in invert(jobCanonToIOS) where ios[from] != nil { out[to] = ios[from] }
+        // Fold the iOS (triage, status) lifecycle pair into the canonical
+        // `status`; never carry `triage` raw (it is derived, not round-tripped).
+        let triage = ios["triage"]?.stringValue ?? "new"
+        let status = ios["status"]?.stringValue ?? "discovered"
+        out["status"] = .string(foldStatus(triage: triage, status: status))
+        out.removeValue(forKey: "triage")
         return out
     }
 
