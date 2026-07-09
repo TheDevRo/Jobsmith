@@ -51,8 +51,8 @@
     sp(rail, "width", "14px");
     sp(rail, "flex", "0 0 14px");
     sp(rail, "cursor", "ew-resize");
-    sp(rail, "background", "#181828");
-    sp(rail, "border-right", "1px solid #2a2a3e");
+    sp(rail, "background", "#151517");
+    sp(rail, "border-right", "1px solid #2a292e");
     sp(rail, "display", "flex");
     sp(rail, "flex-direction", "column");
     sp(rail, "align-items", "center");
@@ -64,12 +64,12 @@
       b.textContent = text;
       b.title = title;
       sp(b, "cursor", "pointer");
-      sp(b, "color", "#8b8fa8");
+      sp(b, "color", "#99979e");
       sp(b, "font", "12px/1 -apple-system, sans-serif");
       sp(b, "user-select", "none");
       sp(b, "padding", "2px 0");
-      b.addEventListener("mouseenter", () => sp(b, "color", "#e4e6f1"));
-      b.addEventListener("mouseleave", () => sp(b, "color", "#8b8fa8"));
+      b.addEventListener("mouseenter", () => sp(b, "color", "#eae9ec"));
+      b.addEventListener("mouseleave", () => sp(b, "color", "#99979e"));
       return b;
     }
     const collapseBtn = railBtn("▶", "Collapse panel");
@@ -86,7 +86,7 @@
     sp(iframe, "border", "none");
     sp(iframe, "margin", "0");
     sp(iframe, "padding", "0");
-    sp(iframe, "background", "#0f0f1a");
+    sp(iframe, "background", "#0c0c0e");
 
     host.appendChild(rail);
     host.appendChild(iframe);
