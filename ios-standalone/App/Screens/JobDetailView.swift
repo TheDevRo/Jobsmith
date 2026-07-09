@@ -89,7 +89,7 @@ struct JobDetailView: View {
                 }
                 .disabled(busy)
                 actionButton("Apply", system: "paperplane.fill", prominent: true) {
-                    model.applyInSafari(job)
+                    model.applyInApp(job)
                 }
                 .disabled(job.url.isEmpty)
             }

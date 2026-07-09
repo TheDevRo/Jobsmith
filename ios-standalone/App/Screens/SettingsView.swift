@@ -42,12 +42,27 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    formatPicker
                     honestyPicker
                     stylePicker
+                    experienceLimit
                 } header: {
                     Eyebrow(text: "Documents")
                 } footer: {
-                    Text("Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
+                    Text("Résumés and cover letters are generated in your chosen format. Limiting work history keeps only the roles most relevant to each job (pinned roles are always included). Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
+                }
+
+                Section {
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        row("Sync", system: "arrow.triangle.2.circlepath",
+                            detail: SyncManager.shared.isEnabled() ? "On" : "Off")
+                    }
+                } header: {
+                    Eyebrow(text: "Sync")
+                } footer: {
+                    Text("Sync jobs, applications, and your profile across devices through a shared folder. Serverless — no account.")
                 }
 
                 Section {
@@ -90,6 +105,40 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Erases all postings, documents, saved answers, and your profile and settings — resetting the app to a clean install. This can't be undone.")
+            }
+        }
+    }
+
+    private var formatPicker: some View {
+        Picker(selection: Binding(
+            get: { model.config.honesty.documentFormat },
+            set: { format in model.saveConfig { $0.honesty.documentFormat = format } }
+        )) {
+            ForEach(FileVault.Format.allCases, id: \.self) { format in
+                Text(format.label).tag(format)
+            }
+        } label: {
+            row("File format", system: "doc", detail: nil)
+        }
+    }
+
+    /// Cap the number of work-history entries the AI includes (null = all,
+    /// 1–20 otherwise), mirroring the desktop `max_resume_experience_entries`.
+    @ViewBuilder
+    private var experienceLimit: some View {
+        let limit = model.config.honesty.maxResumeExperienceEntries
+        Toggle(isOn: Binding(
+            get: { limit != nil },
+            set: { on in model.saveConfig { $0.honesty.maxResumeExperienceEntries = on ? (limit ?? 5) : nil } }
+        )) {
+            Label("Limit work history", systemImage: "briefcase")
+        }
+        if let current = limit {
+            Stepper(value: Binding(
+                get: { current },
+                set: { value in model.saveConfig { $0.honesty.maxResumeExperienceEntries = value } }
+            ), in: 1...20) {
+                row("Most relevant roles", system: "list.number", detail: "\(current)")
             }
         }
     }
@@ -215,21 +264,22 @@ struct SearchSettingsView: View {
                     Text("Free at developer.usajobs.gov.")
                 }
             }
+            CompanyFollowControls()
             Section {
                 TextField("stripe, airbnb", text: $greenhouseBoards, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Eyebrow(text: "Greenhouse board slugs")
+                Eyebrow(text: "Greenhouse slugs (manual)")
             } footer: {
-                Text("Company slugs from boards.greenhouse.io/<slug>.")
+                Text("Advanced: enter Greenhouse slugs directly. Most people should use the company finder above instead.")
             }
             Section {
                 TextField("openai", text: $leverCompanies, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Eyebrow(text: "Lever company slugs")
+                Eyebrow(text: "Lever slugs (manual)")
             }
             Section {
                 SecureField("BLS registration key", text: $blsKey)

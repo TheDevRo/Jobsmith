@@ -1,0 +1,58 @@
+{
+  "full_name": "Jane Doe",
+  "middle_name": "Q",
+  "email": "jane.doe@example.com",
+  "phone": "555-555-5555",
+  "location": "Denver, CO",
+  "street_address": "123 Main St",
+  "street_address_2": "Apt 4",
+  "city": "Denver",
+  "state": "CO",
+  "zip_code": "80202",
+  "desired_salary": "90000",
+  "linkedin": "https://linkedin.com/in/janedoe",
+  "github": "",
+  "portfolio": "https://example.com",
+  "summary": "Backend engineer with 8 years of experience.",
+  "skills": ["Python", "Swift", "Distributed systems"],
+  "experience": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "title": "Senior Engineer",
+      "company": "Acme",
+      "start_date": "2023-01-01",
+      "end_date": "Present",
+      "bullets": ["Led the payments rewrite", "Cut p99 latency 40%"],
+      "pinned": true
+    }
+  ],
+  "education": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "degree": "B.S. Computer Science",
+      "school": "State University",
+      "year": "2016"
+    }
+  ],
+  "certifications": ["AWS Solutions Architect"],
+  "references": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "John Manager",
+      "position": "Eng Director",
+      "email": "john@example.com",
+      "phone": "555-000-1111"
+    }
+  ],
+  "gender": "Female",
+  "race_ethnicity": "Prefer not to say",
+  "veteran_status": "Not a veteran",
+  "disability_status": "No",
+  "work_authorization": "Yes",
+  "sponsorship_required": "No",
+  "notice_period": "2 weeks",
+  "available_start": "Immediately",
+  "workday_email": "jane.doe@example.com",
+  "workday_password": "hunter2-should-never-sync",
+  "ats_login_password": "s3cret-should-never-sync"
+}

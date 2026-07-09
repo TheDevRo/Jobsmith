@@ -42,7 +42,6 @@ targets:
       - path: App
     dependencies:
       - package: JobsmithKit
-      - target: JobsmithApplyAssist
       - target: JobsmithShare
     entitlements:
       path: App/Jobsmith.entitlements
@@ -86,60 +85,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ENABLE_USER_SCRIPT_SANDBOXING: NO
-
-  JobsmithApplyAssist:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: SafariExt/SafariWebExtensionHandler.swift
-      # safari-web-extension-converter layout: top-level files at the appex
-      # root, subdirectories as folder references.
-      - path: SafariExt/Resources/manifest.json
-        buildPhase: resources
-      - path: SafariExt/Resources/background.js
-        buildPhase: resources
-      - path: SafariExt/Resources/assist_handshake.js
-        buildPhase: resources
-      - path: SafariExt/Resources/popup.html
-        buildPhase: resources
-      - path: SafariExt/Resources/popup.js
-        buildPhase: resources
-      - path: SafariExt/Resources/sidepanel.html
-        buildPhase: resources
-      - path: SafariExt/Resources/sidepanel.js
-        buildPhase: resources
-      - path: SafariExt/Resources/icons
-        type: folder
-        buildPhase: resources
-      - path: SafariExt/Resources/common
-        type: folder
-        buildPhase: resources
-    dependencies:
-      - package: JobsmithKit
-    preBuildScripts:
-      - name: Sync web extension resources
-        script: |
-          "$SRCROOT/scripts/sync-extension-resources.sh"
-        basedOnDependencyAnalysis: false
-    entitlements:
-      path: SafariExt/JobsmithApplyAssist.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.com.thedevro.jobsmith.standalone
-    info:
-      path: SafariExt/Info.plist
-      properties:
-        CFBundleDisplayName: Jobsmith Assist
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.Safari.web-extension
-          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SafariWebExtensionHandler
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone.Assist
-        TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
   JobsmithShare:

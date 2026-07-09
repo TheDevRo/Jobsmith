@@ -107,6 +107,44 @@ final class DocumentTests: XCTestCase {
         XCTAssertEqual(xml.components(separatedBy: "Sincerely,").count - 1, 1)
         XCTAssertTrue(xml.contains("Jane Doe"))
     }
+
+    #if canImport(UIKit)
+    /// The PDF renderer consumes the same layout model as the .docx writer, so
+    /// the resume text round-trips back out through PDFKit extraction.
+    func testResumePDFIsValidAndRoundTripsText() throws {
+        let doc = ResumeDocxGenerator.build(content: sampleContent(),
+                                            profile: sampleProfile(), style: .standard)
+        let data = DocxPDFRenderer.render(doc)
+
+        // Real PDF (magic header) and non-trivial.
+        XCTAssertTrue(data.starts(with: Array("%PDF".utf8)))
+        XCTAssertGreaterThan(data.count, 1000)
+
+        let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: data)
+        XCTAssertTrue(text.contains("Senior Engineer"))
+        XCTAssertTrue(text.contains("Built things"))
+        // Markdown bold stripped, same as the .docx path.
+        XCTAssertTrue(text.contains("8 years"))
+        XCTAssertFalse(text.contains("**"))
+    }
+
+    func testCoverLetterPDFIsValid() throws {
+        let doc = CoverLetterDocxGenerator.build(
+            content: "Dear Hiring Team,\n\nI would be a great fit.",
+            profile: sampleProfile(), jobTitle: "Engineer", company: "Acme",
+            date: Date(timeIntervalSince1970: 1_750_000_000))
+        let data = DocxPDFRenderer.render(doc)
+        XCTAssertTrue(data.starts(with: Array("%PDF".utf8)))
+        let text = try ResumeTextExtractor.extract(filename: "cover.pdf", data: data)
+        XCTAssertTrue(text.contains("Re: Engineer at Acme"))
+    }
+    #endif
+
+    func testDocumentFormatDefaultsToPDF() {
+        XCTAssertEqual(HonestyConfig().documentFormat, .pdf)
+        XCTAssertEqual(FileVault.Format.pdf.label, "PDF")
+        XCTAssertEqual(FileVault.Format.docx.label, "Word (.docx)")
+    }
 }
 
 final class ResumeTextExtractorTests: XCTestCase {

@@ -203,3 +203,17 @@ application_honesty:
 #   score_job_fit: |
 #     Your custom scoring prompt here...
 #     JOB: {job_title} at {job_company}
+
+# ---------------------------------------------------------------------------
+# Serverless folder sync (optional) — two-way sync with the iOS app and other
+# desktops through a user-owned shared folder (iCloud Drive, Dropbox, a Docker
+# bind mount). No account, no server: the OS file provider moves the bytes and
+# the app merges per-record with last-writer-wins. Managed from Settings → Sync.
+#   folder:       absolute path to the shared sync folder
+#   device_id:    generated once on first sync; never edit by hand
+#   device_label: display-only name shown in the folder manifest
+# ATS-login credentials are NEVER written into the sync folder.
+# sync:
+#   enabled: false
+#   folder: ""
+#   device_label: ""

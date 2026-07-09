@@ -1,0 +1,40 @@
+{
+  "_comment": "Result of folding changes/*.jsonl under per-record LWW. 'live' = winning non-deleted records keyed by entity/id. 'tombstones' = ids whose winning version is a delete. A conforming merge engine must reproduce this exactly.",
+  "live": {
+    "job": {
+      "greenhouse:100": {
+        "title": "Backend Engineer",
+        "company": "Acme",
+        "status": "applied",
+        "_won_from": "C3D4 @ 2026-07-08T12:00:00.000Z (newer than A1B2 @ 10:00 — cross-device override)"
+      },
+      "lever:200": {
+        "title": "Platform Engineer",
+        "company": "Globex",
+        "status": "new",
+        "_won_from": "A1B2 @ 2026-07-08T11:00:00.000Z (only version)"
+      }
+    },
+    "answer": {
+      "uuid-ans-1": {
+        "question": "Why do you want to work here?",
+        "answer": "Mission alignment.",
+        "_won_from": "C3D4 @ 2026-07-08T09:00:00.000Z (only version)"
+      }
+    },
+    "profile": {
+      "me": {
+        "name": "Deven",
+        "headline": "from device B",
+        "_won_from": "C3D4 (identical 08:00 timestamp; device 'C3D4' > 'A1B2' breaks the tie)"
+      }
+    }
+  },
+  "tombstones": {
+    "application": {
+      "uuid-app-1": {
+        "_won_from": "A1B2 @ 2026-07-08T13:00:00.000Z delete (newer than its 10:30 create)"
+      }
+    }
+  }
+}

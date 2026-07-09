@@ -107,8 +107,15 @@ struct ProfileEditorView: View {
         }
         .navigationTitle("Profile")
         .onAppear {
-            profile = model.config.profile
-            skillsText = profile.skills.joined(separator: ", ")
+            // Only hydrate from config on the first appearance. Returning
+            // from the per-role editor (a NavigationLink push/pop) fires
+            // onAppear again — re-reading config here would clobber live
+            // in-memory edits made in the child, like a freshly toggled pin,
+            // which aren't persisted until our onDisappear below.
+            if profile.isEmpty {
+                profile = model.config.profile
+                skillsText = profile.skills.joined(separator: ", ")
+            }
         }
         .onChange(of: model.config.profile) { _, newValue in
             // The config can land after we appeared (async load at launch,

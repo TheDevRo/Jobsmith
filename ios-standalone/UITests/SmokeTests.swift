@@ -29,11 +29,11 @@ final class SmokeTests: XCTestCase {
 
     func testShortlistMovesJobToPipeline() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         let topTitle = topCardTitle(in: app).label
         app.buttons["Shortlist"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
 
         app.tabBars.buttons["Pipeline"].tap()
         XCTAssertTrue(app.staticTexts[topTitle].waitForExistence(timeout: 5))
@@ -43,7 +43,7 @@ final class SmokeTests: XCTestCase {
     /// triages as a shortlist — covers the finger-swipe gesture path itself.
     func testSwipeRightShortlistsTopCard() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         let topTitle = topCardTitle(in: app)
         let name = topTitle.label
@@ -51,7 +51,7 @@ final class SmokeTests: XCTestCase {
         let end = start.withOffset(CGVector(dx: 340, dy: 0))
         start.press(forDuration: 0.05, thenDragTo: end)
 
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5),
                       "a right drag should remove the top card from the deck")
         app.tabBars.buttons["Pipeline"].tap()
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5),
@@ -60,9 +60,9 @@ final class SmokeTests: XCTestCase {
 
     func testDismissRemovesJobFromDeck() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         app.buttons["Pass"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
         app.buttons["Pass"].tap()
         // Deck empty → inbox-clear state.
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
@@ -72,9 +72,9 @@ final class SmokeTests: XCTestCase {
     /// the pipeline should empty out.
     func testPipelineHoldToSelectAndDelete() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
         app.buttons["Shortlist"].tap()
-        XCTAssertTrue(app.staticTexts["1 TO TRIAGE"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 TO SCOUT"].waitForExistence(timeout: 5))
         app.buttons["Shortlist"].tap()
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5))
 
@@ -99,7 +99,7 @@ final class SmokeTests: XCTestCase {
     /// rest of the app.
     func testSettingsDeleteAllPostings() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         app.tabBars.buttons["Settings"].tap()
         let delete = app.buttons["Delete all tracked postings"]
@@ -114,7 +114,7 @@ final class SmokeTests: XCTestCase {
 
     func testScoreJobWithMockAI() {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["2 TO TRIAGE"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         topCardTitle(in: app).tap()
         let scoreButton = app.buttons["Score"]
@@ -126,6 +126,32 @@ final class SmokeTests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "Strong overlap on core backend skills"))
         XCTAssertTrue(reasoning.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["WHY THIS SCORE"].exists)
+    }
+
+    /// Tailoring must generate the resume + cover letter (PDF by default) and
+    /// reveal the review link — if DocxPDFRenderer threw, tailor() would revert
+    /// status and the link would never appear. Network-free (mock AI).
+    func testTailorGeneratesReviewableDocuments() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
+
+        topCardTitle(in: app).tap()
+        let tailor = app.buttons["Tailor"]
+        XCTAssertTrue(tailor.waitForExistence(timeout: 5))
+        tailor.tap()
+
+        let review = app.buttons["Review documents"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30),
+                      "tailoring should generate documents and reveal the review link")
+        review.tap()
+
+        // The tailored resume text loads — documents generated without error.
+        let resumeLine = app.textViews.containing(
+            NSPredicate(format: "value CONTAINS %@", "Backend engineer with 8 years"))
+        XCTAssertTrue(resumeLine.firstMatch.waitForExistence(timeout: 10))
+
+        // Build the PDF preview artifact — exercises DocxPDFRenderer in-app.
+        app.buttons["Preview"].tap()
     }
 
     func testOnboardingAIStepPrecedesImport() {
@@ -184,6 +210,60 @@ final class SmokeTests: XCTestCase {
         help.tap()
         XCTAssertTrue(app.navigationBars["Suggest titles"].waitForExistence(timeout: 5),
                       "the title-suggestion sheet should appear")
+    }
+
+    /// The work-history cap is off by default; turning it on reveals the
+    /// "most relevant roles" stepper (mirrors desktop max_resume_experience_entries).
+    func testWorkHistoryLimitControl() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+
+        let toggle = app.switches["Limit work history"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.steppers.firstMatch.exists,
+                       "the count stepper is hidden until the limit is enabled")
+        // Tap the switch itself (trailing edge) — tapping the row label wouldn't
+        // flip a Form toggle.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertTrue(app.steppers.firstMatch.waitForExistence(timeout: 5),
+                      "enabling the limit reveals the role-count stepper")
+    }
+
+    /// The board finder opens from Search settings — type a company name instead
+    /// of hunting for a board slug.
+    func testBoardFinderSheetOpens() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.staticTexts["Search & sources"].tap()
+        let find = app.buttons["Find a company's board"]
+        scrollTo(find, in: app)
+        XCTAssertTrue(find.waitForExistence(timeout: 5))
+        find.tap()
+        XCTAssertTrue(app.navigationBars["Find a company"].waitForExistence(timeout: 5),
+                      "the board finder sheet should appear")
+    }
+
+    /// The AI company suggester ("who do you want to work for") opens from Search
+    /// settings.
+    func testCompanySuggestSheetOpens() {
+        let app = launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.staticTexts["Search & sources"].tap()
+        let suggest = app.buttons["Suggest companies to follow"]
+        scrollTo(suggest, in: app)
+        XCTAssertTrue(suggest.waitForExistence(timeout: 5))
+        suggest.tap()
+        XCTAssertTrue(app.navigationBars["Suggest companies"].waitForExistence(timeout: 5),
+                      "the company suggestion sheet should appear")
+    }
+
+    /// Swipe the Form up until `element` is on screen (it lives below the fold).
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
+        var tries = 0
+        while !element.isHittable && tries < 8 {
+            app.swipeUp()
+            tries += 1
+        }
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {

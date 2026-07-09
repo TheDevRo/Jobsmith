@@ -11,6 +11,7 @@ sessions     /api/linkedin/*, /api/indeed/*, /api/sessions/*
 system       /api/health, /api/ai/*, /api/debug/*, /api/logs/*, /api/resumes/*, notifications
 assist       /api/assist/*, /assist/launch/*, /assist-sidebar
 answer_bank  /api/answer-bank/*, /api/webhooks/*
+sync         /api/sync/* (serverless folder sync: status, config, run-now)
 """
 
 from . import (  # noqa: F401
@@ -23,6 +24,7 @@ from . import (  # noqa: F401
     prompts,
     sessions,
     settings,
+    sync,
     system,
 )
 
@@ -37,4 +39,5 @@ ALL_ROUTERS = [
     system.router,
     assist.router,
     answer_bank.router,
+    sync.router,
 ]

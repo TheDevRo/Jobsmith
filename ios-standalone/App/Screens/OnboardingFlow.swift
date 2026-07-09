@@ -9,7 +9,7 @@ struct OnboardingFlow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
-    enum Step { case welcome, ai, resume, profile, sources }
+    enum Step { case welcome, ai, resume, profile, companies, sources }
     @State private var step: Step = .welcome
 
     var body: some View {
@@ -20,6 +20,7 @@ struct OnboardingFlow: View {
                 case .ai: aiStep
                 case .resume: ResumeImportStep(onDone: { step = .profile })
                 case .profile: profileStep
+                case .companies: companiesStep
                 case .sources: sourcesStep
                 }
             }
@@ -47,7 +48,8 @@ struct OnboardingFlow: View {
         case .ai: step = .welcome
         case .resume: step = .ai
         case .profile: step = .resume
-        case .sources: step = .profile
+        case .companies: step = .profile
+        case .sources: step = .companies
         }
     }
 
@@ -56,7 +58,8 @@ struct OnboardingFlow: View {
         case .welcome: step = .ai
         case .ai: step = .resume
         case .resume: step = .profile
-        case .profile: step = .sources
+        case .profile: step = .companies
+        case .companies: step = .sources
         case .sources: dismiss()
         }
     }
@@ -126,6 +129,24 @@ struct OnboardingFlow: View {
         }
     }
 
+    private var companiesStep: some View {
+        VStack(spacing: 0) {
+            stepHeader("Who do you want to work for?",
+                       "Follow specific companies and Jobsmith pulls their latest openings — just type a name, no board slugs to hunt down. Optional, and you can change it later.")
+            Form { CompanyFollowControls() }
+            Button {
+                advance()
+            } label: {
+                Text("Continue")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.ember)
+            .padding(16)
+        }
+    }
+
     private var sourcesStep: some View {
         VStack(spacing: 0) {
             stepHeader("Where should jobs come from?",
@@ -134,7 +155,7 @@ struct OnboardingFlow: View {
             Button {
                 dismiss()
             } label: {
-                Text("Start triaging")
+                Text("Start scouting")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
             }

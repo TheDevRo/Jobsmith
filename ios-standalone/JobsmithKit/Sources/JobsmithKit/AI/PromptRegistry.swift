@@ -134,7 +134,11 @@ Rules:
 - Prefer companies that hire for the candidate's kind of role regularly. Mix well-known names with a few less-obvious but real companies.
 - Do NOT suggest any company in the EXCLUDE list.
 - Companies similar to the LIKED list are good signals of taste.
+- Honor the candidate's stated preferences below when choosing companies.
 - Each "why" is one short sentence tying the company to the candidate.
+
+CANDIDATE PREFERENCES:
+{directions}
 
 CANDIDATE PROFILE:
 {profile_summary}

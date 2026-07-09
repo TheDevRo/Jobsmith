@@ -21,5 +21,9 @@ let package = Package(
                 "ZIPFoundation",
             ]
         ),
+        .testTarget(
+            name: "JobsmithKitTests",
+            dependencies: ["JobsmithKit"]
+        ),
     ]
 )

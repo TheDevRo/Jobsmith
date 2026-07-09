@@ -99,6 +99,11 @@ async def lifespan(app: FastAPI):
     token = extension_api.get_or_create_token()
     logger.info("Browser extension token: %s  (paste into extension popup)", token)
 
+    # Folder-sync poller — self-gates on config.sync.enabled + a chosen folder,
+    # reloads config each tick, and never raises, so it's safe to always start.
+    from .sync.service import default_service as _sync_service
+    asyncio.create_task(_sync_service().run_periodic())
+
     await db.log_activity("system_start", "Jobsmith server started")
     yield
     # Shutdown

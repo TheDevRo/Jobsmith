@@ -1,0 +1,20 @@
+{
+  "_comment": "Tombstones are not sticky beyond their timestamp. A create OLDER than a delete stays deleted (no resurrection); a create NEWER than a delete revives the record.",
+  "live": {
+    "job": {
+      "lever:200": {
+        "title": "Platform Engineer",
+        "company": "Globex",
+        "status": "new",
+        "_won_from": "C3D4 create @ 15:00 beats A1B2 delete @ 10:00 — revived"
+      }
+    }
+  },
+  "tombstones": {
+    "job": {
+      "greenhouse:100": {
+        "_won_from": "A1B2 delete @ 14:00 beats C3D4 create @ 12:00 — stays deleted"
+      }
+    }
+  }
+}

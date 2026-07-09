@@ -48,8 +48,16 @@ private func stripMarkdownBold(_ text: String) -> String {
 /// Port of resume_generator.py::generate_resume_docx — same section order,
 /// spacing, and preset-driven styling.
 public enum ResumeDocxGenerator {
+    /// Render the resume straight to `.docx` bytes.
     public static func generate(content: DocResumeContent, profile: Profile,
                                 style stylePreset: HonestyConfig.Style) throws -> Data {
+        try build(content: content, profile: profile, style: stylePreset).render()
+    }
+
+    /// Build the format-agnostic layout model. Both the `.docx` writer and the
+    /// PDF renderer consume this, so the two outputs stay structurally identical.
+    public static func build(content: DocResumeContent, profile: Profile,
+                             style stylePreset: HonestyConfig.Style) -> DocxDocument {
         let s = DocStyle.preset(stylePreset)
         var doc = DocxDocument()
         doc.margins = s.margins
@@ -277,7 +285,7 @@ public enum ResumeDocxGenerator {
             }
         }
 
-        return try doc.render()
+        return doc
     }
 }
 
@@ -286,6 +294,13 @@ public enum CoverLetterDocxGenerator {
     public static func generate(content: String, profile: Profile,
                                 jobTitle: String, company: String,
                                 date: Date = Date()) throws -> Data {
+        try build(content: content, profile: profile, jobTitle: jobTitle,
+                  company: company, date: date).render()
+    }
+
+    public static func build(content: String, profile: Profile,
+                             jobTitle: String, company: String,
+                             date: Date = Date()) -> DocxDocument {
         var doc = DocxDocument()
         doc.margins = (1, 1, 1, 1)
         let font = "Calibri"
@@ -356,6 +371,6 @@ public enum CoverLetterDocxGenerator {
         nameP.run(profile.fullName, RunStyle(font: font, sizePt: 11, bold: true, colorHex: DocStyle.black))
         doc.add(nameP)
 
-        return try doc.render()
+        return doc
     }
 }

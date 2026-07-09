@@ -14,7 +14,7 @@ struct ActivityView: View {
                 }
                 Section {
                     if model.activity.isEmpty {
-                        Text("Activity will appear here as you fetch, triage, and apply.")
+                        Text("Activity will appear here as you fetch, scout, and apply.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(model.activity) { entry in
