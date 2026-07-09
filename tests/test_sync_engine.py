@@ -406,3 +406,61 @@ async def test_shortlist_overrides_a_deletion(tmp_path, monkeypatch):
     rows = _rows(path_a, "SELECT status FROM jobs WHERE external_id='777'")
     assert rows and rows[0]["status"] == "shortlisted"
     assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []
+
+
+@pytest.mark.asyncio
+async def test_fresh_shortlist_survives_stale_tombstone_in_cycle(tmp_path, monkeypatch):
+    """The reported bug: shortlist a job locally while the folder already holds a
+    peer's older delete for it. A cycle must NOT wipe the fresh shortlist.
+
+    This only holds if the cycle EXPORTS BEFORE IT IMPORTS: the local shortlist
+    has to reach the folder (stamped now) before import evaluates the incoming
+    tombstone, or the engagement-override can't see it and the stale tombstone
+    deletes the job on both devices. Mirrors service.sync_once ordering."""
+    path_a = tmp_path / "a.db"
+    folder = tmp_path / "sync"
+    (folder / "changes").mkdir(parents=True)
+    clock = Clock()  # starts 2026-07-08 12:00, strictly after the tombstone below
+
+    await _init_db(path_a, monkeypatch)
+
+    # Local job the user is about to shortlist on this device.
+    conn = sqlite3.connect(path_a)
+    conn.execute(
+        """INSERT INTO jobs (id, source, external_id, title, company, url,
+             description, status, date_discovered)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        ("job-x", "greenhouse", "555", "Dev", "Acme", "https://x/555", "d",
+         "discovered", "2026-07-08T09:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
+    # A peer deleted the same posting earlier — its tombstone is already in the
+    # folder, at a time BEFORE this device's clock.
+    peer = folder / "changes" / "PEER.jsonl"
+    peer.write_text(json.dumps({
+        "v": 1, "entity": "job", "id": "greenhouse:555",
+        "updated_at": "2026-07-08T10:00:00.000Z", "device": "PEER", "deleted": True,
+    }) + "\n")
+
+    # The user swipes to shortlist.
+    conn = sqlite3.connect(path_a)
+    conn.execute("UPDATE jobs SET status = 'shortlisted' WHERE id = 'job-x'")
+    conn.commit()
+    conn.close()
+
+    # One cycle in the real service order: EXPORT then IMPORT.
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    await a.export_changes(folder)
+    await a.import_changes(folder)
+
+    # The shortlist survived and the stale delete did not take.
+    rows = _rows(path_a, "SELECT status FROM jobs WHERE external_id='555'")
+    assert rows and rows[0]["status"] == "shortlisted"
+    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []
+
+    # And the shortlist is now in the folder for the peer to pick up.
+    lines = [json.loads(l) for l in (folder / "changes" / "A1B2.jsonl").read_text().splitlines()]
+    shortlist = next(r for r in lines if r["id"] == "greenhouse:555" and not r["deleted"])
+    assert shortlist["data"]["status"] == "shortlisted"

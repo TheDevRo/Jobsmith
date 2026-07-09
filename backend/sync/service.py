@@ -161,8 +161,12 @@ class SyncService:
                     platform=self._platform,
                 )
                 engine = self._make_engine(folder, device_id)
-                imp = await engine.import_changes(folder)
+                # Export BEFORE import: a just-made local shortlist must reach the
+                # folder (stamped now) before import evaluates any incoming
+                # deletion tombstone, or the engagement-override can't see it and
+                # a stale tombstone wipes the fresh shortlist. See engine.py.
                 exp = await engine.export_changes(folder)
+                imp = await engine.import_changes(folder)
                 dropped = sf.compact_own_log(device_id)
                 result = {
                     "skipped": False,
