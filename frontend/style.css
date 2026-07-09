@@ -180,9 +180,13 @@ body {
     gap: 12px;
 }
 
+/* Top page title (Inbox / Pipeline / Activity / Settings) — matches the iOS
+   app's large navigation title: standard SF Pro (not rounded), bold, tight
+   tracking, at a large-title scale. */
 .topbar-left h2 {
-    font-size: 17px;
-    font-weight: 600;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--text-primary);
 }
 
@@ -1216,7 +1220,6 @@ main {
 /* SF Rounded on the app's prominent numerals + titles + brand, matching the
    iOS app's rounded, monospaced-digit numbers. Body/list text stays SF. */
 .sidebar-brand,
-#page-title,
 .stat-value,
 .heat-chip,
 .heat-ring .heat-ring-score,
