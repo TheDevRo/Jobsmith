@@ -128,7 +128,29 @@ public final class SyncEngine {
                 deleted INTEGER NOT NULL DEFAULT 0, data_json TEXT,
                 PRIMARY KEY (entity, id));
             CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS deleted_jobs (sync_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL);
             """)
+    }
+
+    /// {sync_id: deleted_at} — durable job tombstones (see JobStore.delete). The
+    /// `job` entity's sync id is exactly this table's sync_id.
+    private func loadDeletions(_ dbc: Database) throws -> [String: String] {
+        var out: [String: String] = [:]
+        for row in try Row.fetchAll(dbc, sql: "SELECT sync_id, deleted_at FROM deleted_jobs") {
+            out[row["sync_id"] as String] = (row["deleted_at"] as String)
+        }
+        return out
+    }
+
+    private func putDeletion(_ dbc: Database, _ syncId: String, _ deletedAt: String) throws {
+        try dbc.execute(
+            sql: "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
+               + "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
+            arguments: [syncId, deletedAt])
+    }
+
+    private func clearDeletion(_ dbc: Database, _ syncId: String) throws {
+        try dbc.execute(sql: "DELETE FROM deleted_jobs WHERE sync_id = ?", arguments: [syncId])
     }
 
     private struct Snap { var updatedAt: String; var deleted: Bool; var dataJSON: String? }
@@ -257,6 +279,8 @@ public final class SyncEngine {
             let force = (try meta(dbc, "pending_migration")) == "1"
             if force { try setMeta(dbc, "pending_migration", "0") }
 
+            let deletions = try loadDeletions(dbc)
+
             func diff(entity: String, current: [String: [String: JSONValue]]) throws {
                 let snap = try loadSnapshot(dbc, entity)
                 for (id, data) in current {
@@ -271,6 +295,10 @@ public final class SyncEngine {
                     }
                 }
                 for (id, prev) in snap where !prev.deleted && current[id] == nil {
+                    // Job deletions broadcast authoritatively from deleted_jobs
+                    // (below) at their recorded time, not inferred here at export
+                    // time — skip so we don't double-emit with the wrong clock.
+                    if entity == "job" && deletions[id] != nil { continue }
                     records.append(ChangeRecord(entity: entity, id: id, updatedAt: ts,
                                                 device: deviceId, deleted: true, data: nil))
                     try putSnapshot(dbc, entity, id, ts, true, nil)
@@ -280,6 +308,20 @@ public final class SyncEngine {
 
             try diff(entity: "job", current: try jobSnapshot(dbc))
             try diff(entity: "application", current: try appSnapshot(dbc, store))
+
+            // Durable job tombstones: broadcast each recorded deletion once, at
+            // the time it happened (the LWW clock), so a peer's older live record
+            // loses and the row stays gone everywhere.
+            let jobSnap = try loadSnapshot(dbc, "job")
+            for (syncId, delAt) in deletions {
+                let prev = jobSnap[syncId]
+                if prev == nil || !prev!.deleted || prev!.updatedAt != delAt {
+                    records.append(ChangeRecord(entity: "job", id: syncId, updatedAt: delAt,
+                                                device: deviceId, deleted: true, data: nil))
+                    try putSnapshot(dbc, "job", syncId, delAt, true, nil)
+                    stats.tombstones += 1
+                }
+            }
 
             if let iosProfile = loadProfile() {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
@@ -322,9 +364,17 @@ public final class SyncEngine {
             try ensureTables(dbc)
             try markMigrationIfNeeded(dbc)
             var deferred = Set<String>()
+            var deletions = try loadDeletions(dbc)
 
             // Live: jobs before applications (FK).
             for (key, rec) in winners where key.entity == "job" && !rec.deleted {
+                // Resurrection guard: don't re-add a job we've tombstoned unless
+                // this live record is newer than the deletion (a genuine edit/
+                // un-delete — then the deletion is overridden and cleared).
+                if let delAt = deletions[key.id] {
+                    if rec.updatedAt <= delAt { continue }
+                    try clearDeletion(dbc, key.id); deletions[key.id] = nil
+                }
                 try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
@@ -337,6 +387,9 @@ public final class SyncEngine {
             }
             for (key, rec) in winners where key.entity == "job" && rec.deleted {
                 try deleteJob(dbc, key.id); stats.deletes += 1
+                // Persist an incoming job tombstone so this device also
+                // broadcasts it and resists re-discovery.
+                try putDeletion(dbc, key.id, rec.updatedAt)
             }
             // Profile.
             if let rec = winners[SyncMerge.Key(entity: "profile", id: "me")], !rec.deleted {

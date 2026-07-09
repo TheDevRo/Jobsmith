@@ -134,6 +134,10 @@ class SyncEngine:
                 key   TEXT PRIMARY KEY,
                 value TEXT
             );
+            CREATE TABLE IF NOT EXISTS deleted_jobs (
+                sync_id    TEXT PRIMARY KEY,
+                deleted_at TEXT NOT NULL
+            );
             """
         )
         await conn.commit()
@@ -145,6 +149,22 @@ class SyncEngine:
             (entity,),
         )
         return {r["id"]: dict(r) for r in await cur.fetchall()}
+
+    async def _load_deletions(self, conn) -> dict[str, str]:
+        """{sync_id: deleted_at} — durable job tombstones (see database.py).
+        The `job` entity's sync id is exactly this table's sync_id."""
+        cur = await conn.execute("SELECT sync_id, deleted_at FROM deleted_jobs")
+        return {r["sync_id"]: r["deleted_at"] for r in await cur.fetchall()}
+
+    async def _put_deletion(self, conn, sync_id, deleted_at) -> None:
+        await conn.execute(
+            "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
+            "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
+            (sync_id, deleted_at),
+        )
+
+    async def _clear_deletion(self, conn, sync_id) -> None:
+        await conn.execute("DELETE FROM deleted_jobs WHERE sync_id = ?", (sync_id,))
 
     async def _put_snapshot(self, conn, entity, sid, updated_at, deleted, data_json):
         await conn.execute(
@@ -198,6 +218,7 @@ class SyncEngine:
         records: list[dict] = []
         try:
             ts = await self._next_ts(conn)
+            deletions = await self._load_deletions(conn)
 
             for adapter in self._adapters(folder):
                 current = await adapter.snapshot(conn)
@@ -214,10 +235,26 @@ class SyncEngine:
                         await self._put_snapshot(conn, adapter.entity, sid, ts, False, cj)
                         stats.live += 1
                 for sid, prev in snap.items():
+                    # Job deletions are broadcast authoritatively from deleted_jobs
+                    # (below) at their recorded time, not inferred here at export
+                    # time — skip them so we don't double-emit with a wrong clock.
+                    if adapter.entity == "job" and sid in deletions:
+                        continue
                     if not prev["deleted"] and sid not in current:
                         records.append(self._tombstone_record(adapter.entity, sid, ts))
                         await self._put_snapshot(conn, adapter.entity, sid, ts, True, None)
                         stats.tombstones += 1
+
+            # Durable job tombstones: broadcast each recorded deletion once, at
+            # the time it happened (the LWW clock), so a peer's older live record
+            # loses and the row stays gone everywhere.
+            job_snap = await self._load_snapshot(conn, "job")
+            for sid, del_at in deletions.items():
+                prev = job_snap.get(sid)
+                if prev is None or not prev["deleted"] or prev["updated_at"] != del_at:
+                    records.append(self._tombstone_record("job", sid, del_at))
+                    await self._put_snapshot(conn, "job", sid, del_at, True, None)
+                    stats.tombstones += 1
 
             if self._load_profile is not None:
                 prof = self._load_profile()
@@ -283,12 +320,22 @@ class SyncEngine:
         adapters = self._adapters(folder)
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
+            deletions = await self._load_deletions(conn)
             # Live upserts, FK order (job -> answer -> application).
             deferred: set[tuple[str, str]] = set()
             for adapter in adapters:
                 for (entity, sid), rec in winners.items():
                     if entity != adapter.entity or rec.get("deleted"):
                         continue
+                    # Resurrection guard: don't re-add a job we've tombstoned
+                    # unless this live record is newer than the deletion (a
+                    # genuine edit/un-delete after the fact — then the deletion
+                    # is overridden and cleared).
+                    if entity == "job" and sid in deletions:
+                        if rec["updated_at"] <= deletions[sid]:
+                            continue
+                        await self._clear_deletion(conn, sid)
+                        del deletions[sid]
                     try:
                         await adapter.apply_live(conn, sid, rec.get("data", {}))
                         stats.upserts += 1
@@ -304,6 +351,10 @@ class SyncEngine:
                     if entity == adapter.entity and rec.get("deleted"):
                         await adapter.apply_tombstone(conn, sid)
                         stats.deletes += 1
+                        # Persist an incoming job tombstone locally so this
+                        # device also broadcasts it and resists re-discovery.
+                        if entity == "job":
+                            await self._put_deletion(conn, sid, rec["updated_at"])
 
             # Profile.
             prof_winner = winners.get((PROFILE_ENTITY, PROFILE_ID))

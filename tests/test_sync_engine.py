@@ -299,3 +299,98 @@ async def test_profile_syncs_without_secrets(tmp_path, monkeypatch):
     assert saved_b["gender"] == "Female"
     assert saved_b["ats_login_password"] == "SECRET-B-local-only"
     assert "workday_password" not in saved_b
+
+
+@pytest.mark.asyncio
+async def test_delete_propagates_through_import_first_cycle(tmp_path, monkeypatch):
+    """A hard delete must survive a real sync cycle (import BEFORE export, as
+    service.sync_once runs it) and reach the other device. Without a durable
+    tombstone the import re-adds the job from the folder's still-live record
+    before export can notice it vanished — the resurrection bug."""
+    path_a = tmp_path / "a.db"
+    path_b = tmp_path / "b.db"
+    folder = tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+
+    # Both devices hold the job.
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'")
+
+    # A deletes through the real delete path (records a durable tombstone).
+    # Fixed deletion clock, strictly after the seed/export timestamps.
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    monkeypatch.setattr(dbmod, "_sync_now", lambda: "2026-07-08T18:00:00.000Z")
+    assert await dbmod.delete_jobs(["job-a"]) == 1
+    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:111"}]
+
+    # Full cycle, import first: the old live record must NOT resurrect the job.
+    await a.import_changes(folder)
+    assert _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'") == []
+    await a.export_changes(folder)
+
+    # B converges: job gone, and the tombstone is recorded durably on B too.
+    imp = await b.import_changes(folder)
+    assert imp.deletes >= 1
+    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'") == []
+    assert _rows(path_b, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:111"}]
+
+    # B, now holding the marker, also refuses to re-discover the same posting.
+    monkeypatch.setattr(dbmod, "DB_PATH", path_b)
+    refound = await dbmod.upsert_job(
+        {"source": "greenhouse", "external_id": "111", "title": "Engineer",
+         "company": "Acme", "url": "https://x/111", "description": "Build things"}
+    )
+    assert refound is None
+    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'") == []
+
+    # Stays gone across another A cycle — no flip-flop.
+    await a.import_changes(folder)
+    await a.export_changes(folder)
+    assert _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'") == []
+
+
+@pytest.mark.asyncio
+async def test_newer_edit_overrides_a_deletion(tmp_path, monkeypatch):
+    """LWW still holds: if a peer edits the job AFTER we deleted it, the newer
+    edit wins and the deletion is cleared (not a permanent gravestone)."""
+    path_a = tmp_path / "a.db"
+    folder = tmp_path / "sync"
+    (folder / "changes").mkdir(parents=True)
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    monkeypatch.setattr(dbmod, "_sync_now", lambda: "2026-07-08T18:00:00.000Z")
+
+    # A had, then deleted, greenhouse:777.
+    await dbmod.upsert_job(
+        {"source": "greenhouse", "external_id": "777", "title": "Dev",
+         "company": "Acme", "url": "https://x/777", "description": "d"}
+    )
+    jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'")[0]["id"]
+    assert await dbmod.delete_jobs([jid]) == 1
+
+    # A peer's edit stamped AFTER the deletion arrives in the folder.
+    peer = folder / "changes" / "PEER.jsonl"
+    peer.write_text(json.dumps({
+        "v": 1, "entity": "job", "id": "greenhouse:777",
+        "updated_at": "2026-07-08T19:00:00.000Z", "device": "PEER", "deleted": False,
+        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev (edited)",
+                 "status": "shortlisted", "date_discovered": "2026-07-08T09:00:00Z"},
+    }) + "\n")
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    await a.import_changes(folder)
+
+    # Newer edit wins: job restored, deletion tombstone cleared.
+    rows = _rows(path_a, "SELECT title FROM jobs WHERE external_id='777'")
+    assert rows and rows[0]["title"] == "Dev (edited)"
+    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []

@@ -20,6 +20,35 @@ logger = logging.getLogger(__name__)
 DB_PATH = project_root() / "data" / "jobsmith.db"
 
 
+def _sync_now() -> str:
+    """Deletion clock in the sync layer's exact format (RFC3339 UTC, ms, 'Z')
+    so a `deleted_jobs.deleted_at` compares correctly against a change record's
+    `updated_at` under last-writer-wins. Must match sync/engine.py:iso_ms."""
+    dt = datetime.now(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+
+
+async def _record_job_deletions(db: aiosqlite.Connection, job_ids: list[str]) -> None:
+    """Tombstone the given jobs by their sync id so the deletion propagates and
+    resists re-discovery. Only jobs with a stable external_id are syncable."""
+    if not job_ids:
+        return
+    placeholders = ",".join("?" for _ in job_ids)
+    cur = await db.execute(
+        f"SELECT source, external_id FROM jobs "
+        f"WHERE id IN ({placeholders}) AND external_id IS NOT NULL AND external_id != ''",
+        job_ids,
+    )
+    ts = _sync_now()
+    rows = await cur.fetchall()
+    for r in rows:
+        await db.execute(
+            "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
+            "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
+            (f"{r['source']}:{r['external_id']}", ts),
+        )
+
+
 async def _get_db() -> aiosqlite.Connection:
     """Open a connection with row_factory enabled."""
     db = await aiosqlite.connect(str(DB_PATH))
@@ -171,6 +200,16 @@ async def init_db() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_qa_cache_question ON qa_cache(question_normalized)"
         )
+        # Durable deletion tombstones. A hard-deleted job records its sync key
+        # here so (a) the folder-sync engine broadcasts the deletion to other
+        # devices and (b) a later fetch can't silently re-discover it. Keyed by
+        # the same "{source}:{external_id}" sync id the sync layer uses.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_jobs (
+                sync_id    TEXT PRIMARY KEY,
+                deleted_at TEXT NOT NULL
+            )
+        """)
         await db.commit()
 
         try:
@@ -221,6 +260,17 @@ async def upsert_job(job: dict) -> Optional[str]:
     try:
         job_id = job.get("id") or str(uuid.uuid4())
         tags = json.dumps(job.get("tags", []))
+        # Re-discovery guard: a job the user hard-deleted stays deleted, even if
+        # a later fetch re-finds the same posting. (Dismiss/pass is the "keep but
+        # hide" state; delete is "gone for good".)
+        ext_id = job.get("external_id", "")
+        if ext_id:
+            cur = await db.execute(
+                "SELECT 1 FROM deleted_jobs WHERE sync_id = ?",
+                (f"{job.get('source', 'unknown')}:{ext_id}",),
+            )
+            if await cur.fetchone():
+                return None
         # Check for existing
         cursor = await db.execute(
             "SELECT id, description, salary_min, salary_max, salary_period, tags, apply_type FROM jobs WHERE source = ? AND external_id = ?",
@@ -490,6 +540,7 @@ async def delete_jobs(job_ids: list[str]) -> int:
     """Delete jobs and their applications. Returns count of deleted jobs."""
     db = await _get_db()
     try:
+        await _record_job_deletions(db, job_ids)
         placeholders = ",".join("?" for _ in job_ids)
         await db.execute(f"DELETE FROM applications WHERE job_id IN ({placeholders})", job_ids)
         await db.execute(f"DELETE FROM activity_log WHERE job_id IN ({placeholders})", job_ids)
@@ -504,6 +555,13 @@ async def delete_all_jobs() -> int:
     """Delete all jobs/applications except those with status 'applied'. Returns count of deleted jobs."""
     db = await _get_db()
     try:
+        # Tombstone every job we're about to remove (all but surviving 'applied').
+        cur = await db.execute(
+            """SELECT id FROM jobs WHERE id NOT IN (
+                SELECT DISTINCT job_id FROM applications WHERE status = 'applied'
+            )"""
+        )
+        await _record_job_deletions(db, [r["id"] for r in await cur.fetchall()])
         # Delete non-applied applications first
         await db.execute("DELETE FROM applications WHERE status != 'applied'")
         # Delete activity log entries for jobs we're about to remove
@@ -546,6 +604,7 @@ async def delete_jobs_filtered(
         job_ids = [r["id"] for r in rows]
 
         if job_ids:
+            await _record_job_deletions(db, job_ids)
             placeholders = ",".join("?" for _ in job_ids)
             await db.execute(f"DELETE FROM applications WHERE job_id IN ({placeholders})", job_ids)
             await db.execute(f"DELETE FROM activity_log WHERE job_id IN ({placeholders})", job_ids)

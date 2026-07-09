@@ -116,6 +116,16 @@ public struct AppDatabase: Sendable {
             }
         }
 
+        // Durable deletion tombstones. A hard-deleted job records its sync key
+        // ("{source}:{externalId}") here so the deletion propagates through
+        // folder sync and a later fetch can't silently re-discover it.
+        migrator.registerMigration("v2_deleted_jobs") { db in
+            try db.create(table: "deleted_jobs") { t in
+                t.primaryKey("sync_id", .text)
+                t.column("deleted_at", .text).notNull()
+            }
+        }
+
         return migrator
     }
 }
