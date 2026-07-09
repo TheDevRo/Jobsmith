@@ -37,7 +37,7 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent =
-      '[data-jobsmith-dropzone="1"] { outline: 2px dashed #8b7cff !important; outline-offset: 3px !important; }';
+      '[data-jobsmith-dropzone="1"] { outline: 2px dashed #f0863a !important; outline-offset: 3px !important; }';
     (document.head || document.documentElement).appendChild(style);
   }
 

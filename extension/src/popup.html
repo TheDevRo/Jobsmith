@@ -7,17 +7,17 @@
 <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
 <style>
   :root {
-    --bg: #0f0f1a;
-    --bg-elev: #181828;
-    --bg-input: #1f1f30;
-    --border: #2a2a3e;
-    --border-strong: #3a3a52;
-    --text: #e4e6f1;
-    --text-dim: #8b8fa8;
-    --text-faint: #5a5e75;
-    --accent: #8b7cff;
-    --accent-2: #5eb3ff;
-    --accent-grad: linear-gradient(135deg, #8b7cff 0%, #5eb3ff 100%);
+    --bg: #0c0c0e;
+    --bg-elev: #151517;
+    --bg-input: #1c1c1f;
+    --border: #2a292e;
+    --border-strong: #3a3940;
+    --text: #eae9ec;
+    --text-dim: #99979e;
+    --text-faint: #625f68;
+    --accent: #f0863a;
+    --accent-2: #d9541e;
+    --accent-grad: linear-gradient(135deg, #f0863a 0%, #d9541e 100%);
     --ok: #6ee7b7;
     --warn: #fcd34d;
     --err: #fb7185;
@@ -35,8 +35,8 @@
   .header {
     padding: 16px 18px 14px;
     background:
-      radial-gradient(circle at 0% 0%, rgba(139,124,255,0.18), transparent 60%),
-      radial-gradient(circle at 100% 100%, rgba(94,179,255,0.12), transparent 60%);
+      radial-gradient(circle at 0% 0%, rgba(240,134,58,0.18), transparent 60%),
+      radial-gradient(circle at 100% 100%, rgba(217,84,30,0.12), transparent 60%);
     border-bottom: 1px solid var(--border);
   }
   .brand {
@@ -51,7 +51,7 @@
   .logo {
     width: 22px; height: 22px; border-radius: 6px;
     display: block;
-    box-shadow: 0 4px 12px rgba(99,102,241,0.35);
+    box-shadow: 0 4px 12px rgba(240,134,58,0.35);
   }
   .tagline {
     margin: 4px 0 0 31px;
@@ -82,7 +82,7 @@
   input:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(139,124,255,0.18);
+    box-shadow: 0 0 0 3px rgba(240,134,58,0.18);
   }
   input::placeholder { color: var(--text-faint); }
   .actions {
@@ -102,9 +102,9 @@
     font-weight: 600;
     font-size: 12px;
     transition: transform 80ms ease, box-shadow 120ms ease, filter 120ms ease;
-    box-shadow: 0 2px 8px rgba(139,124,255,0.25);
+    box-shadow: 0 2px 8px rgba(240,134,58,0.25);
   }
-  button:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgba(139,124,255,0.35); }
+  button:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgba(240,134,58,0.35); }
   button:active { transform: translateY(1px); }
   button.secondary {
     background: var(--bg-input);
