@@ -4,9 +4,10 @@ import SwiftUI
 /// forge metaphor. Scores render on a steel→ember ramp; amber is reserved
 /// for heat and the primary action, everything else stays quiet slate.
 enum Theme {
-    // Base palette (brand-anchored: the desktop app's charcoal-blue).
-    static let ink = Color(hex: 0x0C0E14)          // near-black blue
-    static let slate = Color(hex: 0x1A1E2A)        // card surface (dark)
+    // Base palette (brand-anchored: neutral charcoal, no blue cast — matches the
+    // desktop app's chrome). Blue lives only in `steel`, the cool end of the ramp.
+    static let ink = Color(hex: 0x0C0C0E)          // near-black neutral
+    static let slate = Color(hex: 0x1C1C1F)        // card surface (dark)
     static let steel = Color(hex: 0x5E7CA0)        // cool secondary
     static let ember = Color(hex: 0xF0863A)        // signature accent
     static let emberDeep = Color(hex: 0xD9541E)    // hot end of the ramp
