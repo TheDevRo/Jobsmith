@@ -188,6 +188,9 @@ async def update_config(body: ConfigUpdate):
         cfg["auto_apply"] = {**cfg.get("auto_apply", {}), **body.auto_apply}
     if body.ai:
         cfg["ai"] = {**cfg.get("ai", {}), **body.ai}
+        # base_url/api_key changes alter the client cache key; drop stale
+        # clients so their httpx pools don't leak FDs (see ai_engine).
+        ai_engine.clear_clients()
     if body.api_keys:
         cfg["api_keys"] = {**cfg.get("api_keys", {}), **body.api_keys}
     if body.flaresolverr:

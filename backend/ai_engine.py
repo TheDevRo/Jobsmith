@@ -71,6 +71,19 @@ def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
     return client
 
 
+def clear_clients() -> None:
+    """Drop all cached AsyncOpenAI clients.
+
+    Call after the user edits AI/base_url/api_key settings: a rotated key
+    produces a new cache key, so the old client (and its httpx connection
+    pool + SSL context) would otherwise linger for the process lifetime and
+    keep consuming FDs against the 256 macOS ceiling (see _get_client).
+    Dropping the reference lets the client's pool be reclaimed; the next
+    _get_client() rebuilds against the fresh config.
+    """
+    _client_cache.clear()
+
+
 def _model(config: dict, tier: str = "strong") -> str:
     """Return the model name for the given tier.
 
