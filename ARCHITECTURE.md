@@ -102,7 +102,6 @@ jobsmith/
 ├── resumes/                    # Generated DOCX files (job_id_resume.docx, etc.)
 ├── tests/                      # pytest test suite
 │   └── auto_apply/             # Tests for adapters, LLM mapping, orchestrator, etc.
-├── stagehand-service/          # DEAD CODE — old Node.js microservice, replaced by auto_apply/
 ├── config.yaml                 # All user settings (profile, search, AI, auto_apply)
 ├── config.example.yaml         # Template config for new installs
 ├── start_server.sh             # One-command startup: venv + uvicorn :8888 --reload
@@ -522,7 +521,7 @@ Debug a specific URL without submitting: `venv/bin/python debug_apply.py "https:
 
 ## 13. Dead Code / Legacy
 
-- `stagehand-service/` — Old Node.js microservice using Playwright + Stagehand + LM Studio. Fully replaced by `backend/auto_apply/`. Still in the repo as reference but is **not run** (removed from start_server.sh 2026-07).
+- `stagehand-service/` — Old Node.js microservice using Playwright + Stagehand + LM Studio. Fully replaced by `backend/auto_apply/`. **Deleted 2026-07** (was already not run; also removed the setup.sh install steps).
 - `backend/auto_apply_legacy.py` and `backend/ai_navigator.py` — **deleted 2026-07**. The LinkedIn session helpers they carried now live in `backend/auto_apply/linkedin_auth.py`.
 - `backend/browser_use_agent.py` — Feature-flagged Browser-Use 0.12 integration. Active when `auto_apply.use_browser_use: true` in config (except for Indeed, which always uses the orchestrator). Under active development.
 
