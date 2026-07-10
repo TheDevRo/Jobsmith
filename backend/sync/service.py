@@ -161,10 +161,10 @@ class SyncService:
                     platform=self._platform,
                 )
                 engine = self._make_engine(folder, device_id)
-                # Export BEFORE import: a just-made local shortlist must reach the
-                # folder (stamped now) before import evaluates any incoming
-                # deletion tombstone, or the engagement-override can't see it and
-                # a stale tombstone wipes the fresh shortlist. See engine.py.
+                # Export BEFORE import: a just-made local decision (shortlist or
+                # delete) has no timestamp until it's exported, so we stamp it
+                # `now` first — then import lets it out-rank any older record
+                # already in the folder under plain last-writer-wins. See engine.py.
                 exp = await engine.export_changes(folder)
                 imp = await engine.import_changes(folder)
                 dropped = sf.compact_own_log(device_id)

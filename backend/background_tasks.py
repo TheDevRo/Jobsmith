@@ -100,6 +100,14 @@ async def _bg_fetch_jobs(sources: list[str] | None = None):
         state.fetch_status.update(phase="done", detail=f"{done_label} — {len(jobs)} jobs found, {inserted} new{issue_suffix}", jobs_found=len(jobs), jobs_inserted=inserted, active=False)
         await db.log_activity("jobs_fetched", f"Fetched {len(jobs)} jobs ({inserted} new) from {src_label}")
         logger.info("Job fetch complete: %d total, %d new from %s (timed_out=%s)", len(jobs), inserted, src_label, timed_out)
+        # Maintenance: reclaim space from long-deleted jobs (keeps the row +
+        # 'deleted' status so the deletion stays durable and syncs). Non-fatal.
+        try:
+            compacted = await db.gc_deleted_jobs()
+            if compacted:
+                logger.info("GC: compacted %d long-deleted jobs", compacted)
+        except Exception:
+            logger.exception("GC of deleted jobs failed (non-fatal)")
         state.push_notification("fetch", "Job Fetch Complete", f"Found {len(jobs)} jobs ({inserted} new) from {src_label}{issue_suffix}", "success")
     except asyncio.CancelledError:
         state.fetch_status.update(phase="done", detail="Fetch cancelled", active=False)

@@ -89,14 +89,18 @@ async def test_export_import_round_trip(tmp_path, monkeypatch):
     b = SyncEngine(path_b, "C3D4", now_fn=clock)
 
     exp = await a.export_changes(folder)
-    assert exp.live == 3 and exp.tombstones == 0  # job, answer, application
+    # job facts + triage decision + answer + application
+    assert exp.live == 4 and exp.tombstones == 0
 
     log = folder / "changes" / "A1B2.jsonl"
     lines = [json.loads(l) for l in log.read_text().splitlines()]
-    assert {r["entity"] for r in lines} == {"job", "answer", "application"}
+    assert {r["entity"] for r in lines} == {"job", "triage", "answer", "application"}
 
     imp = await b.import_changes(folder)
-    assert imp.upserts == 3 and imp.deletes == 0 and imp.deferred == 0
+    assert imp.upserts == 4 and imp.deletes == 0 and imp.deferred == 0
+
+    # The job's decision arrived on its own entity and set the local status.
+    assert _rows(path_b, "SELECT status FROM jobs")[0]["status"] == "discovered"
 
     # Job arrived with its portable fields; B minted its own local uuid.
     jobs = _rows(path_b, "SELECT * FROM jobs")
@@ -156,7 +160,8 @@ async def test_last_writer_wins(tmp_path, monkeypatch):
     conn.close()
 
     bexp = await b.export_changes(folder)
-    assert bexp.live == 1  # just the job
+    # a facts change (fit_score) and a decision change (status) — two entities.
+    assert bexp.live == 2  # job facts + triage
 
     await a.import_changes(folder)
     job_a = _rows(path_a, "SELECT * FROM jobs WHERE external_id = '111'")[0]
@@ -165,7 +170,11 @@ async def test_last_writer_wins(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tombstone_deletes_across_devices(tmp_path, monkeypatch):
+async def test_generic_tombstone_propagates(tmp_path, monkeypatch):
+    """The generic tombstone path (used for real application/answer deletes, and
+    as a safety net if a job row is physically removed). User-facing job deletes
+    are soft — see test_delete_via_triage_propagates — but a vanished row must
+    still converge."""
     path_a = tmp_path / "a.db"
     path_b = tmp_path / "b.db"
     folder = tmp_path / "sync"
@@ -182,7 +191,7 @@ async def test_tombstone_deletes_across_devices(tmp_path, monkeypatch):
     await b.import_changes(folder)
     assert _rows(path_b, "SELECT * FROM jobs")
 
-    # A deletes the job (and its child application) locally.
+    # A physically removes the job row (and its child application).
     conn = sqlite3.connect(path_a)
     conn.execute("DELETE FROM applications WHERE job_id = 'job-a'")
     conn.execute("DELETE FROM jobs WHERE id = 'job-a'")
@@ -190,10 +199,11 @@ async def test_tombstone_deletes_across_devices(tmp_path, monkeypatch):
     conn.close()
 
     aexp = await a.export_changes(folder)
-    assert aexp.tombstones == 2  # job + application both vanished
+    # job facts + triage decision + application all vanished.
+    assert aexp.tombstones == 3
 
     imp = await b.import_changes(folder)
-    assert imp.deletes == 2
+    assert imp.deletes == 3
     assert _rows(path_b, "SELECT * FROM jobs") == []
     assert _rows(path_b, "SELECT * FROM applications") == []
 
@@ -216,7 +226,12 @@ async def test_unknown_keys_preserved_on_writeback(tmp_path, monkeypatch):
         "v": 1, "entity": "job", "id": "greenhouse:999",
         "updated_at": "2026-07-08T10:00:00.000Z", "device": "IOS9", "deleted": False,
         "data": {"source": "greenhouse", "external_id": "999", "title": "Dev",
-                 "status": "discovered", "date_discovered": "2026-07-08T09:00:00Z"},
+                 "date_discovered": "2026-07-08T09:00:00Z"},
+    }
+    triage_rec = {
+        "v": 1, "entity": "triage", "id": "greenhouse:999",
+        "updated_at": "2026-07-08T10:00:00.000Z", "device": "IOS9", "deleted": False,
+        "data": {"status": "discovered"},
     }
     app_rec = {
         "v": 1, "entity": "application", "id": "app-ios",
@@ -225,7 +240,9 @@ async def test_unknown_keys_preserved_on_writeback(tmp_path, monkeypatch):
                  "status": "approved", "created_at": "2026-07-08T09:00:00Z",
                  "style_preset": "modern", "updated_at": "2026-07-08T09:00:00Z"},
     }
-    ios_log.write_text(json.dumps(job_rec) + "\n" + json.dumps(app_rec) + "\n")
+    ios_log.write_text(
+        json.dumps(job_rec) + "\n" + json.dumps(triage_rec) + "\n" + json.dumps(app_rec) + "\n"
+    )
 
     a = SyncEngine(path_a, "A1B2", now_fn=clock)
     await a.import_changes(folder)
@@ -301,12 +318,21 @@ async def test_profile_syncs_without_secrets(tmp_path, monkeypatch):
     assert "workday_password" not in saved_b
 
 
+def _write_peer_triage(folder, sync_id, status, ts, device="PEER"):
+    """Append a peer's `triage` decision record to the folder (a delete is just
+    status='deleted')."""
+    (folder / "changes").mkdir(parents=True, exist_ok=True)
+    rec = {"v": 1, "entity": "triage", "id": sync_id, "updated_at": ts,
+           "device": device, "deleted": False, "data": {"status": status}}
+    with (folder / "changes" / f"{device}.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
 @pytest.mark.asyncio
-async def test_delete_propagates_through_import_first_cycle(tmp_path, monkeypatch):
-    """A hard delete must survive a real sync cycle (import BEFORE export, as
-    service.sync_once runs it) and reach the other device. Without a durable
-    tombstone the import re-adds the job from the folder's still-live record
-    before export can notice it vanished — the resurrection bug."""
+async def test_delete_via_triage_propagates(tmp_path, monkeypatch):
+    """The real delete path is soft: status='deleted', synced as a `triage`
+    record. It reaches the other device, hides the job there, and needs no
+    tombstone and no side table."""
     path_a = tmp_path / "a.db"
     path_b = tmp_path / "b.db"
     folder = tmp_path / "sync"
@@ -319,148 +345,145 @@ async def test_delete_propagates_through_import_first_cycle(tmp_path, monkeypatc
     a = SyncEngine(path_a, "A1B2", now_fn=clock)
     b = SyncEngine(path_b, "C3D4", now_fn=clock)
 
-    # Both devices hold the job.
     await a.export_changes(folder)
     await b.import_changes(folder)
     assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'")
 
-    # A deletes through the real delete path (records a durable tombstone).
-    # Fixed deletion clock, strictly after the seed/export timestamps.
+    # A deletes through the real (soft) delete path.
     monkeypatch.setattr(dbmod, "DB_PATH", path_a)
-    monkeypatch.setattr(dbmod, "_sync_now", lambda: "2026-07-08T18:00:00.000Z")
     assert await dbmod.delete_jobs(["job-a"]) == 1
-    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:111"}]
+    assert _rows(path_a, "SELECT status FROM jobs WHERE id='job-a'")[0]["status"] == "deleted"
 
-    # Full cycle, import first: the old live record must NOT resurrect the job.
-    await a.import_changes(folder)
-    assert _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'") == []
+    # One cycle converges B to 'deleted'.
     await a.export_changes(folder)
+    await b.import_changes(folder)
+    row_b = _rows(path_b, "SELECT status FROM jobs WHERE external_id='111'")
+    assert row_b and row_b[0]["status"] == "deleted"
 
-    # B converges: job gone, and the tombstone is recorded durably on B too.
-    imp = await b.import_changes(folder)
-    assert imp.deletes >= 1
-    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'") == []
-    assert _rows(path_b, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:111"}]
-
-    # B, now holding the marker, also refuses to re-discover the same posting.
+    # And it's hidden from B's listing.
     monkeypatch.setattr(dbmod, "DB_PATH", path_b)
-    refound = await dbmod.upsert_job(
-        {"source": "greenhouse", "external_id": "111", "title": "Engineer",
-         "company": "Acme", "url": "https://x/111", "description": "Build things"}
-    )
-    assert refound is None
-    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'") == []
-
-    # Stays gone across another A cycle — no flip-flop.
-    await a.import_changes(folder)
-    await a.export_changes(folder)
-    assert _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'") == []
+    listing = await dbmod.get_jobs()
+    assert all(j["external_id"] != "111" for j in listing["jobs"])
 
 
-async def _delete_then_import_peer_live(tmp_path, monkeypatch, status):
-    """Delete greenhouse:777 on A, then import a peer live record (newer than
-    the deletion) with the given status. Returns (path_a, _rows)."""
+@pytest.mark.asyncio
+async def test_refetch_stays_deleted(tmp_path, monkeypatch):
+    """Permanent delete: once status='deleted', a later fetch of the same posting
+    finds it as a duplicate and does NOT resurrect it (status stays 'deleted')."""
     path_a = tmp_path / "a.db"
-    folder = tmp_path / "sync"
-    (folder / "changes").mkdir(parents=True)
-    clock = Clock()
-
     await _init_db(path_a, monkeypatch)
     monkeypatch.setattr(dbmod, "DB_PATH", path_a)
-    monkeypatch.setattr(dbmod, "_sync_now", lambda: "2026-07-08T18:00:00.000Z")
 
-    await dbmod.upsert_job(
-        {"source": "greenhouse", "external_id": "777", "title": "Dev",
-         "company": "Acme", "url": "https://x/777", "description": "d"}
-    )
+    posting = {"source": "greenhouse", "external_id": "777", "title": "Dev",
+               "company": "Acme", "url": "https://x/777", "description": "d"}
+    await dbmod.upsert_job(posting)
     jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'")[0]["id"]
     assert await dbmod.delete_jobs([jid]) == 1
 
-    peer = folder / "changes" / "PEER.jsonl"
-    peer.write_text(json.dumps({
-        "v": 1, "entity": "job", "id": "greenhouse:777",
-        "updated_at": "2026-07-08T19:00:00.000Z", "device": "PEER", "deleted": False,
-        "data": {"source": "greenhouse", "external_id": "777", "title": "Dev",
-                 "status": status, "date_discovered": "2026-07-08T09:00:00Z"},
-    }) + "\n")
-
-    a = SyncEngine(path_a, "A1B2", now_fn=clock)
-    await a.import_changes(folder)
-    return path_a
+    # Fetcher re-finds the same posting.
+    refound = await dbmod.upsert_job(posting)
+    assert refound is None
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='777'")[0]["status"] == "deleted"
 
 
 @pytest.mark.asyncio
-async def test_plain_refetch_stays_deleted(tmp_path, monkeypatch):
-    """A re-fetch ('discovered') of a still-open posting, even stamped after the
-    deletion, does NOT resurrect it — the delete sticks and keeps broadcasting."""
-    path_a = await _delete_then_import_peer_live(tmp_path, monkeypatch, "discovered")
-    assert _rows(path_a, "SELECT id FROM jobs WHERE external_id='777'") == []
-    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == [{"sync_id": "greenhouse:777"}]
-
-
-@pytest.mark.asyncio
-async def test_shortlist_overrides_a_deletion(tmp_path, monkeypatch):
-    """Engagement wins: a peer that shortlisted the job after the delete brings
-    it back (and clears the tombstone) — you can't lose a job by shortlisting it."""
-    path_a = await _delete_then_import_peer_live(tmp_path, monkeypatch, "shortlisted")
-    rows = _rows(path_a, "SELECT status FROM jobs WHERE external_id='777'")
-    assert rows and rows[0]["status"] == "shortlisted"
-    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []
-
-
-@pytest.mark.asyncio
-async def test_fresh_shortlist_survives_stale_tombstone_in_cycle(tmp_path, monkeypatch):
-    """The reported bug: shortlist a job locally while the folder already holds a
-    peer's older delete for it. A cycle must NOT wipe the fresh shortlist.
-
-    This only holds if the cycle EXPORTS BEFORE IT IMPORTS: the local shortlist
-    has to reach the folder (stamped now) before import evaluates the incoming
-    tombstone, or the engagement-override can't see it and the stale tombstone
-    deletes the job on both devices. Mirrors service.sync_once ordering."""
+async def test_newer_shortlist_beats_older_delete(tmp_path, monkeypatch):
+    """Symmetric LWW: a shortlist stamped after a peer's delete wins — you can't
+    lose a job by shortlisting it. No engaged-status heuristic. Export-before-
+    import (as the service runs it) stamps the local shortlist so it out-ranks
+    the older delete already in the folder."""
     path_a = tmp_path / "a.db"
     folder = tmp_path / "sync"
-    (folder / "changes").mkdir(parents=True)
-    clock = Clock()  # starts 2026-07-08 12:00, strictly after the tombstone below
+    clock = Clock()  # 2026-07-08 12:00+, strictly after the peer delete below
 
     await _init_db(path_a, monkeypatch)
-
-    # Local job the user is about to shortlist on this device.
     conn = sqlite3.connect(path_a)
     conn.execute(
         """INSERT INTO jobs (id, source, external_id, title, company, url,
              description, status, date_discovered)
            VALUES (?,?,?,?,?,?,?,?,?)""",
         ("job-x", "greenhouse", "555", "Dev", "Acme", "https://x/555", "d",
-         "discovered", "2026-07-08T09:00:00Z"),
+         "shortlisted", "2026-07-08T09:00:00Z"),
     )
     conn.commit()
     conn.close()
 
-    # A peer deleted the same posting earlier — its tombstone is already in the
-    # folder, at a time BEFORE this device's clock.
-    peer = folder / "changes" / "PEER.jsonl"
-    peer.write_text(json.dumps({
-        "v": 1, "entity": "job", "id": "greenhouse:555",
-        "updated_at": "2026-07-08T10:00:00.000Z", "device": "PEER", "deleted": True,
-    }) + "\n")
+    _write_peer_triage(folder, "greenhouse:555", "deleted", "2026-07-08T10:00:00.000Z")
 
-    # The user swipes to shortlist.
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    await a.export_changes(folder)   # local shortlist stamped ~12:00:01
+    await a.import_changes(folder)
+
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='555'")[0]["status"] == "shortlisted"
+    # The shortlist is now in the folder for the peer to converge on.
+    lines = [json.loads(l) for l in (folder / "changes" / "A1B2.jsonl").read_text().splitlines()]
+    tri = next(r for r in lines if r["entity"] == "triage" and r["id"] == "greenhouse:555")
+    assert tri["data"]["status"] == "shortlisted"
+
+
+@pytest.mark.asyncio
+async def test_newer_delete_beats_older_shortlist(tmp_path, monkeypatch):
+    """The mirror case: a delete stamped after our shortlist wins and hides the
+    job locally — deletes and shortlists are fully symmetric."""
+    path_a = tmp_path / "a.db"
+    folder = tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
     conn = sqlite3.connect(path_a)
-    conn.execute("UPDATE jobs SET status = 'shortlisted' WHERE id = 'job-x'")
+    conn.execute(
+        """INSERT INTO jobs (id, source, external_id, title, company, url,
+             description, status, date_discovered)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        ("job-y", "greenhouse", "556", "Dev", "Acme", "https://x/556", "d",
+         "shortlisted", "2026-07-08T09:00:00Z"),
+    )
     conn.commit()
     conn.close()
 
-    # One cycle in the real service order: EXPORT then IMPORT.
+    # Export our shortlist first (stamped ~12:00:01), then a peer deletes later.
     a = SyncEngine(path_a, "A1B2", now_fn=clock)
     await a.export_changes(folder)
+    _write_peer_triage(folder, "greenhouse:556", "deleted", "2026-07-08T20:00:00.000Z")
+
     await a.import_changes(folder)
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='556'")[0]["status"] == "deleted"
 
-    # The shortlist survived and the stale delete did not take.
-    rows = _rows(path_a, "SELECT status FROM jobs WHERE external_id='555'")
-    assert rows and rows[0]["status"] == "shortlisted"
-    assert _rows(path_a, "SELECT sync_id FROM deleted_jobs") == []
 
-    # And the shortlist is now in the folder for the peer to pick up.
-    lines = [json.loads(l) for l in (folder / "changes" / "A1B2.jsonl").read_text().splitlines()]
-    shortlist = next(r for r in lines if r["id"] == "greenhouse:555" and not r["deleted"])
-    assert shortlist["data"]["status"] == "shortlisted"
+@pytest.mark.asyncio
+async def test_gc_compacts_long_deleted_jobs(tmp_path, monkeypatch):
+    """GC strips heavy blobs from jobs deleted AND unseen for a while, but keeps
+    the row + 'deleted' status (durable delete) and leaves recent/live jobs."""
+    path_a = tmp_path / "a.db"
+    await _init_db(path_a, monkeypatch)
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+
+    # Deleted long ago (last seen 60 days back) with a heavy description.
+    await dbmod.upsert_job({"source": "greenhouse", "external_id": "gc1", "title": "Old",
+                            "company": "Acme", "url": "https://x/gc1", "description": "x" * 5000})
+    jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='gc1'")[0]["id"]
+    await dbmod.delete_jobs([jid])
+    old = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    conn = sqlite3.connect(path_a)
+    conn.execute("UPDATE jobs SET last_seen = ? WHERE id = ?", (old, jid))
+    conn.commit()
+    conn.close()
+
+    # Deleted but recently seen — keep its facts (might be un-deleted/re-fetched).
+    await dbmod.upsert_job({"source": "greenhouse", "external_id": "gc2", "title": "Recent",
+                            "company": "Acme", "url": "https://x/gc2", "description": "y" * 5000})
+    await dbmod.delete_jobs([_rows(path_a, "SELECT id FROM jobs WHERE external_id='gc2'")[0]["id"]])
+    # A live job — must be untouched.
+    await dbmod.upsert_job({"source": "greenhouse", "external_id": "gc3", "title": "Live",
+                            "company": "Acme", "url": "https://x/gc3", "description": "z" * 5000})
+
+    assert await dbmod.gc_deleted_jobs() == 1  # only the old deleted one
+
+    row1 = _rows(path_a, "SELECT status, description FROM jobs WHERE external_id='gc1'")[0]
+    assert row1["status"] == "deleted"   # still deleted — durability preserved
+    assert row1["description"] == ""     # heavy blob reclaimed
+    assert _rows(path_a, "SELECT description FROM jobs WHERE external_id='gc2'")[0]["description"] == "y" * 5000
+    assert _rows(path_a, "SELECT description FROM jobs WHERE external_id='gc3'")[0]["description"] == "z" * 5000
+
+    # Idempotent: a second run compacts nothing.
+    assert await dbmod.gc_deleted_jobs() == 0

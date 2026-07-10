@@ -5,6 +5,11 @@ import GRDB
 /// Real GRDB round-trip for the iOS SyncEngine, mirroring
 /// tests/test_sync_engine.py: export -> folder -> import across two in-memory
 /// databases ("device A" and "device B"), plus LWW, tombstone, and profile.
+///
+/// The user's lifecycle decision syncs as the separate `triage` entity, so every
+/// job emits BOTH a `job` (facts) and a `triage` record. A delete is just
+/// triage='deleted' — an ordinary last-writer-wins value, symmetric with a
+/// shortlist — so there is no tombstone table and no engaged-status override.
 final class SyncEngineTests: XCTestCase {
 
     /// Monotonic fake clock so last-writer-wins is deterministic.
@@ -25,6 +30,21 @@ final class SyncEngineTests: XCTestCase {
         }
     }
 
+    /// Append a peer's `triage` decision record to the folder (a delete is just
+    /// status='deleted').
+    private func writePeerTriage(_ folder: URL, syncId: String, status: String,
+                                 ts: String, device: String = "PEER") throws {
+        let changes = folder.appendingPathComponent("changes")
+        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+        let rec = "{\"v\":1,\"entity\":\"triage\",\"id\":\"\(syncId)\","
+            + "\"updated_at\":\"\(ts)\",\"device\":\"\(device)\",\"deleted\":false,"
+            + "\"data\":{\"status\":\"\(status)\"}}\n"
+        let url = changes.appendingPathComponent("\(device).jsonl")
+        var text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        text += rec
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     func testExportImportRoundTrip() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
@@ -40,13 +60,13 @@ final class SyncEngineTests: XCTestCase {
 
         let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
         let exp = try a.export(to: folder)
-        XCTAssertEqual(exp.live, 2)
+        XCTAssertEqual(exp.live, 3)   // job facts + triage + application
         XCTAssertEqual(exp.tombstones, 0)
 
         let dbB = try AppDatabase.inMemory()
         let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
         let imp = try b.importChanges(from: folder)
-        XCTAssertEqual(imp.upserts, 2)
+        XCTAssertEqual(imp.upserts, 3)
         XCTAssertEqual(imp.deferred, 0)
 
         try dbB.writer.read { dbc in
@@ -67,10 +87,10 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(reexp.total, 0)
     }
 
-    /// A shortlist (or dismiss) crosses devices: iOS models it on `triage`, but
-    /// the wire carries the desktop's single `status`. Device A shortlists;
-    /// device B must end up with triage='shortlisted' (in its Pipeline), not
-    /// stuck in the inbox — proving foldStatus/unfoldStatus round-trips.
+    /// A shortlist crosses devices via the `triage` entity: iOS models it on
+    /// `triage`, the wire carries the desktop's single `status`. Device A
+    /// shortlists; device B must end up with triage='shortlisted' (in its
+    /// Pipeline) — proving foldStatus/unfoldStatus round-trips.
     func testShortlistLifecycleCrossesDevices() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
@@ -78,17 +98,15 @@ final class SyncEngineTests: XCTestCase {
 
         let dbA = try AppDatabase.inMemory()
         let jobId = try seedJob(dbA, externalId: "222", fitScore: 80)
-        // Shortlist on A: triage moves, status stays 'discovered' (the "just
-        // shortlisted" pipeline stage).
         try dbA.writer.write { dbc in
             try dbc.execute(sql: "UPDATE jobs SET triage = 'shortlisted' WHERE id = ?", arguments: [jobId])
         }
         let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
-        XCTAssertEqual(try a.export(to: folder).live, 1)
+        XCTAssertEqual(try a.export(to: folder).live, 2)  // job facts + triage
 
         let dbB = try AppDatabase.inMemory()
         let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
-        XCTAssertEqual(try b.importChanges(from: folder).upserts, 1)
+        XCTAssertEqual(try b.importChanges(from: folder).upserts, 2)
 
         try dbB.writer.read { dbc in
             let job = try Row.fetchOne(dbc, sql: "SELECT * FROM jobs WHERE externalId = '222'")!
@@ -99,11 +117,9 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(try b.export(to: folder.appendingPathComponent("empty2")).total, 0)
     }
 
-    /// Migration: a device that already exported a shortlisted job under the old
-    /// format (status='discovered') has a snapshot that would suppress the
-    /// corrective export. Bumping the format version force-re-emits every row
-    /// once, so a fresh status='shortlisted' record supersedes the stale one —
-    /// then settles back to a no-op.
+    /// Migration: bumping the format version force-re-emits every current row
+    /// once, so a device stuck on an older snapshot re-broadcasts correctly, then
+    /// settles back to a no-op.
     func testFormatMigrationForcesReexport() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
@@ -116,54 +132,27 @@ final class SyncEngineTests: XCTestCase {
         }
         let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
 
-        // First export migrates (format absent -> re-emits) and sets format=2.
-        XCTAssertEqual(try a.export(to: folder).live, 1)
-        // Simulate a device stuck on the old format with a matching snapshot:
+        // First export (fresh device): job facts + triage.
+        XCTAssertEqual(try a.export(to: folder).live, 2)
+        // Simulate a device stuck on an old format with a matching snapshot:
         // roll the stored version back so the next export must force again.
         try dbA.writer.write { dbc in
             try dbc.execute(sql: "UPDATE sync_meta SET value = '1' WHERE key = 'sync_format'")
         }
         let folder2 = folder.appendingPathComponent("mig")
-        // Even though the snapshot already matches, force re-emits the job.
-        XCTAssertEqual(try a.export(to: folder2).live, 1)
+        // Even though the snapshot already matches, force re-emits both records.
+        XCTAssertEqual(try a.export(to: folder2).live, 2)
 
-        // The forced record folds correctly: B lands it in the Pipeline.
+        // The forced records fold correctly: B lands it in the Pipeline.
         let dbB = try AppDatabase.inMemory()
         let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
-        XCTAssertEqual(try b.importChanges(from: folder2).upserts, 1)
+        XCTAssertEqual(try b.importChanges(from: folder2).upserts, 2)
         try dbB.writer.read { dbc in
             let job = try Row.fetchOne(dbc, sql: "SELECT * FROM jobs WHERE externalId = '333'")!
             XCTAssertEqual(job["triage"] as String, "shortlisted")
         }
         // Migration is one-shot: a subsequent export is a no-op.
         XCTAssertEqual(try a.export(to: folder2.appendingPathComponent("after")).total, 0)
-    }
-
-    /// Back-compat: importing an OLD-format record (status='discovered' plus a
-    /// raw triage='shortlisted') must honor the explicit triage, not reset the
-    /// job to the inbox by deriving triage from status.
-    func testImportHonorsRawTriageFromOldFormat() throws {
-        let clock = Clock()
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("synctest-\(UUID().uuidString)")
-        let changes = folder.appendingPathComponent("changes")
-        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
-        // Hand-write an old-format job record (pre-fold wire shape).
-        let oldRecord = """
-        {"v":1,"entity":"job","id":"greenhouse:444","updated_at":"2026-07-08T10:00:00.000Z",\
-        "device":"OLD1","deleted":false,"data":{"source":"greenhouse","external_id":"444",\
-        "title":"Legacy Job","status":"discovered","triage":"shortlisted"}}
-        """
-        try (oldRecord + "\n").write(to: changes.appendingPathComponent("OLD1.jsonl"),
-                                     atomically: true, encoding: .utf8)
-
-        let dbB = try AppDatabase.inMemory()
-        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
-        XCTAssertEqual(try b.importChanges(from: folder).upserts, 1)
-        try dbB.writer.read { dbc in
-            let job = try Row.fetchOne(dbc, sql: "SELECT * FROM jobs WHERE externalId = '444'")!
-            XCTAssertEqual(job["triage"] as String, "shortlisted")  // NOT reset to 'new'
-        }
     }
 
     func testLastWriterWins() throws {
@@ -180,25 +169,27 @@ final class SyncEngineTests: XCTestCase {
         try a.export(to: folder)
         try b.importChanges(from: folder)
 
-        // B edits the job later than A's create -> B wins. Use a realistic
-        // state: applying implies the job was shortlisted first (triage drives
-        // the lifecycle; an untriaged inbox job is 'discovered' on the wire).
+        // B edits the job later than A's create -> B wins. A facts change
+        // (fitScore) and a decision change (triage/status) — two entities.
         try dbB.writer.write { dbc in
             try dbc.execute(sql: "UPDATE jobs SET fitScore = 99, triage = 'shortlisted', status = 'applied' WHERE externalId = '111'")
         }
         let bexp = try b.export(to: folder)
-        XCTAssertEqual(bexp.live, 1)
+        XCTAssertEqual(bexp.live, 2)  // job facts + triage
 
         try a.importChanges(from: folder)
         try dbA.writer.read { dbc in
             let job = try Row.fetchOne(dbc, sql: "SELECT fitScore, status, triage FROM jobs WHERE externalId = '111'")!
             XCTAssertEqual(job["fitScore"] as Double, 99)
-            XCTAssertEqual(job["status"] as String, "applied")   // status folds/unfolds intact
-            XCTAssertEqual(job["triage"] as String, "shortlisted")  // and the lifecycle axis crosses
+            XCTAssertEqual(job["status"] as String, "applied")     // decision status crosses
+            XCTAssertEqual(job["triage"] as String, "shortlisted") // lifecycle axis crosses
         }
     }
 
-    func testTombstoneDeletesAcrossDevices() throws {
+    /// The generic tombstone path (real application deletes, or a safety net if a
+    /// job row is physically removed). User-facing job deletes are soft — see
+    /// testDeleteViaTriagePropagates.
+    func testGenericTombstonePropagates() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("synctest-\(UUID().uuidString)")
@@ -217,16 +208,16 @@ final class SyncEngineTests: XCTestCase {
         try b.importChanges(from: folder)
         try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 1) }
 
-        // A deletes the job (cascade removes its application).
+        // A physically removes the job row (cascade removes its application).
         try dbA.writer.write { dbc in
             try dbc.execute(sql: "DELETE FROM applications")
             try dbc.execute(sql: "DELETE FROM jobs")
         }
         let aexp = try a.export(to: folder)
-        XCTAssertEqual(aexp.tombstones, 2)
+        XCTAssertEqual(aexp.tombstones, 3)  // job facts + triage + application
 
         let imp = try b.importChanges(from: folder)
-        XCTAssertEqual(imp.deletes, 2)
+        XCTAssertEqual(imp.deletes, 3)
         try dbB.writer.read { dbc in
             XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs"), 0)
             XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM applications"), 0)
@@ -258,10 +249,10 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedB["noticePeriod"], .string("2 weeks"))  // preserved
     }
 
-    func testDeletePropagatesThroughImportFirstCycle() throws {
-        // A hard delete must survive a real cycle (import BEFORE export) and
-        // reach the other device. Without a durable tombstone the import re-adds
-        // the job from the folder's still-live record — the resurrection bug.
+    /// The real delete path is soft: triage='deleted', synced as a `triage`
+    /// record. It reaches the other device and hides the job there — no tombstone
+    /// and no side table.
+    func testDeleteViaTriagePropagates() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("synctest-\(UUID().uuidString)")
@@ -272,122 +263,88 @@ final class SyncEngineTests: XCTestCase {
         let dbB = try AppDatabase.inMemory()
         let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
 
-        // Both devices hold the job.
         try a.export(to: folder)
         try b.importChanges(from: folder)
-        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 1) }
+        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs WHERE triage != 'deleted'"), 1) }
 
-        // A deletes through the real delete path (records a durable tombstone).
+        // A deletes through the real (soft) delete path.
         try JobStore(dbA).delete(jobId: jobId)
         try dbA.writer.read {
-            XCTAssertEqual(try String.fetchOne($0, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:111")
+            XCTAssertEqual(try String.fetchOne($0, sql: "SELECT triage FROM jobs WHERE externalId='111'"), "deleted")
         }
 
-        // Full cycle, import first: the old live record must NOT resurrect it.
-        try a.importChanges(from: folder)
-        try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+        // One cycle converges B to 'deleted' (hidden from its lists).
         try a.export(to: folder)
-
-        // B converges: job gone, and the tombstone is recorded durably on B too.
-        let imp = try b.importChanges(from: folder)
-        XCTAssertGreaterThanOrEqual(imp.deletes, 1)
+        try b.importChanges(from: folder)
         try dbB.writer.read { dbc in
-            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs"), 0)
-            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:111")
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='111'"), "deleted")
+            XCTAssertEqual(try JobStore(dbB).jobs().filter { $0.externalId == "111" }.count, 0)
         }
-
-        // B, now holding the marker, also refuses to re-discover the posting.
-        let summary = try JobStore(dbB).upsert(
-            [NormalizedJob(source: "greenhouse", externalId: "111", title: "Engineer", company: "Acme")])
-        XCTAssertEqual(summary.inserted, 0)
-        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
-
-        // Stays gone across another A cycle — no flip-flop.
-        try a.importChanges(from: folder)
-        try a.export(to: folder)
-        try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
     }
 
-    /// Delete greenhouse:777 on A, then import a peer live record (newer than the
-    /// deletion) with `status`. Returns the DB for assertions.
-    private func deleteThenImportPeerLive(status: String) throws -> AppDatabase {
-        let clock = Clock()
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("synctest-\(UUID().uuidString)")
-
+    /// Permanent delete: once triage='deleted', a later fetch of the same posting
+    /// matches it as a duplicate and does NOT resurrect it.
+    func testRefetchStaysDeleted() throws {
         let dbA = try AppDatabase.inMemory()
         let jobId = try seedJob(dbA, externalId: "777", fitScore: 5)
-        try JobStore(dbA).delete(jobId: jobId)   // tombstone at real-now
+        try JobStore(dbA).delete(jobId: jobId)
 
-        let changes = folder.appendingPathComponent("changes")
-        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
-        let rec = "{\"v\":1,\"entity\":\"job\",\"id\":\"greenhouse:777\","
-            + "\"updated_at\":\"2099-01-01T00:00:00.000Z\",\"device\":\"PEER\",\"deleted\":false,"
-            + "\"data\":{\"source\":\"greenhouse\",\"external_id\":\"777\",\"title\":\"Dev\","
-            + "\"status\":\"\(status)\",\"date_discovered\":\"2026-07-08T09:00:00Z\"}}\n"
-        try rec.write(to: changes.appendingPathComponent("PEER.jsonl"), atomically: true, encoding: .utf8)
-
-        try SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now).importChanges(from: folder)
-        return dbA
-    }
-
-    func testPlainRefetchStaysDeleted() throws {
-        // A re-fetch ('discovered') after the delete does NOT resurrect it.
-        let dbA = try deleteThenImportPeerLive(status: "discovered")
-        try dbA.writer.read { dbc in
-            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs WHERE externalId='777'"), 0)
-            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT sync_id FROM deleted_jobs"), "greenhouse:777")
+        let summary = try JobStore(dbA).upsert(
+            [NormalizedJob(source: "greenhouse", externalId: "777", title: "Engineer", company: "Acme")])
+        XCTAssertEqual(summary.inserted, 0)
+        try dbA.writer.read {
+            XCTAssertEqual(try String.fetchOne($0, sql: "SELECT triage FROM jobs WHERE externalId='777'"), "deleted")
         }
     }
 
-    func testShortlistOverridesDeletion() throws {
-        // Engagement wins: a peer that shortlisted the job after the delete
-        // brings it back and clears the tombstone — the reported bug.
-        let dbA = try deleteThenImportPeerLive(status: "shortlisted")
-        try dbA.writer.read { dbc in
-            // Canonical 'shortlisted' unfolds to triage=shortlisted on iOS.
-            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='777'"),
-                           "shortlisted")
-            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
-        }
-    }
-
-    func testFreshShortlistSurvivesStaleTombstoneInCycle() throws {
-        // The reported bug: shortlist a job on THIS device while the folder
-        // already holds a peer's older delete for it. A full cycle must not wipe
-        // the fresh shortlist. Only holds if the cycle EXPORTS BEFORE IMPORT —
-        // the shortlist must reach the folder (stamped now) before import
-        // evaluates the incoming tombstone. Mirrors SyncCoordinator.syncOnce.
-        let clock = Clock()  // ~2026, strictly after the tombstone below
+    /// Symmetric LWW: a shortlist stamped after a peer's delete wins — you can't
+    /// lose a job by shortlisting it. Export-before-import (as the coordinator
+    /// runs it) stamps the local shortlist so it out-ranks the older delete.
+    func testNewerShortlistBeatsOlderDelete() throws {
+        let clock = Clock()  // ~2026, strictly after the peer delete below
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("synctest-\(UUID().uuidString)")
 
         let dbA = try AppDatabase.inMemory()
         _ = try seedJob(dbA, externalId: "555", fitScore: 5)
-
-        // A peer deleted the same posting earlier — its tombstone is already in
-        // the folder, at a time BEFORE this device's clock.
-        let changes = folder.appendingPathComponent("changes")
-        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
-        let tomb = "{\"v\":1,\"entity\":\"job\",\"id\":\"greenhouse:555\","
-            + "\"updated_at\":\"2026-01-01T00:00:00.000Z\",\"device\":\"PEER\",\"deleted\":true}\n"
-        try tomb.write(to: changes.appendingPathComponent("PEER.jsonl"), atomically: true, encoding: .utf8)
-
-        // The user swipes to shortlist.
         try dbA.writer.write { dbc in
             try dbc.execute(sql: "UPDATE jobs SET triage = 'shortlisted' WHERE externalId = '555'")
         }
+        try writePeerTriage(folder, syncId: "greenhouse:555", status: "deleted",
+                            ts: "2026-01-01T00:00:00.000Z")
 
-        // One cycle in the real coordinator order: EXPORT then IMPORT.
         let engine = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
-        try engine.export(to: folder)
+        try engine.export(to: folder)         // local shortlist stamped ~2026-...
         try engine.importChanges(from: folder)
 
-        // The shortlist survived and the stale delete did not take.
         try dbA.writer.read { dbc in
             XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='555'"),
                            "shortlisted")
-            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM deleted_jobs"), 0)
+        }
+    }
+
+    /// The mirror case: a delete stamped after our shortlist wins and hides the
+    /// job locally — deletes and shortlists are fully symmetric.
+    func testNewerDeleteBeatsOlderShortlist() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        _ = try seedJob(dbA, externalId: "556", fitScore: 5)
+        try dbA.writer.write { dbc in
+            try dbc.execute(sql: "UPDATE jobs SET triage = 'shortlisted' WHERE externalId = '556'")
+        }
+
+        let engine = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        try engine.export(to: folder)  // shortlist stamped ~2026-...
+        try writePeerTriage(folder, syncId: "greenhouse:556", status: "deleted",
+                            ts: "2099-01-01T00:00:00.000Z")
+
+        try engine.importChanges(from: folder)
+        try dbA.writer.read { dbc in
+            XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='556'"),
+                           "deleted")
         }
     }
 }

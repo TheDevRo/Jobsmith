@@ -20,35 +20,6 @@ logger = logging.getLogger(__name__)
 DB_PATH = project_root() / "data" / "jobsmith.db"
 
 
-def _sync_now() -> str:
-    """Deletion clock in the sync layer's exact format (RFC3339 UTC, ms, 'Z')
-    so a `deleted_jobs.deleted_at` compares correctly against a change record's
-    `updated_at` under last-writer-wins. Must match sync/engine.py:iso_ms."""
-    dt = datetime.now(timezone.utc)
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
-
-
-async def _record_job_deletions(db: aiosqlite.Connection, job_ids: list[str]) -> None:
-    """Tombstone the given jobs by their sync id so the deletion propagates and
-    resists re-discovery. Only jobs with a stable external_id are syncable."""
-    if not job_ids:
-        return
-    placeholders = ",".join("?" for _ in job_ids)
-    cur = await db.execute(
-        f"SELECT source, external_id FROM jobs "
-        f"WHERE id IN ({placeholders}) AND external_id IS NOT NULL AND external_id != ''",
-        job_ids,
-    )
-    ts = _sync_now()
-    rows = await cur.fetchall()
-    for r in rows:
-        await db.execute(
-            "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
-            "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
-            (f"{r['source']}:{r['external_id']}", ts),
-        )
-
-
 async def _get_db() -> aiosqlite.Connection:
     """Open a connection with row_factory enabled."""
     db = await aiosqlite.connect(str(DB_PATH))
@@ -200,16 +171,13 @@ async def init_db() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_qa_cache_question ON qa_cache(question_normalized)"
         )
-        # Durable deletion tombstones. A hard-deleted job records its sync key
-        # here so (a) the folder-sync engine broadcasts the deletion to other
-        # devices and (b) a later fetch can't silently re-discover it. Keyed by
-        # the same "{source}:{external_id}" sync id the sync layer uses.
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS deleted_jobs (
-                sync_id    TEXT PRIMARY KEY,
-                deleted_at TEXT NOT NULL
-            )
-        """)
+        # Deletion is a soft, syncable state: a deleted job stays in `jobs` with
+        # status='deleted' (hidden from every listing) and propagates through the
+        # normal `triage` last-writer-wins path. No separate tombstone table.
+        # Speeds up the "exclude deleted / re-discovery" checks on the hot paths.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)"
+        )
         await db.commit()
 
         try:
@@ -260,17 +228,10 @@ async def upsert_job(job: dict) -> Optional[str]:
     try:
         job_id = job.get("id") or str(uuid.uuid4())
         tags = json.dumps(job.get("tags", []))
-        # Re-discovery guard: a job the user hard-deleted stays deleted, even if
-        # a later fetch re-finds the same posting. (Dismiss/pass is the "keep but
-        # hide" state; delete is "gone for good".)
-        ext_id = job.get("external_id", "")
-        if ext_id:
-            cur = await db.execute(
-                "SELECT 1 FROM deleted_jobs WHERE sync_id = ?",
-                (f"{job.get('source', 'unknown')}:{ext_id}",),
-            )
-            if await cur.fetchone():
-                return None
+        # Re-discovery is handled by the existing-row path below: a job the user
+        # deleted stays as a hidden row (status='deleted'), so a later fetch finds
+        # it as a duplicate and backfills facts WITHOUT ever touching status — it
+        # stays deleted. No separate guard needed.
         # Check for existing
         cursor = await db.execute(
             "SELECT id, description, salary_min, salary_max, salary_period, tags, apply_type FROM jobs WHERE source = ? AND external_id = ?",
@@ -436,6 +397,9 @@ async def get_jobs(
             else:
                 conditions.append("COALESCE(a.status, j.status) = ?")
                 params.append(status)
+        # Soft-deleted jobs are hidden from every listing unless explicitly asked for.
+        if status != "deleted":
+            conditions.append("j.status != 'deleted'")
         if source:
             conditions.append("j.source = ?")
             params.append(source)
@@ -537,14 +501,19 @@ async def get_jobs(
 
 
 async def delete_jobs(job_ids: list[str]) -> int:
-    """Delete jobs and their applications. Returns count of deleted jobs."""
+    """Soft-delete jobs: mark status='deleted' so the removal syncs (via the
+    `triage` LWW path) and resists re-discovery, while the row stays to hold the
+    tombstone-free 'deleted' state. Returns count of jobs affected."""
+    if not job_ids:
+        return 0
     db = await _get_db()
     try:
-        await _record_job_deletions(db, job_ids)
         placeholders = ",".join("?" for _ in job_ids)
-        await db.execute(f"DELETE FROM applications WHERE job_id IN ({placeholders})", job_ids)
-        await db.execute(f"DELETE FROM activity_log WHERE job_id IN ({placeholders})", job_ids)
-        cursor = await db.execute(f"DELETE FROM jobs WHERE id IN ({placeholders})", job_ids)
+        cursor = await db.execute(
+            f"UPDATE jobs SET status = 'deleted' "
+            f"WHERE id IN ({placeholders}) AND status != 'deleted'",
+            job_ids,
+        )
         await db.commit()
         return cursor.rowcount
     finally:
@@ -552,28 +521,15 @@ async def delete_jobs(job_ids: list[str]) -> int:
 
 
 async def delete_all_jobs() -> int:
-    """Delete all jobs/applications except those with status 'applied'. Returns count of deleted jobs."""
+    """Soft-delete every job except those with an 'applied' application (status
+    -> 'deleted'). Returns count of jobs affected."""
     db = await _get_db()
     try:
-        # Tombstone every job we're about to remove (all but surviving 'applied').
-        cur = await db.execute(
-            """SELECT id FROM jobs WHERE id NOT IN (
-                SELECT DISTINCT job_id FROM applications WHERE status = 'applied'
-            )"""
-        )
-        await _record_job_deletions(db, [r["id"] for r in await cur.fetchall()])
-        # Delete non-applied applications first
-        await db.execute("DELETE FROM applications WHERE status != 'applied'")
-        # Delete activity log entries for jobs we're about to remove
-        await db.execute(
-            """DELETE FROM activity_log WHERE job_id IS NULL
-               OR job_id NOT IN (SELECT DISTINCT job_id FROM applications WHERE status = 'applied')"""
-        )
-        # Delete jobs that have no surviving applied application
         cursor = await db.execute(
-            """DELETE FROM jobs WHERE id NOT IN (
-                SELECT DISTINCT job_id FROM applications WHERE status = 'applied'
-            )"""
+            """UPDATE jobs SET status = 'deleted'
+               WHERE status != 'deleted' AND id NOT IN (
+                   SELECT DISTINCT job_id FROM applications WHERE status = 'applied'
+               )"""
         )
         await db.commit()
         return cursor.rowcount
@@ -585,10 +541,11 @@ async def delete_jobs_filtered(
     status: str | None = None,
     source: str | None = None,
 ) -> int:
-    """Delete jobs matching filters. Returns count of deleted jobs."""
+    """Soft-delete jobs matching filters (status -> 'deleted'). Returns count of
+    jobs affected."""
     db = await _get_db()
     try:
-        conditions = []
+        conditions = ["status != 'deleted'"]
         params: list = []
         if status:
             conditions.append("status = ?")
@@ -596,20 +553,42 @@ async def delete_jobs_filtered(
         if source:
             conditions.append("source = ?")
             params.append(source)
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        where = "WHERE " + " AND ".join(conditions)
+        cursor = await db.execute(f"UPDATE jobs SET status = 'deleted' {where}", params)
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
 
-        # Get IDs first for cascading deletes
-        cursor = await db.execute(f"SELECT id FROM jobs {where}", params)
-        rows = await cursor.fetchall()
-        job_ids = [r["id"] for r in rows]
 
-        if job_ids:
-            await _record_job_deletions(db, job_ids)
-            placeholders = ",".join("?" for _ in job_ids)
-            await db.execute(f"DELETE FROM applications WHERE job_id IN ({placeholders})", job_ids)
-            await db.execute(f"DELETE FROM activity_log WHERE job_id IN ({placeholders})", job_ids)
+async def gc_deleted_jobs(older_than_days: int = 30) -> int:
+    """Reclaim space from long-soft-deleted jobs.
 
-        cursor = await db.execute(f"DELETE FROM jobs {where}", params)
+    A deleted job keeps its row (status='deleted') so the deletion stays durable
+    and keeps propagating through the `triage` sync path — but its heavy text
+    blobs (description, reasoning, reports) are dead weight. This strips those
+    blobs from jobs that have been deleted AND unseen in feeds for
+    `older_than_days` (a still-listed posting keeps its facts in case the user
+    un-deletes or it's re-fetched). Identity + status are preserved, so the
+    delete is untouched. Idempotent: already-stripped rows are skipped.
+
+    Returns the number of rows compacted. A stripped row re-exports once as a
+    smaller facts record; peers converge to the same compacted (still-hidden)
+    state.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE jobs
+               SET description = '', fit_reasoning = NULL, match_report = NULL,
+                   embellishment_log = NULL
+               WHERE status = 'deleted'
+                 AND last_seen IS NOT NULL AND last_seen < ?
+                 AND (description != '' OR fit_reasoning IS NOT NULL
+                      OR match_report IS NOT NULL OR embellishment_log IS NOT NULL)""",
+            (cutoff,),
+        )
         await db.commit()
         return cursor.rowcount
     finally:
