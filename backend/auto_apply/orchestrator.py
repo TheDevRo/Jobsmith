@@ -114,6 +114,20 @@ async def run_apply(
       { success, message, screenshot_path, manual_url, block_reason }
     """
     global _run_id, _active_ctrl, _apply_progress
+    # Defense-in-depth single-flight guard: this module drives the browser via
+    # singletons (_active_ctrl/_apply_progress), so a second concurrent run
+    # would stomp the live one. The API layer rejects duplicate triggers with
+    # 409, but guard here too in case a caller bypasses it. Do this before
+    # touching _run_id/_force_stop_event so we don't disturb the live run.
+    if _apply_progress.get("active"):
+        logger.warning("run_apply called while an apply is already active — refusing")
+        return {
+            "success":         False,
+            "message":         "An application is already being applied",
+            "screenshot_path": None,
+            "manual_url":      job.get("url", ""),
+            "block_reason":    "already_running",
+        }
     _current_run_id = str(uuid.uuid4())
     _run_id = _current_run_id
     _force_stop_event.clear()  # reset for this new apply run

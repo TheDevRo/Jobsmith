@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _apply_in_progress() -> bool:
+    """True while an apply run is live.
+
+    The orchestrator drives browser automation through module-level singletons
+    (``_active_ctrl``/``_apply_progress``), so only one apply can run at a time;
+    a second concurrent run would stomp that shared state. Callers use this to
+    reject a duplicate trigger with 409 rather than spawning a stomping task.
+    """
+    task = state.running_tasks.get("apply")
+    return bool(task and not task.done())
+
+
 class ApplicationContentUpdate(BaseModel):
     resume_content: Optional[str] = None
     cover_letter_content: Optional[str] = None
@@ -187,6 +199,8 @@ async def approve_application(app_id: str):
 
     cfg = state.load_config()
     if cfg.get("auto_apply", {}).get("enabled", False):
+        if _apply_in_progress():
+            raise HTTPException(409, "An application is already being applied")
         task = asyncio.create_task(bg._bg_apply(app_id))
         state.running_tasks["apply"] = task
         return {"message": "Application approved — auto-apply triggered"}
@@ -207,6 +221,8 @@ async def requeue_application(app_id: str):
 
 @router.post("/api/applications/{app_id}/apply", status_code=202)
 async def apply_application(app_id: str, request: Request):
+    if _apply_in_progress():
+        raise HTTPException(409, "An application is already being applied")
     task = asyncio.create_task(bg._bg_apply(app_id))
     state.running_tasks["apply"] = task
     state.running_tasks[f"apply:{app_id}"] = task
