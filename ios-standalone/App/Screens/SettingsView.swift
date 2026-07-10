@@ -26,6 +26,12 @@ struct SettingsView: View {
                                 ? "No keywords" : model.config.search.keywords.joined(separator: ", "))
                     }
                     NavigationLink {
+                        SearchScheduleView()
+                    } label: {
+                        row("Background search", system: "clock.arrow.2.circlepath",
+                            detail: BackgroundScheduler.isEnabled() ? "On" : "Off")
+                    }
+                    NavigationLink {
                         AISettingsView()
                     } label: {
                         row("AI connection", system: "cpu",

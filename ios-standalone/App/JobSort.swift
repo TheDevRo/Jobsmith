@@ -4,7 +4,7 @@ import JobsmithKit
 /// User-selectable ordering for job lists (Inbox deck, Pipeline sections).
 /// Persisted per-device via @AppStorage under `AppStorageKey.jobSort`.
 enum JobSort: String, CaseIterable, Identifiable {
-    case bestMatch, newest, salary, company
+    case bestMatch, newest, salary, company, board
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum JobSort: String, CaseIterable, Identifiable {
         case .newest: return "Newest"
         case .salary: return "Salary"
         case .company: return "Company A–Z"
+        case .board: return "Job board"
         }
     }
 
@@ -23,6 +24,7 @@ enum JobSort: String, CaseIterable, Identifiable {
         case .newest: return "clock"
         case .salary: return "dollarsign.circle"
         case .company: return "textformat"
+        case .board: return "rectangle.stack"
         }
     }
 
@@ -39,6 +41,12 @@ enum JobSort: String, CaseIterable, Identifiable {
             return jobs.sorted { (Self.salaryKey($0), $0.dateDiscovered) > (Self.salaryKey($1), $1.dateDiscovered) }
         case .company:
             return jobs.sorted { Self.companyKey($0) < Self.companyKey($1) }
+        case .board:
+            // Group by job board (A–Z); within a board, newest first.
+            return jobs.sorted {
+                let a = Self.boardKey($0), b = Self.boardKey($1)
+                return a == b ? $0.dateDiscovered > $1.dateDiscovered : a < b
+            }
         }
     }
 
@@ -56,6 +64,12 @@ enum JobSort: String, CaseIterable, Identifiable {
     /// Case-insensitive company name; blanks sort to the very end.
     private static func companyKey(_ job: Job) -> String {
         let name = job.company.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "\u{10FFFF}" : name.lowercased()
+    }
+
+    /// Case-insensitive source/board slug (e.g. "arbeitnow"); blanks sort last.
+    private static func boardKey(_ job: Job) -> String {
+        let name = job.source.trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? "\u{10FFFF}" : name.lowercased()
     }
 }
