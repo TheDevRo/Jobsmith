@@ -137,9 +137,16 @@ async function deleteAllJobs() {
 // ---- Utilities ----
 function escapeHtml(str) {
     if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    // Escape quotes too, not just <>&: the textContent/innerHTML trick leaves
+    // " and ' intact, so values interpolated into href="..."/onclick="..."
+    // attributes could still break out of the attribute. Explicit replace
+    // covers both text and attribute contexts; the output renders identically.
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function safeParseJSON(str, fallback) {

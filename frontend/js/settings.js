@@ -244,15 +244,25 @@ async function findCompanyBoards() {
         }
         results.innerHTML = r.matches.map(m => `
             <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.9rem">
-                <span style="flex:1">${SOURCE_LABELS[m.source] || m.source}: <a href="${m.board_url}" target="_blank" rel="noopener"><code>${m.slug}</code></a>${m.company_name ? ` ("${m.company_name}")` : ''} — ${m.jobs} open job${m.jobs === 1 ? '' : 's'}</span>
-                <button class="btn btn-secondary btn-sm" onclick="addBoardSlug('${m.config_key}', '${m.slug}', this)">Add</button>
+                <span style="flex:1">${escapeHtml(SOURCE_LABELS[m.source] || m.source)}: <a href="${escapeHtml(m.board_url)}" target="_blank" rel="noopener"><code>${escapeHtml(m.slug)}</code></a>${m.company_name ? ` ("${escapeHtml(m.company_name)}")` : ''} — ${m.jobs} open job${m.jobs === 1 ? '' : 's'}</span>
+                <button class="btn btn-secondary btn-sm" data-add-board data-config-key="${escapeHtml(m.config_key)}" data-slug="${escapeHtml(m.slug)}">Add</button>
             </div>
         `).join('');
+        wireAddBoardButtons(results);
     } catch (e) {
         results.textContent = `Lookup failed: ${e.message}`;
     } finally {
         btn.disabled = false;
     }
+}
+
+// Wire the "Add" buttons rendered by lookupBoards/suggestCompanies. Uses
+// data attributes + addEventListener instead of inline onclick so a board
+// slug or config_key can never break out of a JS-string attribute context.
+function wireAddBoardButtons(container) {
+    container.querySelectorAll('button[data-add-board]').forEach(btn => {
+        btn.addEventListener('click', () => addBoardSlug(btn.dataset.configKey, btn.dataset.slug, btn));
+    });
 }
 
 function addBoardSlug(configKey, slug, btn) {
@@ -296,20 +306,21 @@ async function suggestCompanies() {
                 : '<span style="font-size:0.75rem;padding:1px 6px;border-radius:8px;background:var(--bg-primary);border:1px solid var(--border)">AI pick</span>';
             const boards = s.boards.map(b => `
                 <div style="display:flex;align-items:center;gap:8px;padding:2px 0 2px 14px;font-size:0.85rem">
-                    <span style="flex:1">${SOURCE_LABELS[b.source] || b.source}: <a href="${b.board_url}" target="_blank" rel="noopener"><code>${b.slug}</code></a>${b.company_name ? ` ("${b.company_name}")` : ''} — ${b.jobs} open job${b.jobs === 1 ? '' : 's'}</span>
-                    <button class="btn btn-secondary btn-sm" onclick="addBoardSlug('${b.config_key}', '${b.slug}', this)">Add</button>
+                    <span style="flex:1">${escapeHtml(SOURCE_LABELS[b.source] || b.source)}: <a href="${escapeHtml(b.board_url)}" target="_blank" rel="noopener"><code>${escapeHtml(b.slug)}</code></a>${b.company_name ? ` ("${escapeHtml(b.company_name)}")` : ''} — ${b.jobs} open job${b.jobs === 1 ? '' : 's'}</span>
+                    <button class="btn btn-secondary btn-sm" data-add-board data-config-key="${escapeHtml(b.config_key)}" data-slug="${escapeHtml(b.slug)}">Add</button>
                 </div>`).join('');
             return `
                 <div style="padding:6px 0;border-bottom:1px solid var(--border)">
                     <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem">
-                        <strong>${s.name}</strong> ${origin}
+                        <strong>${escapeHtml(s.name)}</strong> ${origin}
                     </div>
-                    ${s.why ? `<div style="font-size:0.85rem;color:var(--text-secondary);margin:2px 0">${s.why}</div>` : ''}
+                    ${s.why ? `<div style="font-size:0.85rem;color:var(--text-secondary);margin:2px 0">${escapeHtml(s.why)}</div>` : ''}
                     ${boards}
                 </div>`;
         }).join('');
-        const aiNote = r.ai_error ? `<div class="hint" style="margin-top:6px">AI was unavailable (${r.ai_error}) — showing feed-mined suggestions only.</div>` : '';
+        const aiNote = r.ai_error ? `<div class="hint" style="margin-top:6px">AI was unavailable (${escapeHtml(r.ai_error)}) — showing feed-mined suggestions only.</div>` : '';
         results.innerHTML = rows + aiNote;
+        wireAddBoardButtons(results);
         btn.textContent = 'Suggest more';
     } catch (e) {
         results.textContent = `Suggestion failed: ${e.message}`;
@@ -1213,9 +1224,9 @@ async function verifyLinkedinLocations() {
         const rows = (data.results || []).map(r => {
             const icon = r.ok ? '✓' : '✗';
             const color = r.ok ? '#2a7' : '#c33';
-            const previewUrl = r.ok ? `https://www.linkedin.com/jobs/search?geoId=${r.geo_id}` : '';
+            const previewUrl = r.ok ? `https://www.linkedin.com/jobs/search?geoId=${encodeURIComponent(r.geo_id)}` : '';
             const detail = r.ok
-                ? `geoId <code>${r.geo_id}</code> <span class="hint">(${r.source})</span> &mdash; <a href="${previewUrl}" target="_blank" rel="noopener">preview on LinkedIn</a>`
+                ? `geoId <code>${escapeHtml(r.geo_id)}</code> <span class="hint">(${escapeHtml(r.source)})</span> &mdash; <a href="${escapeHtml(previewUrl)}" target="_blank" rel="noopener">preview on LinkedIn</a>`
                 : `<span class="hint">not resolved — LinkedIn will fall back to text matching</span>`;
             return `<div style="font-size:13px;line-height:1.6"><span style="color:${color};font-weight:600">${icon}</span> <strong>${escapeHtml(r.location)}</strong> → ${detail}</div>`;
         }).join('');
