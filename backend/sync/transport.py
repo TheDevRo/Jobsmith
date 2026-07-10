@@ -16,11 +16,14 @@ housekeeping the apps own:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from . import merge as mergelib
+
+logger = logging.getLogger(__name__)
 
 FORMAT_VERSION = "0.1.0-draft"
 
@@ -112,11 +115,19 @@ class SyncFolder:
         kept: list[str] = []
         seen: set[tuple[str, str]] = set()
         dropped = 0
-        for line in own_log.read_text().splitlines():
+        # Split on '\n' only — str.splitlines() also breaks on U+0085/U+2028/
+        # U+2029 etc., which can appear literally inside a record's string
+        # values and would corrupt the record (see merge.load_logs).
+        for line in own_log.read_text().split("\n"):
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning("sync: dropping unparseable line while compacting %s", own_log.name)
+                dropped += 1
+                continue
             key = (rec["entity"], rec["id"])
             w = winners.get(key)
             is_winner = (

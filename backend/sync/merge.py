@@ -20,9 +20,12 @@ Rules (see spec/FORMAT.md):
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_ts(value: str) -> datetime:
@@ -63,10 +66,21 @@ def load_logs(folder: Path) -> list[dict]:
     records: list[dict] = []
     changes_dir = folder / "changes"
     for log in sorted(changes_dir.glob("*.jsonl")):
-        for line in log.read_text().splitlines():
+        # Split on '\n' only. Records are newline-delimited and json.dumps
+        # escapes any real '\n' inside a string value, so '\n' is an
+        # unambiguous delimiter. str.splitlines() additionally breaks on
+        # U+0085/U+2028/U+2029/VT/FF, which json.dumps(ensure_ascii=False)
+        # leaves literal inside string values (e.g. a scraped job
+        # description) — splitting there tears a record in two and yields
+        # "Unterminated string" on parse.
+        for line in log.read_text().split("\n"):
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 records.append(json.loads(line))
+            except json.JSONDecodeError:
+                logger.warning("sync: skipping unparseable line in %s", log.name)
     return records
 
 
