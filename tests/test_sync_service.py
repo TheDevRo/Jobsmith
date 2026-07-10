@@ -83,7 +83,7 @@ async def test_document_round_trip(tmp_path, monkeypatch):
     svc_b = SyncService(cfg_b.load, cfg_b.save, lambda: str(path_b), tmp_path / "docs_b")
 
     res_a = await svc_a.sync_once()
-    assert res_a["exported"]["live"] == 2  # job + application
+    assert res_a["exported"]["live"] == 3  # job facts + triage + application
 
     # The blob landed in the shared content-addressed store.
     blobs = list((folder / "documents").glob("*.pdf"))
@@ -91,7 +91,7 @@ async def test_document_round_trip(tmp_path, monkeypatch):
     assert blobs[0].read_bytes() == b"%PDF-1.4 the-real-resume-bytes"
 
     res_b = await svc_b.sync_once()
-    assert res_b["imported"]["upserts"] == 2
+    assert res_b["imported"]["upserts"] == 3
 
     # B materialized the resume to a local file with identical bytes.
     row = sqlite3.connect(path_b).execute(

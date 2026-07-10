@@ -47,9 +47,13 @@ case "emit":
     var appCanon = SyncEntities.appIOSToCanonical(appIOS)
     appCanon["job_ref"] = .string("greenhouse:777")
 
+    // The lifecycle decision travels as its own `triage` entity now (folded from
+    // the iOS triage+status pair), separate from the job facts record.
     let records = [
         record("job", "greenhouse:777", "2026-07-08T10:00:00.000Z",
                SyncEntities.jobIOSToCanonical(jobIOS)),
+        record("triage", "greenhouse:777", "2026-07-08T10:00:00.500Z",
+               SyncEntities.triageIOSToCanonical(triage: "shortlisted", status: "discovered")),
         record("application", "app-ios-1", "2026-07-08T10:00:01.000Z", appCanon),
         record("profile", "me", "2026-07-08T10:00:02.000Z",
                SyncEntities.profileIOSToCanonical(profileIOS)),

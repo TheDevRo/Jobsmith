@@ -7,7 +7,7 @@
   "required": ["v", "entity", "id", "updated_at", "device", "deleted"],
   "properties": {
     "v": { "type": "integer", "minimum": 1 },
-    "entity": { "enum": ["job", "application", "answer", "profile"] },
+    "entity": { "enum": ["job", "triage", "application", "answer", "profile"] },
     "id": { "type": "string", "minLength": 1 },
     "updated_at": {
       "type": "string",

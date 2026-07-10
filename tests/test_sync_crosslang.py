@@ -59,7 +59,7 @@ async def test_swift_emitted_log_imports_into_desktop(tool, tmp_path, monkeypatc
         save_profile=lambda p: (saved.clear(), saved.update(p)),
     )
     imp = await engine.import_changes(folder)
-    assert imp.upserts == 2 and imp.profile_updated  # job + application, profile
+    assert imp.upserts == 3 and imp.profile_updated  # job facts + triage + application, profile
 
     # Lifecycle fold: the iOS row is triage='shortlisted' + status='discovered'.
     # The Swift mapper folds that pair into the canonical status the desktop

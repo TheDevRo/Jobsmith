@@ -64,14 +64,10 @@ public struct JobStore: Sendable {
                     try existing.update(dbc)
                     if changed { summary.updated += 1 }
                 } else {
-                    // Re-discovery guard: a job the user hard-deleted stays
-                    // deleted even if a later fetch re-finds the same posting.
-                    if !item.externalId.isEmpty,
-                       try Int.fetchOne(dbc,
-                            sql: "SELECT 1 FROM deleted_jobs WHERE sync_id = ?",
-                            arguments: ["\(item.source):\(item.externalId)"]) != nil {
-                        continue
-                    }
+                    // Re-discovery is handled by the existing-row branch above: a
+                    // deleted job stays as a hidden row (triage='deleted'), so a
+                    // re-fetch matches it as a duplicate and never regresses the
+                    // decision. A genuinely new posting inserts here.
                     try Job(from: item).insert(dbc)
                     summary.inserted += 1
                 }
@@ -97,6 +93,7 @@ public struct JobStore: Sendable {
         try db.writer.read { dbc in
             var request = Job.all()
             if let triage { request = request.filter(Column("triage") == triage) }
+            else { request = request.filter(Column("triage") != "deleted") }  // hide soft-deleted
             if let status { request = request.filter(Column("status") == status) }
             return try request
                 .order(Column("fitScore").desc, Column("dateDiscovered").desc)
@@ -148,30 +145,15 @@ public struct JobStore: Sendable {
         }
     }
 
+    /// Soft delete: mark the job triage='deleted' so it's hidden everywhere and
+    /// the removal propagates through the normal `triage` last-writer-wins path
+    /// (symmetric with shortlist). The row stays to hold the 'deleted' state, so
+    /// a later fetch of the same posting can't silently re-discover it.
     public func delete(jobId: String) throws {
         try db.writer.write { dbc in
-            // Record a durable tombstone (same "{source}:{externalId}" sync id
-            // the sync layer uses) so the deletion propagates to other devices
-            // and a later fetch can't silently re-discover the same posting.
-            if let job = try Job.fetchOne(dbc, key: jobId), !job.externalId.isEmpty {
-                try dbc.execute(
-                    sql: "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
-                       + "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
-                    arguments: ["\(job.source):\(job.externalId)", Self.syncNow()])
-            }
-            _ = try Job.deleteOne(dbc, key: jobId)
+            try dbc.execute(sql: "UPDATE jobs SET triage = 'deleted' WHERE id = ?",
+                            arguments: [jobId])
         }
-    }
-
-    /// Deletion clock in the sync layer's exact format (RFC3339 UTC, ms, 'Z')
-    /// so `deleted_jobs.deleted_at` compares correctly against a change
-    /// record's `updated_at` under last-writer-wins. Matches SyncEngine.isoMs.
-    static func syncNow() -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
-        return f.string(from: Date())
     }
 
     public struct Stats: Sendable, Equatable {
@@ -186,7 +168,7 @@ public struct JobStore: Sendable {
     public func stats() throws -> Stats {
         try db.writer.read { dbc in
             var stats = Stats()
-            stats.totalJobs = try Job.fetchCount(dbc)
+            stats.totalJobs = try Job.filter(Column("triage") != "deleted").fetchCount(dbc)
             stats.newInInbox = try Job.filter(Column("triage") == "new").fetchCount(dbc)
             stats.pendingReview = try Application.filter(Column("status") == "pending_review").fetchCount(dbc)
             stats.appliedTotal = try Application.filter(Column("status") == "applied").fetchCount(dbc)

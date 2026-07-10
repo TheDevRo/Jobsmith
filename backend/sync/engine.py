@@ -12,6 +12,17 @@ Two operations against a shared sync folder:
       to the DB and config, then record what we imported so a subsequent export
       re-emits nothing.
 
+Every entity — including a job's `triage` decision — goes through the SAME
+generic last-writer-wins path. A delete is not special: it is a `triage` record
+whose status is 'deleted', so a delete and a shortlist compete purely on their
+timestamps. There is no deletion side table and no re-discovery latch, and thus
+no engaged-status override.
+
+(A cycle still runs export_changes before import_changes so a just-made local
+decision is stamped `now` and can out-rank an older record already sitting in
+the folder. That ordering is inherent to snapshot-diff LWW — local edits have no
+timestamp until they're exported — not something specific to deletes.)
+
 State that makes this work without hooking every write path:
 
   sync_snapshot(entity, id, updated_at, deleted, data_json)
@@ -45,11 +56,6 @@ logger = logging.getLogger(__name__)
 RECORD_VERSION = 1
 PROFILE_ENTITY = "profile"
 PROFILE_ID = "me"
-
-# Canonical job statuses that do NOT count as the user keeping/advancing a job:
-# a fresh re-discovery and a dismiss. A deletion is resurrected only by a newer
-# live record whose status is anything else (shortlisted or a pipeline stage).
-_UNENGAGED_STATUSES = frozenset({"discovered", "passed"})
 
 
 def _now() -> datetime:
@@ -139,10 +145,6 @@ class SyncEngine:
                 key   TEXT PRIMARY KEY,
                 value TEXT
             );
-            CREATE TABLE IF NOT EXISTS deleted_jobs (
-                sync_id    TEXT PRIMARY KEY,
-                deleted_at TEXT NOT NULL
-            );
             """
         )
         await conn.commit()
@@ -154,22 +156,6 @@ class SyncEngine:
             (entity,),
         )
         return {r["id"]: dict(r) for r in await cur.fetchall()}
-
-    async def _load_deletions(self, conn) -> dict[str, str]:
-        """{sync_id: deleted_at} — durable job tombstones (see database.py).
-        The `job` entity's sync id is exactly this table's sync_id."""
-        cur = await conn.execute("SELECT sync_id, deleted_at FROM deleted_jobs")
-        return {r["sync_id"]: r["deleted_at"] for r in await cur.fetchall()}
-
-    async def _put_deletion(self, conn, sync_id, deleted_at) -> None:
-        await conn.execute(
-            "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
-            "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
-            (sync_id, deleted_at),
-        )
-
-    async def _clear_deletion(self, conn, sync_id) -> None:
-        await conn.execute("DELETE FROM deleted_jobs WHERE sync_id = ?", (sync_id,))
 
     async def _put_snapshot(self, conn, entity, sid, updated_at, deleted, data_json):
         await conn.execute(
@@ -223,7 +209,6 @@ class SyncEngine:
         records: list[dict] = []
         try:
             ts = await self._next_ts(conn)
-            deletions = await self._load_deletions(conn)
 
             for adapter in self._adapters(folder):
                 current = await adapter.snapshot(conn)
@@ -240,26 +225,10 @@ class SyncEngine:
                         await self._put_snapshot(conn, adapter.entity, sid, ts, False, cj)
                         stats.live += 1
                 for sid, prev in snap.items():
-                    # Job deletions are broadcast authoritatively from deleted_jobs
-                    # (below) at their recorded time, not inferred here at export
-                    # time — skip them so we don't double-emit with a wrong clock.
-                    if adapter.entity == "job" and sid in deletions:
-                        continue
                     if not prev["deleted"] and sid not in current:
                         records.append(self._tombstone_record(adapter.entity, sid, ts))
                         await self._put_snapshot(conn, adapter.entity, sid, ts, True, None)
                         stats.tombstones += 1
-
-            # Durable job tombstones: broadcast each recorded deletion once, at
-            # the time it happened (the LWW clock), so a peer's older live record
-            # loses and the row stays gone everywhere.
-            job_snap = await self._load_snapshot(conn, "job")
-            for sid, del_at in deletions.items():
-                prev = job_snap.get(sid)
-                if prev is None or not prev["deleted"] or prev["updated_at"] != del_at:
-                    records.append(self._tombstone_record("job", sid, del_at))
-                    await self._put_snapshot(conn, "job", sid, del_at, True, None)
-                    stats.tombstones += 1
 
             if self._load_profile is not None:
                 prof = self._load_profile()
@@ -325,58 +294,14 @@ class SyncEngine:
         adapters = self._adapters(folder)
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
-            deletions = await self._load_deletions(conn)
-            job_adapter = adapters_by_entity.get("job")
-
-            # A deletion is overridden only by a newer *engaged* live record —
-            # one where the user kept/advanced the job (shortlisted or into the
-            # pipeline). A plain re-discovery ('discovered') or a dismiss
-            # ('passed') never resurrects a delete. Find the newest engaged live
-            # timestamp per job so a stale tombstone can't nuke a job the user
-            # just shortlisted on another device.
-            newest_engaged: dict[str, str] = {}
-            for rec in records:
-                if rec.get("entity") == "job" and not rec.get("deleted"):
-                    st = (rec.get("data") or {}).get("status", "discovered")
-                    if st not in _UNENGAGED_STATUSES:
-                        sid, ts = rec["id"], rec["updated_at"]
-                        if ts > newest_engaged.get(sid, ""):
-                            newest_engaged[sid] = ts
-
-            # Fold job tombstones into the durable deletion set (and drop the
-            # row) unless a newer engaged live record supersedes them. This is
-            # how a re-fetched posting stays deleted while a shortlist wins.
-            for rec in records:
-                if rec.get("entity") != "job" or not rec.get("deleted"):
-                    continue
-                sid, ts = rec["id"], rec["updated_at"]
-                if newest_engaged.get(sid, "") > ts:
-                    continue  # user re-engaged after this delete — keep the job
-                if sid not in deletions:
-                    deletions[sid] = ts
-                    await self._put_deletion(conn, sid, ts)
-                    if job_adapter is not None:
-                        await job_adapter.apply_tombstone(conn, sid)
-                        stats.deletes += 1
-                elif ts > deletions[sid]:
-                    deletions[sid] = ts
-                    await self._put_deletion(conn, sid, ts)
-
-            # Live upserts, FK order (job -> answer -> application).
+            # Live upserts, dependency order (job facts -> triage -> answer ->
+            # application). A record whose dependency isn't present yet defers
+            # and resolves on a later import.
             deferred: set[tuple[str, str]] = set()
             for adapter in adapters:
                 for (entity, sid), rec in winners.items():
                     if entity != adapter.entity or rec.get("deleted"):
                         continue
-                    # A tombstoned job comes back only via a newer engaged live
-                    # record (shortlist/pipeline); a re-fetch stays deleted.
-                    if entity == "job" and sid in deletions:
-                        st = (rec.get("data") or {}).get("status", "discovered")
-                        if rec["updated_at"] > deletions[sid] and st not in _UNENGAGED_STATUSES:
-                            await self._clear_deletion(conn, sid)
-                            del deletions[sid]
-                        else:
-                            continue
                     try:
                         await adapter.apply_live(conn, sid, rec.get("data", {}))
                         stats.upserts += 1
@@ -386,11 +311,10 @@ class SyncEngine:
                         stats.deferred_keys.append(f"{entity}:{sid}")
                         logger.info("sync import deferred: %s", e)
 
-            # Tombstones, reverse FK order (children before parents). Jobs are
-            # already handled by the permanent-latch fold above.
+            # Tombstones, reverse dependency order (children before parents). A
+            # job delete is NOT here — it is a live `triage` record whose status
+            # is 'deleted', applied by the upsert loop above.
             for adapter in reversed(adapters):
-                if adapter.entity == "job":
-                    continue
                 for (entity, sid), rec in winners.items():
                     if entity == adapter.entity and rec.get("deleted"):
                         await adapter.apply_tombstone(conn, sid)

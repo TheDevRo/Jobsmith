@@ -21,15 +21,21 @@ Booleans are carried as JSON true/false; JSON-string columns (tags, reports,
 custom_answers) are carried as parsed objects so the payload is clean and
 language-neutral.
 
-Lifecycle field (status vs. triage):
-  The desktop models the inbox/shortlist/dismiss lifecycle on the single `job.status`
-  column (discovered | shortlisted | passed | <pipeline sub-stage>). iOS splits it
-  across two columns — `triage` (new | shortlisted | dismissed) and `status` (the
-  pipeline sub-stage). The canonical wire uses the desktop's `status` vocabulary, so
-  the desktop maps 1:1 here while iOS folds its (triage, status) pair into `status`
-  on export and unfolds it on import (SyncEntities.foldStatus / unfoldStatus). That
-  is why `triage` is NOT a synced column on this side: a shortlist or a dismiss on
-  either app must reach the other's Pipeline/Inbox through `status` alone.
+Lifecycle decision (the `triage` entity):
+  The user's lifecycle decision about a job — discovered | shortlisted | passed |
+  deleted | <pipeline sub-stage> — travels as its OWN entity (`triage`), keyed by
+  the job's sync id, NOT as a field on `job`. This split is deliberate: posting
+  facts (title, salary, …) churn whenever a fetcher re-enriches a listing, while
+  the decision changes only when the user acts. Keeping them in one record made a
+  local fact-backfill re-emit the local status and clobber a decision another
+  device had just made. As separate entities they are independent last-writer-wins
+  streams, so a shortlist and a delete each win purely on their own timestamp.
+
+  A delete is simply status='deleted' — an ordinary live value, never a tombstone —
+  so shortlist and delete are symmetric and need no side table or resurrection
+  heuristics. The desktop stores the decision on its single `jobs.status` column;
+  iOS folds its (triage, status) pair into the same canonical `status`
+  (SyncEntities.foldStatus / unfoldStatus).
 """
 from __future__ import annotations
 
@@ -67,12 +73,14 @@ def _dumps(value) -> Optional[str]:
 class JobAdapter:
     entity = "job"
 
-    # Portable columns. Excludes volatile/local: last_seen, times_seen, the
-    # estimated_salary_* and salary/quality caches (all re-derivable per device).
+    # Portable POSTING FACTS only. `status` is deliberately NOT here — the user's
+    # lifecycle decision travels as the separate `triage` entity (see TriageAdapter)
+    # so fact churn never races with a decision. Excludes volatile/local too:
+    # last_seen, times_seen, estimated_salary_* and salary/quality caches.
     SCALAR = (
         "source", "external_id", "title", "company", "location", "url",
         "description", "salary_min", "salary_max", "salary_period",
-        "date_posted", "date_discovered", "status", "fit_score",
+        "date_posted", "date_discovered", "fit_score",
         "fit_reasoning", "apply_type",
     )
     BOOL = ("is_remote", "is_easy_apply")
@@ -138,6 +146,54 @@ class JobAdapter:
         await conn.execute("DELETE FROM applications WHERE job_id = ?", (row["id"],))
         await conn.execute("DELETE FROM activity_log WHERE job_id = ?", (row["id"],))
         await conn.execute("DELETE FROM jobs WHERE id = ?", (row["id"],))
+
+
+# ---------------------------------------------------------------------------
+# triage  (the user's lifecycle decision about a job)
+# ---------------------------------------------------------------------------
+
+class TriageAdapter:
+    """The user's lifecycle decision for a job, keyed by the job's sync id.
+
+    Carries one canonical `status`:
+        discovered | shortlisted | passed | deleted | <pipeline sub-stage>
+    A delete is just status='deleted' — a normal last-writer-wins value, not a
+    tombstone — so shortlist and delete are symmetric. Backed by the desktop's
+    `jobs.status` column; a decision for a job whose facts haven't been imported
+    yet defers and applies on a later import (same pattern as `application`)."""
+
+    entity = "triage"
+
+    async def snapshot(self, conn: aiosqlite.Connection) -> dict[str, dict]:
+        cur = await conn.execute(
+            "SELECT source, external_id, status FROM jobs "
+            "WHERE external_id IS NOT NULL AND external_id != ''"
+        )
+        out: dict[str, dict] = {}
+        for row in await cur.fetchall():
+            r = dict(row)
+            out[JobAdapter.sync_id(r["source"], r["external_id"])] = {
+                "status": r["status"] or "discovered"
+            }
+        return out
+
+    async def apply_live(self, conn: aiosqlite.Connection, sync_id: str, data: dict) -> None:
+        source, _, external_id = sync_id.partition(":")
+        cur = await conn.execute(
+            "SELECT id FROM jobs WHERE source = ? AND external_id = ?",
+            (source, external_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise DeferRecord(f"triage {sync_id}: job facts not present yet")
+        await conn.execute(
+            "UPDATE jobs SET status = ? WHERE id = ?",
+            (data.get("status", "discovered"), row["id"]),
+        )
+
+    async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        # A decision is never tombstoned — 'deleted' is a live status value.
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -278,10 +334,11 @@ class AnswerAdapter:
         )
 
 
-# Live-apply order respects FK dependencies (a job must exist before its
-# application). Tombstones are applied in reverse so children go before parents.
+# Live-apply order respects dependencies (a job's facts must exist before its
+# triage decision or its application). Tombstones are applied in reverse so
+# children go before parents.
 def db_adapters(document_store=None):
-    return (JobAdapter(), AnswerAdapter(), ApplicationAdapter(document_store))
+    return (JobAdapter(), TriageAdapter(), AnswerAdapter(), ApplicationAdapter(document_store))
 
 
 DB_ADAPTERS = db_adapters()

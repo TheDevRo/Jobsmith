@@ -21,9 +21,10 @@ public final class SyncEngine {
     enum Kind { case text, int, double, bool, json }
 
     /// Bumped when the canonical wire format changes in a way that makes this
-    /// device's previously-emitted records wrong (v2: fold triage into status).
-    /// A device whose stored `sync_format` is older force-re-exports once.
-    static let syncFormatVersion = 2
+    /// device's previously-emitted records wrong (v2: fold triage into status;
+    /// v3: split job facts from the `triage` decision entity). A device whose
+    /// stored `sync_format` is older force-re-exports once.
+    static let syncFormatVersion = 3
 
     let db: AppDatabase
     let deviceId: String
@@ -47,14 +48,16 @@ public final class SyncEngine {
 
     // MARK: column metadata (iOS camelCase)
 
+    // Job FACTS columns only. `status` and `triage` are deliberately excluded —
+    // the user's lifecycle decision syncs as the separate `triage` entity.
     static let jobKinds: [(String, Kind)] = [
         ("source", .text), ("externalId", .text), ("title", .text), ("company", .text),
         ("location", .text), ("url", .text), ("description", .text), ("salaryMin", .int),
         ("salaryMax", .int), ("salaryPeriod", .text), ("datePosted", .text),
-        ("dateDiscovered", .text), ("status", .text), ("fitScore", .double),
+        ("dateDiscovered", .text), ("fitScore", .double),
         ("fitReasoning", .text), ("applyType", .text), ("isRemote", .bool),
         ("isEasyApply", .bool), ("tags", .json), ("matchReport", .json),
-        ("embellishmentLog", .json), ("triage", .text), ("salaryEstimate", .json),
+        ("embellishmentLog", .json), ("salaryEstimate", .json),
     ]
     static let appKinds: [(String, Kind)] = [
         ("resumeContent", .text), ("coverLetterContent", .text), ("customAnswers", .json),
@@ -128,34 +131,7 @@ public final class SyncEngine {
                 deleted INTEGER NOT NULL DEFAULT 0, data_json TEXT,
                 PRIMARY KEY (entity, id));
             CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT);
-            CREATE TABLE IF NOT EXISTS deleted_jobs (sync_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL);
             """)
-    }
-
-    /// {sync_id: deleted_at} — durable job tombstones (see JobStore.delete). The
-    /// `job` entity's sync id is exactly this table's sync_id.
-    private func loadDeletions(_ dbc: Database) throws -> [String: String] {
-        var out: [String: String] = [:]
-        for row in try Row.fetchAll(dbc, sql: "SELECT sync_id, deleted_at FROM deleted_jobs") {
-            out[row["sync_id"] as String] = (row["deleted_at"] as String)
-        }
-        return out
-    }
-
-    /// Canonical job statuses that do NOT count as the user keeping/advancing a
-    /// job (a fresh re-discovery and a dismiss). A deletion is resurrected only
-    /// by a newer live record whose status is anything else.
-    private static let unengagedStatuses: Set<String> = ["discovered", "passed"]
-
-    private func putDeletion(_ dbc: Database, _ syncId: String, _ deletedAt: String) throws {
-        try dbc.execute(
-            sql: "INSERT INTO deleted_jobs (sync_id, deleted_at) VALUES (?, ?) "
-               + "ON CONFLICT(sync_id) DO UPDATE SET deleted_at = excluded.deleted_at",
-            arguments: [syncId, deletedAt])
-    }
-
-    private func clearDeletion(_ dbc: Database, _ syncId: String) throws {
-        try dbc.execute(sql: "DELETE FROM deleted_jobs WHERE sync_id = ?", arguments: [syncId])
     }
 
     private struct Snap { var updatedAt: String; var deleted: Bool; var dataJSON: String? }
@@ -233,6 +209,21 @@ public final class SyncEngine {
         return out
     }
 
+    /// The user's lifecycle decision per job (canonical `status`), keyed by sync
+    /// id — the `triage` entity. Folds the iOS (triage, status) pair.
+    private func triageSnapshot(_ dbc: Database) throws -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for row in try Row.fetchAll(dbc, sql:
+            "SELECT source, externalId, status, triage FROM jobs WHERE externalId IS NOT NULL AND externalId != ''") {
+            let source = (row["source"] as String?) ?? ""
+            let ext = (row["externalId"] as String?) ?? ""
+            let status = (row["status"] as String?) ?? "discovered"
+            let triage = (row["triage"] as String?) ?? "new"
+            out["\(source):\(ext)"] = SyncEntities.triageIOSToCanonical(triage: triage, status: status)
+        }
+        return out
+    }
+
     private func appSnapshot(_ dbc: Database, _ store: DocumentStore?) throws -> [String: [String: JSONValue]] {
         var out: [String: [String: JSONValue]] = [:]
         let cols = (["id"] + SyncEngine.appKinds.map { "a.\($0.0)" } + SyncEngine.appDocs.map { "a.\($0.1)" }).joined(separator: ", ")
@@ -284,8 +275,6 @@ public final class SyncEngine {
             let force = (try meta(dbc, "pending_migration")) == "1"
             if force { try setMeta(dbc, "pending_migration", "0") }
 
-            let deletions = try loadDeletions(dbc)
-
             func diff(entity: String, current: [String: [String: JSONValue]]) throws {
                 let snap = try loadSnapshot(dbc, entity)
                 for (id, data) in current {
@@ -300,10 +289,6 @@ public final class SyncEngine {
                     }
                 }
                 for (id, prev) in snap where !prev.deleted && current[id] == nil {
-                    // Job deletions broadcast authoritatively from deleted_jobs
-                    // (below) at their recorded time, not inferred here at export
-                    // time — skip so we don't double-emit with the wrong clock.
-                    if entity == "job" && deletions[id] != nil { continue }
                     records.append(ChangeRecord(entity: entity, id: id, updatedAt: ts,
                                                 device: deviceId, deleted: true, data: nil))
                     try putSnapshot(dbc, entity, id, ts, true, nil)
@@ -312,21 +297,8 @@ public final class SyncEngine {
             }
 
             try diff(entity: "job", current: try jobSnapshot(dbc))
+            try diff(entity: "triage", current: try triageSnapshot(dbc))
             try diff(entity: "application", current: try appSnapshot(dbc, store))
-
-            // Durable job tombstones: broadcast each recorded deletion once, at
-            // the time it happened (the LWW clock), so a peer's older live record
-            // loses and the row stays gone everywhere.
-            let jobSnap = try loadSnapshot(dbc, "job")
-            for (syncId, delAt) in deletions {
-                let prev = jobSnap[syncId]
-                if prev == nil || !prev!.deleted || prev!.updatedAt != delAt {
-                    records.append(ChangeRecord(entity: "job", id: syncId, updatedAt: delAt,
-                                                device: deviceId, deleted: true, data: nil))
-                    try putSnapshot(dbc, "job", syncId, delAt, true, nil)
-                    stats.tombstones += 1
-                }
-            }
 
             if let iosProfile = loadProfile() {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
@@ -370,58 +342,29 @@ public final class SyncEngine {
             try ensureTables(dbc)
             try markMigrationIfNeeded(dbc)
             var deferred = Set<String>()
-            var deletions = try loadDeletions(dbc)
 
-            // A deletion is overridden only by a newer *engaged* live record —
-            // one where the user kept/advanced the job (shortlisted or into the
-            // pipeline). A plain re-discovery ('discovered') or a dismiss
-            // ('passed') never resurrects a delete. Newest engaged live ts per
-            // job, so a stale tombstone can't nuke a job just shortlisted
-            // elsewhere.
-            var newestEngaged: [String: String] = [:]
-            for rec in logs where rec.entity == "job" && !rec.deleted {
-                let st = rec.data?["status"]?.stringValue ?? "discovered"
-                if !Self.unengagedStatuses.contains(st), rec.updatedAt > (newestEngaged[rec.id] ?? "") {
-                    newestEngaged[rec.id] = rec.updatedAt
-                }
-            }
-
-            // Fold job tombstones into the durable deletion set (and drop the
-            // row) unless a newer engaged live record supersedes them — so a
-            // re-fetch stays deleted while a shortlist wins.
-            for rec in logs where rec.entity == "job" && rec.deleted {
-                if (newestEngaged[rec.id] ?? "") > rec.updatedAt { continue }
-                if deletions[rec.id] == nil {
-                    deletions[rec.id] = rec.updatedAt
-                    try putDeletion(dbc, rec.id, rec.updatedAt)
-                    try deleteJob(dbc, rec.id); stats.deletes += 1
-                } else if rec.updatedAt > deletions[rec.id]! {
-                    deletions[rec.id] = rec.updatedAt
-                    try putDeletion(dbc, rec.id, rec.updatedAt)
-                }
-            }
-
-            // Live: jobs before applications (FK).
+            // Live upserts in dependency order. A delete is NOT special here — it
+            // is a `triage` record whose canonical status is 'deleted', applied
+            // like any other decision. Facts first, then the decision, then apps.
             for (key, rec) in winners where key.entity == "job" && !rec.deleted {
-                // A tombstoned job comes back only via a newer engaged live
-                // record (shortlist/pipeline); a re-fetch stays deleted.
-                if let delAt = deletions[key.id] {
-                    let st = rec.data?["status"]?.stringValue ?? "discovered"
-                    if rec.updatedAt > delAt, !Self.unengagedStatuses.contains(st) {
-                        try clearDeletion(dbc, key.id); deletions[key.id] = nil
-                    } else {
-                        continue
-                    }
-                }
                 try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
+            }
+            for (key, rec) in winners where key.entity == "triage" && !rec.deleted {
+                do { try applyTriage(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
+                catch is DeferError { deferred.insert("triage:\(key.id)"); stats.deferred += 1 }
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
                 do { try applyApplication(dbc, key.id, rec.data ?? [:], store); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application:\(key.id)"); stats.deferred += 1 }
             }
-            // Tombstones: applications only — jobs are handled by the fold above.
+            // Tombstones, children before parents. `triage` never tombstones
+            // (a delete is a live 'deleted' status). Job tombstones are the
+            // generic safety net for a physically-removed row.
             for (key, rec) in winners where key.entity == "application" && rec.deleted {
                 try dbc.execute(sql: "DELETE FROM applications WHERE id = ?", arguments: [key.id]); stats.deletes += 1
+            }
+            for (key, rec) in winners where key.entity == "job" && rec.deleted {
+                try deleteJob(dbc, key.id); stats.deletes += 1
             }
             // Profile.
             if let rec = winners[SyncMerge.Key(entity: "profile", id: "me")], !rec.deleted {
@@ -470,6 +413,20 @@ public final class SyncEngine {
             try dbc.execute(sql: "INSERT INTO jobs (\(allCols.joined(separator: ", "))) VALUES (\(placeholders))",
                             arguments: StatementArguments([UUID().uuidString] + args))
         }
+    }
+
+    /// Apply a `triage` decision: unfold the canonical status into the iOS
+    /// (triage, status) pair and write it onto the job row. Defers if the job's
+    /// facts haven't been imported yet.
+    private func applyTriage(_ dbc: Database, _ syncId: String, _ canonData: [String: JSONValue]) throws {
+        let parts = syncId.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let localId = try Row.fetchOne(dbc, sql: "SELECT id FROM jobs WHERE source = ? AND externalId = ?",
+                                             arguments: [String(parts[0]), String(parts[1])])?["id"] as String?
+        else { throw DeferError() }
+        let (triage, status) = SyncEntities.triageCanonicalToIOS(canonData)
+        try dbc.execute(sql: "UPDATE jobs SET status = ?, triage = ? WHERE id = ?",
+                        arguments: [status, triage, localId])
     }
 
     private func applyApplication(_ dbc: Database, _ id: String, _ canonData: [String: JSONValue],
@@ -524,6 +481,7 @@ public final class SyncEngine {
     private func rebuildSnapshot(_ dbc: Database, _ winners: [SyncMerge.Key: ChangeRecord],
                                  _ deferred: Set<String>, _ store: DocumentStore?) throws {
         let jobs = try jobSnapshot(dbc)
+        let triage = try triageSnapshot(dbc)
         let apps = try appSnapshot(dbc, store)
         for (key, rec) in winners {
             if rec.deleted {
@@ -536,6 +494,9 @@ public final class SyncEngine {
                 dataJSON = canon(SyncEntities.profileIOSToCanonical(loadProfile() ?? [:]))
             case "job":
                 guard let known = jobs[key.id] else { continue }
+                dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
+            case "triage":
+                guard let known = triage[key.id] else { continue }
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             case "application":
                 guard let known = apps[key.id] else { continue }
