@@ -67,6 +67,10 @@ final class AppModel {
     /// regardless of what earlier runs or manual fetches left.
     private func seedDemoData() {
         try? FileManager.default.removeItem(at: AppGroup.configURL)
+        // Reset background-search prefs so UI-test runs start deterministically
+        // off, uncontaminated by a prior run's toggle.
+        BackgroundScheduler.setEnabled(false)
+        BackgroundScheduler.setIntervalHours(12)
         try? database.writer.write {
             try $0.execute(sql: "DELETE FROM applications")
             try $0.execute(sql: "DELETE FROM jobs")
@@ -373,10 +377,32 @@ final class AppModel {
     }
 
     /// Fetch new jobs from all enabled sources.
+    ///
+    /// The fetch runs under a `UIApplication` background-task assertion so it
+    /// survives the user leaving the app mid-search: iOS grants a continued-
+    /// execution window (~30s) instead of suspending us the moment we
+    /// background. The pipeline's per-source timeouts keep the total bounded,
+    /// and if iOS reclaims the window early the expiration handler ends the
+    /// assertion cleanly. When the search finishes while backgrounded we post a
+    /// completion notification so the user gets closure without reopening.
     func fetchJobs() async {
         guard !isFetching else { return }
         isFetching = true
-        defer { isFetching = false; refresh() }
+
+        var bgTask = UIBackgroundTaskIdentifier.invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.search") {
+            UIApplication.shared.endBackgroundTask(bgTask)
+            bgTask = .invalid
+        }
+        defer {
+            isFetching = false
+            refresh()
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+        }
+
         let summary = await FetchPipeline().run(
             config: config,
             sources: Array(config.search.enabledSources),
@@ -387,6 +413,11 @@ final class AppModel {
         if !summary.failed.isEmpty || !summary.timedOut.isEmpty {
             let names = (summary.failed + summary.timedOut).joined(separator: ", ")
             lastError = "Some sources had trouble: \(names)"
+        }
+        // Only notify if the user has left the app; a foregrounded search
+        // already shows its results in the Inbox.
+        if UIApplication.shared.applicationState != .active {
+            await NotificationManager.notifySearchComplete(summary: summary, model: self)
         }
     }
 

@@ -102,7 +102,14 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
         app.tabBars.buttons["Settings"].tap()
+        // The Danger-zone button sits at the bottom of the (lazily-rendered)
+        // Settings list, so scroll it into view before tapping.
         let delete = app.buttons["Delete all tracked postings"]
+        var scrolls = 0
+        while !delete.exists && scrolls < 6 {
+            app.swipeUp()
+            scrolls += 1
+        }
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
         app.buttons["Delete all postings"].tap()
@@ -110,6 +117,71 @@ final class SmokeTests: XCTestCase {
         app.tabBars.buttons["Inbox"].tap()
         XCTAssertTrue(app.staticTexts["Inbox clear"].waitForExistence(timeout: 5),
                       "deleting all postings empties the inbox")
+    }
+
+    /// "Sort by job board" must be offered in both the Inbox and the Pipeline
+    /// sort menus (the shared JobSort options drive both).
+    func testSortByJobBoardInInboxAndPipeline() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
+
+        // Inbox: the sort/score overflow menu offers Job board; pick it.
+        app.buttons["Sort and score"].tap()
+        let inboxOption = app.buttons["Job board"]
+        XCTAssertTrue(inboxOption.waitForExistence(timeout: 5),
+                      "Inbox sort menu should offer Job board")
+        inboxOption.tap()
+
+        // Pipeline: put a job in flight, then confirm its sort menu offers it too.
+        app.buttons["Shortlist"].tap()
+        app.tabBars.buttons["Pipeline"].tap()
+        app.buttons["Sort"].tap()
+        XCTAssertTrue(app.buttons["Job board"].waitForExistence(timeout: 5),
+                      "Pipeline sort menu should offer Job board")
+    }
+
+    /// Background search settings: the Settings row opens the schedule screen,
+    /// enabling it flips the cadence picker on, and the choice is reflected back
+    /// on the Settings row (On/Off) after navigating back.
+    func testBackgroundSearchScheduleToggle() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
+
+        // The row's accessibility label carries its On/Off detail, so match by prefix.
+        func scheduleRow() -> XCUIElement {
+            app.buttons.matching(
+                NSPredicate(format: "label BEGINSWITH %@", "Background search")).firstMatch
+        }
+
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(scheduleRow().waitForExistence(timeout: 5))
+        scheduleRow().tap()
+
+        let toggle = app.switches["Automatic background search"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String, "0", "starts off")
+
+        // Cadence picker is disabled until the feature is turned on.
+        let cadence = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Search about every")).firstMatch
+        XCTAssertTrue(cadence.waitForExistence(timeout: 5))
+        XCTAssertFalse(cadence.isEnabled, "cadence should be disabled while off")
+
+        // Tap the switch control on the trailing edge — a plain .tap() on a
+        // SwiftUI Form toggle lands on the label and doesn't flip it.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertEqual(toggle.value as? String, "1", "tapping turns background search on")
+        XCTAssertTrue(cadence.isEnabled, "enabling background search enables the cadence picker")
+
+        // Persistence: leave the screen and come back — the choice must stick
+        // (prefs are UserDefaults-backed).
+        app.navigationBars.buttons.firstMatch.tap()   // back to Settings
+        XCTAssertTrue(scheduleRow().waitForExistence(timeout: 5))
+        scheduleRow().tap()
+        let toggleAgain = app.switches["Automatic background search"]
+        XCTAssertTrue(toggleAgain.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggleAgain.value as? String, "1",
+                       "background search stays on after leaving and reopening the screen")
     }
 
     func testScoreJobWithMockAI() {
