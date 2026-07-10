@@ -1028,6 +1028,17 @@
                             </div>
                             <div id="sync-status" style="margin-top:12px;font-size:0.9rem;color:var(--text-secondary)"></div>
                         </div>
+
+                        <div class="section-card">
+                            <h2>Live updates</h2>
+                            <p class="section-hint">Automatically refresh the current screen as things change in the background — new jobs from a scrape, applications finishing, or changes synced from your iPhone. Turn this off if you'd rather refresh manually.</p>
+                            <div class="form-group">
+                                <label class="remote-toggle" style="display:flex;align-items:center;gap:8px">
+                                    <input type="checkbox" id="cfg-live-refresh" onchange="setLiveRefresh(this.checked)"> Update the screen in real time
+                                </label>
+                                <span class="hint">Refreshes the open tab every few seconds. Pauses while you're typing, scrolling a menu, or a dialog is open, so it won't interrupt you.</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1252,7 +1263,7 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=38"></script>
+    <script src="js/core.js?v=39"></script>
     <script src="js/dashboard.js?v=35"></script>
     <script src="js/jobs.js?v=38"></script>
     <script src="js/review.js?v=38"></script>

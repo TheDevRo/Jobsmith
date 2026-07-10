@@ -82,6 +82,12 @@ document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
     startNotificationPoll();
 
+    // Live view refresh: reflect the saved preference in the toggle and start
+    // the loop unless the user turned it off.
+    const liveToggle = document.getElementById('cfg-live-refresh');
+    if (liveToggle) liveToggle.checked = isLiveRefreshEnabled();
+    if (isLiveRefreshEnabled()) startLiveRefresh();
+
     // Close notification dropdown when clicking outside
     document.addEventListener('click', (e) => {
         const dropdown = document.getElementById('notification-dropdown');
@@ -137,6 +143,72 @@ function handleHash() {
             statsInterval = setInterval(() => { if (!document.hidden) loadFitBreakdown(); }, 5000);
             break;
     }
+}
+
+// ---- Live view refresh ----
+// When on, the active tab silently re-loads its own data on a timer so
+// background changes (new scrapes, completed applies, folder-sync imports from
+// the phone) appear without switching tabs and back. UI-only preference stored
+// in localStorage (like the theme), default on. It pauses while the window is
+// hidden, while a dialog is open, or while the user is typing in a field, and
+// never touches Settings (that would clobber a form mid-edit). Scroll position
+// is captured and restored around the reload so the view doesn't jump.
+let liveRefreshInterval = null;
+const LIVE_REFRESH_MS = 8000;
+
+function isLiveRefreshEnabled() {
+    return localStorage.getItem('jobsmith_live_refresh') !== 'off';
+}
+
+async function refreshActiveView() {
+    if (document.hidden) return;                                  // window not visible
+    if (document.querySelector('.app-dialog-overlay')) return;    // mid confirm/prompt
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;  // don't yank while typing
+
+    const hash = location.hash.replace('#', '') || 'jobs';
+    // Capture scroll of the window and of the Inbox list pane (its own scroller)
+    // so re-rendering the list doesn't bounce the user to the top.
+    const winScroller = document.scrollingElement || document.documentElement;
+    const winY = winScroller ? winScroller.scrollTop : 0;
+    const jobsList = document.getElementById('jobs-list');
+    const jobsY = jobsList ? jobsList.scrollTop : 0;
+
+    try {
+        switch (hash) {
+            case 'dashboard': await loadDashboard(); break;
+            case 'jobs': await loadJobs(); break;
+            case 'review':
+                if (currentReviewView === 'shortlisted') await loadShortlisted();
+                else if (currentReviewView === 'pending') await loadReviewQueue();
+                else if (currentReviewView === 'submitted') await loadSubmittedApplications();
+                else if (currentReviewView === 'in-progress') await loadInProgress();
+                else await loadFailedApplications();
+                break;
+            case 'fit-breakdown': await loadFitBreakdown(); break;
+            // 'settings' is intentionally omitted — refreshing would reset edits.
+        }
+    } catch (e) {
+        // A failed refresh is silent; the next tick tries again.
+    } finally {
+        if (winScroller && winY) winScroller.scrollTop = winY;
+        if (jobsList && jobsY) jobsList.scrollTop = jobsY;
+    }
+}
+
+function startLiveRefresh() {
+    if (liveRefreshInterval) return;
+    liveRefreshInterval = setInterval(refreshActiveView, LIVE_REFRESH_MS);
+}
+
+function stopLiveRefresh() {
+    if (liveRefreshInterval) { clearInterval(liveRefreshInterval); liveRefreshInterval = null; }
+}
+
+function setLiveRefresh(enabled) {
+    localStorage.setItem('jobsmith_live_refresh', enabled ? 'on' : 'off');
+    if (enabled) { startLiveRefresh(); toast('Live updates on', 'success'); }
+    else { stopLiveRefresh(); toast('Live updates off', 'info'); }
 }
 
 // ---- Dashboard stat card navigation helpers ----
