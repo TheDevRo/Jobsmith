@@ -62,6 +62,27 @@ logger = logging.getLogger(__name__)
 _daily_count: dict[str, int] = defaultdict(int)   # keyed by ISO date
 _domain_count: dict[str, int] = defaultdict(int)  # keyed by "date:domain"
 
+
+async def hydrate_rate_limits() -> None:
+    """Recover today's application counts from the DB into the in-memory
+    counters, so a server restart doesn't silently reset the daily/per-domain
+    caps (the counters are otherwise zeroed on every restart). Called once at
+    startup. Best-effort: never raises into the boot sequence.
+    """
+    try:
+        from .. import database as _db
+        urls = await _db.applied_job_urls_today()
+    except Exception:
+        logger.exception("Rate-limit hydration failed — counters start at 0")
+        return
+    today = date.today().isoformat()
+    _daily_count[today] = len(urls)
+    for url in urls:
+        if url:
+            _domain_count[f"{today}:{_extract_domain(url)}"] += 1
+    if urls:
+        logger.info("Rehydrated rate-limit counters: %d application(s) already today", len(urls))
+
 # Pause / force-stop state shared with main.py
 # _pause_event: set = running (not paused); clear = paused (workers block on wait())
 _pause_event: asyncio.Event = asyncio.Event()
