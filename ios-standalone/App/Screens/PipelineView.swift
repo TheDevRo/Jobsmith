@@ -12,6 +12,10 @@ struct PipelineView: View {
     @State private var selection: Set<String> = []
     @State private var showDeleteConfirm = false
     @State private var showScoreAllConfirm = false
+    @State private var searchQuery = ""
+    @State private var showSearch = false
+    /// Empty = all boards. Non-empty restricts the list to those source slugs.
+    @State private var selectedBoards: Set<String> = []
 
     private var scoreCap: Int { model.config.ai.scoreAllCap }
     private var unscoredCount: Int { model.unscoredPipelineJobs.count }
@@ -20,8 +24,14 @@ struct PipelineView: View {
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
 
+    /// Pipeline jobs after the search + board filters, before stage grouping.
+    private var filteredPipeline: [Job] {
+        JobListFilter.apply(model.pipeline, query: searchQuery, boards: selectedBoards)
+    }
+    private var availableBoards: [String] { JobListFilter.availableBoards(in: model.pipeline) }
+
     private var stages: [(String, [Job])] {
-        let jobs = model.pipeline
+        let jobs = filteredPipeline
         // Stage is derived from job.status + application state; the store
         // keeps status on the job row (discovered → tailoring → review →
         // applied | manual).
@@ -34,7 +44,8 @@ struct PipelineView: View {
             .map { (labels[$0.key] ?? $0.key.capitalized, sort.sorted($0.value)) }
     }
 
-    private var allIDs: Set<String> { Set(model.pipeline.map(\.id)) }
+    // Select-all targets only what's currently visible (filtered) set.
+    private var allIDs: Set<String> { Set(filteredPipeline.map(\.id)) }
     private var allSelected: Bool { !allIDs.isEmpty && selection == allIDs }
 
     var body: some View {
@@ -48,24 +59,33 @@ struct PipelineView: View {
                     }
                 } else {
                     VStack(spacing: 0) {
+                        if showSearch {
+                            JobSearchField(text: $searchQuery) {
+                                withAnimation(.snappy) { showSearch = false }
+                            }
+                        }
                         if model.isScoringAll {
                             ScoreAllBanner(done: model.scoreAllDone, total: model.scoreAllTotal) {
                                 model.cancelScoreAll()
                             }
                             .padding(.vertical, 12)
                         }
-                        List {
-                            ForEach(stages, id: \.0) { stage, jobs in
-                                Section {
-                                    ForEach(jobs) { job in
-                                        row(job)
+                        if filteredPipeline.isEmpty {
+                            noMatchesState
+                        } else {
+                            List {
+                                ForEach(stages, id: \.0) { stage, jobs in
+                                    Section {
+                                        ForEach(jobs) { job in
+                                            row(job)
+                                        }
+                                    } header: {
+                                        Eyebrow(text: "\(stage) · \(jobs.count)")
                                     }
-                                } header: {
-                                    Eyebrow(text: "\(stage) · \(jobs.count)")
                                 }
                             }
+                            .listStyle(.insetGrouped)
                         }
-                        .listStyle(.insetGrouped)
                     }
                 }
             }
@@ -158,12 +178,21 @@ struct PipelineView: View {
             }
         } else {
             ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.snappy) { showSearch.toggle() }
+                } label: {
+                    Label("Search", systemImage: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort by", selection: $sortRaw) {
                         ForEach(JobSort.allCases) { option in
                             Label(option.label, systemImage: option.systemImage).tag(option.rawValue)
                         }
                     }
+                    Divider()
+                    BoardFilterMenu(boards: availableBoards, selected: $selectedBoards)
                     Divider()
                     Button {
                         showScoreAllConfirm = true
@@ -172,10 +201,26 @@ struct PipelineView: View {
                     }
                     .disabled(unscoredCount == 0 || model.isScoringAll)
                 } label: {
-                    Label("Sort and score", systemImage: "ellipsis.circle")
+                    Label("Sort, filter, score", systemImage: "ellipsis.circle")
                 }
             }
         }
+    }
+
+    private var noMatchesState: some View {
+        ContentUnavailableView {
+            Label("No matches", systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            Text("No shortlisted jobs match your search or board filter.")
+        } actions: {
+            Button("Clear filters") { clearFilters() }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func clearFilters() {
+        searchQuery = ""
+        selectedBoards = []
     }
 
     private func toggle(_ id: String) {
@@ -200,8 +245,11 @@ struct JobRowView: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
                 HStack(spacing: 6) {
-                    Text(job.company.isEmpty ? job.source : job.company)
+                    let source = SourceCatalog.displayName(for: job.source)
+                    Text(job.company.isEmpty ? source : job.company)
                     if job.isRemote { Text("· Remote") }
+                    // Always surface the source so the "Source" sort is visible.
+                    if !job.company.isEmpty { Text("· \(source)") }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

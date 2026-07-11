@@ -10,6 +10,13 @@ public struct FetchProgress: Sendable, Equatable {
     public var timedOut: [String] = []
     public var failed: [String] = []
     public var suspect: [String] = []
+    /// Raw jobs each finished source returned (pre-dedup, pre-filter). Populated
+    /// incrementally so the UI can show "Greenhouse — 104 found" live.
+    public var perSourceFound: [String: Int] = [:]
+    /// How many of a source's raw jobs its global filters (keywords, age,
+    /// salary, location) then dropped. `found − filtered` is what it contributed
+    /// to the shortlist, before cross-source dedup.
+    public var perSourceFiltered: [String: Int] = [:]
 }
 
 public struct FetchSummary: Sendable, Equatable {
@@ -73,6 +80,9 @@ public actor FetchPipeline {
         var summary = FetchSummary()
         var collected: [NormalizedJob] = []
         var doneCount = 0
+        // Running per-source tallies, surfaced on every progress event.
+        var perSourceFound: [String: Int] = [:]
+        var perSourceFiltered: [String: Int] = [:]
 
         emit(FetchProgress(sourcesTotal: ids.count, sourcesDone: 0, jobsFound: 0,
                            detail: "Fetching from \(ids.count) sources in parallel (\(ids.joined(separator: ", ")))..."))
@@ -108,6 +118,13 @@ public actor FetchPipeline {
                 case .success(let jobs):
                     summary.perSource[name] = jobs.count
                     collected += jobs
+                    perSourceFound[name] = jobs.count
+                    // Per-source filtered count: how many of THIS source's jobs
+                    // the global filters drop. Computed per source (not from the
+                    // merged pool) so the count is attributable and reliable;
+                    // cross-source dedup is reported separately at the end.
+                    let kept = JobFilters.applyGlobalFilters(jobs, search: config.search).count
+                    perSourceFiltered[name] = jobs.count - kept
                     let streak = recordSourceResult(name, count: jobs.count, jobStore: jobStore)
                     if streak >= Self.zeroStreakThreshold { summary.suspect.append(name) }
                 case .failure(let error):
@@ -122,7 +139,9 @@ public actor FetchPipeline {
                                        ? "All \(ids.count) sources finished"
                                        : "\(doneCount)/\(ids.count) sources done",
                                    blocked: summary.blocked, timedOut: summary.timedOut,
-                                   failed: summary.failed, suspect: summary.suspect))
+                                   failed: summary.failed, suspect: summary.suspect,
+                                   perSourceFound: perSourceFound,
+                                   perSourceFiltered: perSourceFiltered))
             }
         }
 
@@ -137,7 +156,9 @@ public actor FetchPipeline {
                            jobsFound: filtered.count,
                            detail: "Saved \(summary.inserted) new jobs",
                            blocked: summary.blocked, timedOut: summary.timedOut,
-                           failed: summary.failed, suspect: summary.suspect))
+                           failed: summary.failed, suspect: summary.suspect,
+                           perSourceFound: perSourceFound,
+                           perSourceFiltered: perSourceFiltered))
         finishStreams()
         return summary
     }
