@@ -54,6 +54,16 @@ from .entities import DeferRecord, db_adapters
 logger = logging.getLogger(__name__)
 
 RECORD_VERSION = 1
+
+# Bumped when the canonical wire format changes in a way that makes this
+# device's previously-emitted records wrong (v2: fold triage into status;
+# v3: split job facts from the `triage` decision entity). A device whose
+# stored `sync_format` is older force-re-exports once. This is a LOCAL migration
+# marker held in sync_meta, distinct from RECORD_VERSION (the per-record wire
+# `v`, which stays 1 in lockstep with the Swift ChangeRecord default). Keep in
+# sync with SyncEngine.syncFormatVersion on the iOS side.
+SYNC_FORMAT_VERSION = 3
+
 PROFILE_ENTITY = "profile"
 PROFILE_ID = "me"
 
@@ -180,6 +190,26 @@ class SyncEngine:
             (key, value),
         )
 
+    async def _mark_migration_if_needed(self, conn) -> None:
+        """Flag a one-time re-export when the wire format version has advanced
+        and this device already holds old-format snapshot rows (a fresh device
+        has nothing to migrate, so it must not re-broadcast what it just
+        imported). The Swift twin is SyncEngine.markMigrationIfNeeded. Runs at
+        the head of both export and import so whichever fires first — reading
+        the pre-rebuild snapshot — decides; export consumes the flag."""
+        raw = await self._get_meta(conn, "sync_format")
+        try:
+            stored = int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            stored = 0
+        if stored >= SYNC_FORMAT_VERSION:
+            return
+        cur = await conn.execute("SELECT COUNT(*) AS n FROM sync_snapshot")
+        row = await cur.fetchone()
+        if (row["n"] if row else 0) > 0:
+            await self._set_meta(conn, "pending_migration", "1")
+        await self._set_meta(conn, "sync_format", str(SYNC_FORMAT_VERSION))
+
     async def _next_ts(self, conn) -> str:
         """A strictly-increasing per-device timestamp so our own successive
         versions of a record never tie."""
@@ -208,7 +238,19 @@ class SyncEngine:
         stats = ExportStats()
         records: list[dict] = []
         try:
+            await self._mark_migration_if_needed(conn)
             ts = await self._next_ts(conn)
+
+            # One-time format migration: records this device emitted under the
+            # old format carry the wrong canonical shape (a shortlisted job as
+            # 'discovered', see entities). When flagged, re-emit every current
+            # row once, ignoring the snapshot diff, so fresh correctly-folded
+            # records supersede the stale ones for every other device. This also
+            # defeats the case where a prior import rebuilt the snapshot to match
+            # the DB and would otherwise suppress the fix.
+            force = (await self._get_meta(conn, "pending_migration")) == "1"
+            if force:
+                await self._set_meta(conn, "pending_migration", "0")
 
             for adapter in self._adapters(folder):
                 current = await adapter.snapshot(conn)
@@ -220,7 +262,7 @@ class SyncEngine:
                     # preserved verbatim — the spec's write-back invariant.
                     merged = {**_prev_data(prev), **data}
                     cj = _canon(merged)
-                    if prev is None or prev["deleted"] or prev["data_json"] != cj:
+                    if force or prev is None or prev["deleted"] or prev["data_json"] != cj:
                         records.append(self._live_record(adapter.entity, sid, ts, merged))
                         await self._put_snapshot(conn, adapter.entity, sid, ts, False, cj)
                         stats.live += 1
@@ -237,7 +279,7 @@ class SyncEngine:
                     cj = _canon(canon_prof)
                     snap = await self._load_snapshot(conn, PROFILE_ENTITY)
                     prev = snap.get(PROFILE_ID)
-                    if prev is None or prev["deleted"] or prev["data_json"] != cj:
+                    if force or prev is None or prev["deleted"] or prev["data_json"] != cj:
                         records.append(
                             self._live_record(PROFILE_ENTITY, PROFILE_ID, ts, canon_prof)
                         )
@@ -294,6 +336,7 @@ class SyncEngine:
         adapters = self._adapters(folder)
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
+            await self._mark_migration_if_needed(conn)
             # Live upserts, dependency order (job facts -> triage -> answer ->
             # application). A record whose dependency isn't present yet defers
             # and resolves on a later import.

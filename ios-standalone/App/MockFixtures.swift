@@ -1,6 +1,10 @@
 import Foundation
 import JobsmithKit
 
+// DEBUG-only: these canned AI responses are for UI tests / demo runs and must
+// never be linked into a Release/TestFlight build. The only caller
+// (AppModel.aiEngine) is likewise behind `#if DEBUG`.
+#if DEBUG
 /// Canned AI responses for UI tests and demo runs (-UseMockAI). Keys match
 /// distinctive phrases in the prompt templates.
 extension MockAIEngine {
@@ -89,3 +93,4 @@ extension MockAIEngine {
         return mock
     }
 }
+#endif

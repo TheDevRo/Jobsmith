@@ -44,3 +44,10 @@ services:
       - ./sessions:/app/sessions
       - ./failed_screenshots:/app/failed_screenshots
       - ./.browser-profile:/app/.browser-profile
+      # Optional cross-device sync folder. Point JOBSMITH_SYNC_FOLDER (in .env)
+      # at a host directory that itself lives in iCloud/Dropbox/Syncthing, then
+      # set `sync.enabled: true` and `sync.folder: /app/sync-folder` in
+      # config/config.yaml. Without this mount the container would write its
+      # sync docs into /app/data, which syncs nowhere. Defaults to ./sync-folder
+      # so the mount is inert until you actually enable sync.
+      - ${JOBSMITH_SYNC_FOLDER:-./sync-folder}:/app/sync-folder
