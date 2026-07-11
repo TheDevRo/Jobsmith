@@ -30,8 +30,12 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: 0.1.2
-    CURRENT_PROJECT_VERSION: 3
+    CURRENT_PROJECT_VERSION: 5
     CODE_SIGN_STYLE: Automatic
+    # Team is declared here so `xcodegen generate` preserves signing config for
+    # headless archiving — regenerating from this file otherwise wipes a
+    # GUI-set team and breaks the TestFlight archive (both app + Share ext).
+    DEVELOPMENT_TEAM: 37R25GNY5A
     GENERATE_INFOPLIST_FILE: NO
 
 targets:
