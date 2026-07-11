@@ -82,8 +82,15 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w") as f:
+    # Write-then-rename so a crash/kill mid-write can't truncate config.yaml
+    # (a truncated file makes load_config() return {} → backend silently runs
+    # on defaults). os.replace() is atomic on the same filesystem.
+    tmp = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    with open(tmp, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, CONFIG_PATH)
 
 
 def is_loopback_request(request) -> bool:
