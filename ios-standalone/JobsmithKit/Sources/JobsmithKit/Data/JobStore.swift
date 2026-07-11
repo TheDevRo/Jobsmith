@@ -80,12 +80,15 @@ public struct JobStore: Sendable {
         try db.writer.read { try Job.fetchOne($0, key: id) }
     }
 
-    public func inbox(limit: Int = 100) throws -> [Job] {
+    /// All untriaged ("new") jobs, best-fit first. `limit` is nil by default so
+    /// the whole inbox is returned — the swipe deck only renders the top few,
+    /// and the count/score-all flows need the true total, not a capped 100.
+    public func inbox(limit: Int? = nil) throws -> [Job] {
         try db.writer.read {
-            try Job.filter(Column("triage") == "new")
+            var request = Job.filter(Column("triage") == "new")
                 .order(Column("fitScore").desc, Column("dateDiscovered").desc)
-                .limit(limit)
-                .fetchAll($0)
+            if let limit { request = request.limit(limit) }
+            return try request.fetchAll($0)
         }
     }
 

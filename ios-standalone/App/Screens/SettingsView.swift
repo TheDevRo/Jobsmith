@@ -555,7 +555,7 @@ struct AISettingsView: View {
         } header: {
             Eyebrow(text: "Batch scoring")
         } footer: {
-            Text("The most jobs a single “Score all” run will process — a hard ceiling on how many AI calls one tap can trigger. You can also Stop a run at any time.")
+            Text("The default number of jobs a “Score” run processes in one tap. When more are unscored, “Score all” can still score every one — this cap just keeps the default tap in check. You can Stop a run at any time.")
         }
     }
 }

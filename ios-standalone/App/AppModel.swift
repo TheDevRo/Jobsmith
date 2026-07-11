@@ -198,6 +198,12 @@ final class AppModel {
         inbox.filter { ($0.fitScore ?? 0) <= 0 }
     }
 
+    /// Shortlisted (in-pipeline) jobs that were never scored — e.g. shortlisted
+    /// straight from the Inbox before scoring. The Pipeline tab's Score-all set.
+    var unscoredPipelineJobs: [Job] {
+        pipeline.filter { ($0.fitScore ?? 0) <= 0 }
+    }
+
     /// The job whose apply flow is in progress — set while the in-app Apply
     /// browser is open, resolved by the "Did you submit?" prompt on dismiss.
     var pendingApplyJob: Job?
@@ -238,13 +244,15 @@ final class AppModel {
         activityStore.log("scored", "\(job.title): \(Int(result.score))/100", jobId: job.id)
     }
 
-    /// Score up to `cap` unscored inbox jobs. Runs sequentially — never a
-    /// concurrent fan-out — so a batch can't stampede the endpoint and the
-    /// Stop button halts the run after at most one more in-flight call. `cap`
+    /// Score up to `cap` unscored jobs. Runs sequentially — never a concurrent
+    /// fan-out — so a batch can't stampede the endpoint and the Stop button
+    /// halts the run after at most one more in-flight call. `cap`
     /// (config.ai.scoreAllCap) is the hard ceiling on calls per run.
-    func scoreAll(cap: Int) {
+    /// `candidates` selects the source set — unscored inbox jobs by default,
+    /// or e.g. `unscoredPipelineJobs` when scoring from the Pipeline tab.
+    func scoreAll(cap: Int, candidates: [Job]? = nil) {
         guard !isScoringAll else { return }
-        let batch = Array(unscoredInboxJobs.prefix(max(0, cap)))
+        let batch = Array((candidates ?? unscoredInboxJobs).prefix(max(0, cap)))
         guard !batch.isEmpty else { return }
         isScoringAll = true
         scoreAllTotal = batch.count

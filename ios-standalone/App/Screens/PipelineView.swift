@@ -11,6 +11,12 @@ struct PipelineView: View {
     @State private var isSelecting = false
     @State private var selection: Set<String> = []
     @State private var showDeleteConfirm = false
+    @State private var showScoreAllConfirm = false
+
+    private var scoreCap: Int { model.config.ai.scoreAllCap }
+    private var unscoredCount: Int { model.unscoredPipelineJobs.count }
+    /// A default run: unscored pipeline jobs, clamped to the user's cap.
+    private var boundedCount: Int { min(unscoredCount, scoreCap) }
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
 
@@ -41,18 +47,26 @@ struct PipelineView: View {
                         Text("Shortlist jobs from the Inbox and they land here for scoring, tailoring, and applying.")
                     }
                 } else {
-                    List {
-                        ForEach(stages, id: \.0) { stage, jobs in
-                            Section {
-                                ForEach(jobs) { job in
-                                    row(job)
+                    VStack(spacing: 0) {
+                        if model.isScoringAll {
+                            ScoreAllBanner(done: model.scoreAllDone, total: model.scoreAllTotal) {
+                                model.cancelScoreAll()
+                            }
+                            .padding(.vertical, 12)
+                        }
+                        List {
+                            ForEach(stages, id: \.0) { stage, jobs in
+                                Section {
+                                    ForEach(jobs) { job in
+                                        row(job)
+                                    }
+                                } header: {
+                                    Eyebrow(text: "\(stage) · \(jobs.count)")
                                 }
-                            } header: {
-                                Eyebrow(text: "\(stage) · \(jobs.count)")
                             }
                         }
+                        .listStyle(.insetGrouped)
                     }
-                    .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle(isSelecting ? "\(selection.count) selected" : "Pipeline")
@@ -73,6 +87,24 @@ struct PipelineView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Removes each posting and its tailored documents. This can't be undone.")
+            }
+            .confirmationDialog("\(unscoredCount) unscored job\(unscoredCount == 1 ? "" : "s")",
+                                isPresented: $showScoreAllConfirm, titleVisibility: .visible) {
+                Button("Score \(boundedCount)") {
+                    model.scoreAll(cap: scoreCap, candidates: model.unscoredPipelineJobs)
+                }
+                if unscoredCount > scoreCap {
+                    Button("Score all \(unscoredCount)") {
+                        model.scoreAll(cap: unscoredCount, candidates: model.unscoredPipelineJobs)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if unscoredCount > scoreCap {
+                    Text("One AI call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(unscoredCount)” scores every unscored job. You can Stop anytime.")
+                } else {
+                    Text("One AI call per job. You can Stop anytime.")
+                }
             }
         }
     }
@@ -132,8 +164,15 @@ struct PipelineView: View {
                             Label(option.label, systemImage: option.systemImage).tag(option.rawValue)
                         }
                     }
+                    Divider()
+                    Button {
+                        showScoreAllConfirm = true
+                    } label: {
+                        Label("Score jobs (\(unscoredCount))", systemImage: "flame")
+                    }
+                    .disabled(unscoredCount == 0 || model.isScoringAll)
                 } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                    Label("Sort and score", systemImage: "ellipsis.circle")
                 }
             }
         }
