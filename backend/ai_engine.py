@@ -4,17 +4,62 @@ ai_engine.py — LM Studio integration for job scoring, resume tailoring, and co
 Uses the OpenAI-compatible API exposed by LM Studio.
 """
 
+import asyncio
 import json
 import logging
+import random
 import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from openai import AsyncOpenAI
+from openai import (
+    AsyncOpenAI,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 from . import prompt_registry
 
 logger = logging.getLogger(__name__)
+
+# Transient failures worth retrying with backoff. 4xx (BadRequestError,
+# AuthenticationError, …) are NOT here — backoff won't fix a malformed request
+# or bad key, so those propagate immediately.
+_RETRYABLE_LLM_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+)
+
+
+async def _llm_create_with_retry(client: AsyncOpenAI, *, tiers: int = 3,
+                                 base: float = 1.5, **create_kwargs):
+    """Call chat.completions.create with jittered exponential backoff.
+
+    Retries only transient errors (connection blips, timeouts, 429s, 5xx from
+    LM Studio) up to `tiers` attempts, then re-raises the last one so callers
+    keep their existing fallback (score→0.0, resume/cover→raise). Mirrors the
+    backoff in job_sources.fetch_with_retries, which ai_engine previously lacked
+    — its old "retry once, same prompt, no sleep" swallowed transient flakes.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(tiers):
+        try:
+            return await client.chat.completions.create(**create_kwargs)
+        except _RETRYABLE_LLM_ERRORS as e:
+            last_exc = e
+            if attempt == tiers - 1:
+                break
+            delay = base * (2 ** attempt) + random.uniform(0, 0.5)
+            logger.warning(
+                "LLM call failed (attempt %d/%d): %s — retrying in %.1fs",
+                attempt + 1, tiers, e, delay,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 # Tier fallback chain: utility falls back to fast if not explicitly configured,
@@ -396,7 +441,8 @@ async def score_job_fit(
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _llm_create_with_retry(
+            client,
             model=_model(config, tier),
             messages=[{"role": "user", "content": prompt}],
             temperature=ai_cfg.get("temperature", 0.7),
@@ -452,25 +498,10 @@ async def score_job_fit(
             return 0.0, f"ERROR: Could not parse score from LLM response. Raw: {text[:200]}", None
 
     except Exception as e:
+        # _llm_create_with_retry already exhausted transient retries with
+        # backoff; a failure here is genuine (LM Studio down, bad request, …).
         logger.exception("AI scoring failed for job %s", job.get("title", ""))
-        # Retry once
-        try:
-            response = await client.chat.completions.create(
-                model=_model(config),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1200,
-            )
-            text = response.choices[0].message.content.strip()
-            data = json.loads(text)
-            return (
-                float(data["score"]),
-                data.get("reasoning", ""),
-                _sanitize_match_report(data),
-            )
-        except Exception:
-            logger.exception("AI scoring retry also failed")
-            return 0.0, f"AI error: {str(e)}", None
+        return 0.0, f"AI error: {str(e)}", None
 
 
 async def suggest_job_titles(profile: dict, answers: dict, config: dict) -> list[dict]:
@@ -665,7 +696,8 @@ async def generate_tailored_resume(
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _llm_create_with_retry(
+            client,
             model=_model(config),
             messages=[{"role": "user", "content": prompt}],
             temperature=ai_cfg.get("temperature", 0.7),
@@ -674,19 +706,9 @@ async def generate_tailored_resume(
         content = response.choices[0].message.content.strip()
         logger.info("Generated tailored resume [%s] for: %s at %s", honesty_level, job.get("title"), job.get("company"))
         return content
-    except Exception as e:
+    except Exception:
         logger.exception("Resume generation failed")
-        try:
-            response = await client.chat.completions.create(
-                model=_model(config),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=ai_cfg.get("max_tokens", 2000),
-            )
-            return response.choices[0].message.content.strip()
-        except Exception:
-            logger.exception("Resume generation retry failed")
-            raise
+        raise
 
 
 def _tone_instruction(tone: str) -> str:
@@ -740,7 +762,8 @@ async def generate_cover_letter(
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _llm_create_with_retry(
+            client,
             model=_model(config),
             messages=[{"role": "user", "content": prompt}],
             temperature=ai_cfg.get("temperature", 0.7),
@@ -749,19 +772,9 @@ async def generate_cover_letter(
         content = response.choices[0].message.content.strip()
         logger.info("Generated cover letter [%s] for: %s at %s", honesty_level, job.get("title"), job.get("company"))
         return content
-    except Exception as e:
+    except Exception:
         logger.exception("Cover letter generation failed")
-        try:
-            response = await client.chat.completions.create(
-                model=_model(config),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=ai_cfg.get("max_tokens", 2000),
-            )
-            return response.choices[0].message.content.strip()
-        except Exception:
-            logger.exception("Cover letter retry failed")
-            raise
+        raise
 
 
 async def revise_tailored_resume(
