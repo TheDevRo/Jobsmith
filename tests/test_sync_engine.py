@@ -487,3 +487,79 @@ async def test_gc_compacts_long_deleted_jobs(tmp_path, monkeypatch):
 
     # Idempotent: a second run compacts nothing.
     assert await dbmod.gc_deleted_jobs() == 0
+
+
+def _meta(path, key):
+    rows = _rows(path, "SELECT value FROM sync_meta WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+@pytest.mark.asyncio
+async def test_format_migration_forces_one_reexport(tmp_path, monkeypatch):
+    """A device upgrading across a wire-format bump (older stored sync_format +
+    non-empty snapshot) re-emits every record once so its correctly-folded
+    payloads supersede the stale ones it broadcast under the old format —
+    matching the iOS markMigrationIfNeeded path. The Python side previously had
+    no such mechanism, so post-upgrade devices silently re-diverged."""
+    path_a = tmp_path / "a.db"
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    a = SyncEngine(path_a, "A1B2", now_fn=Clock())
+
+    # First export populates the snapshot and stamps sync_format at current.
+    first = await a.export_changes(tmp_path / "sync1")
+    assert first.live == 4
+    assert _meta(path_a, "sync_format") == str(dbmod_sync_format())
+    assert _meta(path_a, "pending_migration") in (None, "0")
+
+    # A clean re-export changes nothing (snapshot is in sync).
+    assert (await a.export_changes(tmp_path / "sync2")).total == 0
+
+    # Simulate a device that had been running the OLD code: its snapshot rows
+    # exist but were tagged for an older format.
+    conn = sqlite3.connect(path_a)
+    conn.execute("UPDATE sync_meta SET value = '1' WHERE key = 'sync_format'")
+    conn.commit()
+    conn.close()
+
+    # The next export force-re-emits all 4 records despite no DB change...
+    forced = await a.export_changes(tmp_path / "sync3")
+    assert forced.live == 4 and forced.tombstones == 0
+    assert _meta(path_a, "pending_migration") == "0"      # flag consumed
+    assert _meta(path_a, "sync_format") == str(dbmod_sync_format())
+
+    # ...and it is genuinely one-time: the following export is a no-op again.
+    assert (await a.export_changes(tmp_path / "sync4")).total == 0
+
+
+@pytest.mark.asyncio
+async def test_fresh_import_does_not_trigger_migration(tmp_path, monkeypatch):
+    """A brand-new device that merely imports another device's records must NOT
+    force a re-broadcast — it has nothing of its own to migrate. (markMigration
+    reads the pre-rebuild snapshot, which is empty during a fresh import.)"""
+    path_a = tmp_path / "a.db"
+    path_b = tmp_path / "b.db"
+    folder = tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)  # empty
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+
+    # B recorded the current format but never flagged a migration.
+    assert _meta(path_b, "sync_format") == str(dbmod_sync_format())
+    assert _meta(path_b, "pending_migration") in (None, "0")
+
+    # And so B does not re-emit what it just imported.
+    assert (await b.export_changes(tmp_path / "sync-b")).total == 0
+
+
+def dbmod_sync_format():
+    from backend.sync import engine as _eng
+    return _eng.SYNC_FORMAT_VERSION

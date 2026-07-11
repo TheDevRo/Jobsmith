@@ -173,9 +173,13 @@ final class AppModel {
     /// AI engine for scoring/tailoring. Mock in UI tests; otherwise routes
     /// between the configured endpoint and Apple's on-device model.
     var aiEngine: any AIEngine {
+        #if DEBUG
+        // Canned fixtures for UI tests / demo runs. DEBUG-only so the mock AI
+        // responses can never ship in a Release/TestFlight build.
         if CommandLine.arguments.contains("-UseMockAI") {
             return MockAIEngine.standardFixtures()
         }
+        #endif
         return EngineRouter()
     }
 
