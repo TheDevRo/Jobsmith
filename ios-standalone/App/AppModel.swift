@@ -21,6 +21,9 @@ final class AppModel {
     var stats = JobStore.Stats()
     var activity: [ActivityEntry] = []
     var isFetching = false
+    /// Live per-source progress for the in-flight fetch, or nil when idle.
+    /// Drives the Inbox "Searching…" banner; cleared when the fetch ends.
+    var fetchProgress: FetchProgress?
     var lastError: String?
 
     init() {
@@ -408,6 +411,7 @@ final class AppModel {
         }
         defer {
             isFetching = false
+            fetchProgress = nil
             refresh()
             if bgTask != .invalid {
                 UIApplication.shared.endBackgroundTask(bgTask)
@@ -415,11 +419,20 @@ final class AppModel {
             }
         }
 
-        let summary = await FetchPipeline().run(
+        // Subscribe to the pipeline's progress stream *before* running so the
+        // opening "fetching from N sources" event isn't missed, then mirror
+        // each event onto `fetchProgress` for the live Inbox banner.
+        let pipeline = FetchPipeline()
+        let stream = await pipeline.progressUpdates()
+        let progressTask = Task { @MainActor in
+            for await progress in stream { self.fetchProgress = progress }
+        }
+        let summary = await pipeline.run(
             config: config,
             sources: Array(config.search.enabledSources),
             jobStore: jobStore
         )
+        progressTask.cancel()
         let total = summary.inserted
         activityStore.log("fetched", "\(total) new job\(total == 1 ? "" : "s") from \(summary.perSource.count) sources")
         if !summary.failed.isEmpty || !summary.timedOut.isEmpty {

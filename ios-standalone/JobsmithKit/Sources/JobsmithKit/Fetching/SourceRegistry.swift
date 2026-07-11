@@ -22,4 +22,17 @@ public enum SourceRegistry {
         let key = id.lowercased()
         return all.first { $0.id == key }?.make()
     }
+
+    /// The per-source budget FetchPipeline enforces for `id`, if registered.
+    public static func timeout(for id: String) -> Duration? {
+        source(for: id).map { type(of: $0).timeout }
+    }
+
+    /// A worst-case estimate of how long a fetch over `ids` will take. Sources
+    /// run in parallel under their own timeouts, so the ceiling is the single
+    /// slowest source's budget. Empty/unknown input falls back to 60s.
+    public static func estimatedDuration(for ids: [String]) -> Duration {
+        let requested = ids.isEmpty ? allIDs : ids
+        return requested.compactMap { timeout(for: $0) }.max() ?? .seconds(60)
+    }
 }

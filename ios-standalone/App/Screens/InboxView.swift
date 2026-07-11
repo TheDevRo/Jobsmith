@@ -13,9 +13,20 @@ struct InboxView: View {
     @State private var pastedURL = ""
     @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
     @State private var showScoreAllConfirm = false
+    @State private var searchQuery = ""
+    @State private var showSearch = false
+    /// Empty = all boards. Non-empty restricts the deck to those source slugs.
+    @State private var selectedBoards: Set<String> = []
+    /// Shown once, the first time the user kicks off a fetch.
+    @AppStorage(AppStorageKey.hasSeenSearchTip) private var hasSeenSearchTip = false
+    @State private var showSearchTip = false
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
-    private var sortedInbox: [Job] { sort.sorted(model.inbox) }
+    private var filteredInbox: [Job] {
+        JobListFilter.apply(model.inbox, query: searchQuery, boards: selectedBoards)
+    }
+    private var sortedInbox: [Job] { sort.sorted(filteredInbox) }
+    private var availableBoards: [String] { JobListFilter.availableBoards(in: model.inbox) }
 
     private var scoreCap: Int { model.config.ai.scoreAllCap }
     private var unscoredCount: Int { model.unscoredInboxJobs.count }
@@ -24,32 +35,49 @@ struct InboxView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
+            VStack(spacing: 0) {
+              // Live per-source status replaces the bare "Fetching…" spinner.
+              if model.isFetching {
+                  FetchProgressBanner(progress: model.fetchProgress)
+              }
+              Group {
                 if model.inbox.isEmpty {
                     emptyState
                 } else {
-                    deck
+                    VStack(spacing: 0) {
+                        if showSearch {
+                            // Cancel is omitted: the collapsed toolbar button and
+                            // tap-outside both dismiss, so it would be redundant.
+                            JobSearchField(text: $searchQuery, showsCancel: false, onCancel: closeSearch)
+                        }
+                        // Tapping anywhere in the deck's empty space (not a card,
+                        // button, or the search bar) exits search — matches the
+                        // "tap elsewhere to restore" behavior.
+                        Group {
+                            if sortedInbox.isEmpty {
+                                noMatchesState
+                            } else {
+                                deck
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { if showSearch { closeSearch() } }
+                    }
+                }
+              }
+            }
+            .overlay(alignment: .bottom) {
+                if showSearchTip {
+                    SearchTipToast(message: searchTipMessage, isPresented: $showSearchTip)
                 }
             }
-            .navigationTitle("Inbox")
+            // Title is blanked while searching so it can't overlap the search bar.
+            .navigationTitle(showSearch ? "" : "Inbox")
+            .navigationBarTitleDisplayMode(showSearch ? .inline : .large)
             .navigationDestination(for: String.self) { jobId in
                 JobDetailView(jobId: jobId)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    sortAndScoreMenu
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    fetchButton
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showAddByURL = true
-                    } label: {
-                        Label("Add job by URL", systemImage: "link.badge.plus")
-                    }
-                }
-            }
+            .toolbar { toolbarContent }
             .alert("Add job by URL", isPresented: $showAddByURL) {
                 TextField("https://…", text: $pastedURL)
                     .textInputAutocapitalization(.never)
@@ -80,6 +108,48 @@ struct InboxView: View {
         }
     }
 
+    /// While searching, the three trailing buttons collapse to a single
+    /// "close search" button so the search bar has an uncluttered top row;
+    /// tapping it (or outside the bar) restores the full toolbar.
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if showSearch {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: closeSearch) {
+                    Label("Close search", systemImage: "magnifyingglass.circle.fill")
+                }
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: openSearch) {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                sortAndScoreMenu
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                fetchButton
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showAddByURL = true
+                } label: {
+                    Label("Add job by URL", systemImage: "link.badge.plus")
+                }
+            }
+        }
+    }
+
+    private func openSearch() {
+        withAnimation(.snappy) { showSearch = true }
+    }
+
+    private func closeSearch() {
+        searchQuery = ""
+        withAnimation(.snappy) { showSearch = false }
+    }
+
     /// Sort options plus the batch "Score all" action, folded into one
     /// overflow menu to keep the toolbar uncluttered on iPhone.
     private var sortAndScoreMenu: some View {
@@ -90,6 +160,8 @@ struct InboxView: View {
                 }
             }
             Divider()
+            BoardFilterMenu(boards: availableBoards, selected: $selectedBoards)
+            Divider()
             Button {
                 showScoreAllConfirm = true
             } label: {
@@ -97,8 +169,22 @@ struct InboxView: View {
             }
             .disabled(unscoredCount == 0 || model.isScoringAll)
         } label: {
-            Label("Sort and score", systemImage: "ellipsis.circle")
+            Label("Sort, filter, score", systemImage: "ellipsis.circle")
         }
+    }
+
+    private var noMatchesState: some View {
+        ContentUnavailableView {
+            Label("No matches", systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            Text("No inbox jobs match your search or board filter.")
+        } actions: {
+            Button("Clear filters") {
+                searchQuery = ""
+                selectedBoards = []
+            }
+        }
+        .frame(maxHeight: .infinity)
     }
 
     private var deck: some View {
@@ -109,7 +195,7 @@ struct InboxView: View {
                 }
             }
             HStack {
-                Eyebrow(text: "\(model.inbox.count) to scout")
+                Eyebrow(text: "\(sortedInbox.count) to scout")
                 Spacer()
                 Label(sort.label, systemImage: sort.systemImage)
                     .font(.caption2.weight(.medium))
@@ -192,7 +278,7 @@ struct InboxView: View {
 
     private var fetchButton: some View {
         Button {
-            Task { await model.fetchJobs() }
+            startFetch()
         } label: {
             if model.isFetching {
                 ProgressView()
@@ -201,6 +287,21 @@ struct InboxView: View {
             }
         }
         .disabled(model.isFetching)
+    }
+
+    /// Kick off a fetch, surfacing the one-time reassurance toast on the user's
+    /// first-ever search. The completion notification (posted by the model when
+    /// backgrounded) is what "notify you when your jobs are ready" refers to.
+    private func startFetch() {
+        if !hasSeenSearchTip {
+            hasSeenSearchTip = true
+            withAnimation(.snappy) { showSearchTip = true }
+        }
+        Task { await model.fetchJobs() }
+    }
+
+    private var searchTipMessage: String {
+        "Searching can take \(fetchEstimateText(for: model.config)). Feel free to leave the app — we'll notify you when your jobs are ready!"
     }
 
     private var emptyState: some View {
@@ -212,7 +313,7 @@ struct InboxView: View {
                  : "You've scouted the whole board — fetch again for fresh listings.")
         } actions: {
             Button {
-                Task { await model.fetchJobs() }
+                startFetch()
             } label: {
                 if model.isFetching {
                     HStack(spacing: 8) { ProgressView(); Text("Fetching…") }
@@ -335,7 +436,7 @@ struct JobCardView: View {
                         .font(.title3.weight(.semibold))
                         .multilineTextAlignment(.leading)
                         .lineLimit(3)
-                    Text(job.company.isEmpty ? job.source : job.company)
+                    Text(job.company.isEmpty ? SourceCatalog.displayName(for: job.source) : job.company)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -364,7 +465,7 @@ struct JobCardView: View {
             Spacer(minLength: 0)
 
             HStack {
-                Eyebrow(text: job.source)
+                Eyebrow(text: SourceCatalog.displayName(for: job.source))
                 Spacer()
                 if !job.datePosted.isEmpty {
                     Text(job.datePosted.prefix(10))
