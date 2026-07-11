@@ -14,10 +14,6 @@ struct InboxView: View {
     @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
     @State private var showScoreAllConfirm = false
 
-    /// Absolute ceiling for a single "Score all" run, even when the user's
-    /// standing cap is lower — an unbounded run can never happen.
-    private let scoreAllHardCeiling = 200
-
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
     private var sortedInbox: [Job] { sort.sorted(model.inbox) }
 
@@ -25,8 +21,6 @@ struct InboxView: View {
     private var unscoredCount: Int { model.unscoredInboxJobs.count }
     /// A default run: unscored jobs, clamped to the user's standing cap.
     private var boundedCount: Int { min(unscoredCount, scoreCap) }
-    /// A "score all" run: every unscored job, clamped to the hard ceiling.
-    private var allCount: Int { min(unscoredCount, scoreAllHardCeiling) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -71,14 +65,14 @@ struct InboxView: View {
                     model.scoreAll(cap: scoreCap)
                 }
                 if unscoredCount > scoreCap {
-                    Button("Score all \(allCount)") {
-                        model.scoreAll(cap: scoreAllHardCeiling)
+                    Button("Score all \(unscoredCount)") {
+                        model.scoreAll(cap: unscoredCount)
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 if unscoredCount > scoreCap {
-                    Text("One AI call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(allCount)” ignores it (max \(scoreAllHardCeiling)). You can Stop anytime.")
+                    Text("One AI call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(unscoredCount)” scores every unscored job. You can Stop anytime.")
                 } else {
                     Text("One AI call per job. You can Stop anytime.")
                 }
@@ -107,31 +101,12 @@ struct InboxView: View {
         }
     }
 
-    /// Live progress for a Score-all run, with the hard-stop button.
-    private var scoreAllBanner: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Scoring \(model.scoreAllDone) of \(model.scoreAllTotal)…")
-                    .font(.subheadline.weight(.semibold))
-                ProgressView(value: Double(model.scoreAllDone),
-                             total: Double(max(model.scoreAllTotal, 1)))
-                    .tint(Theme.ember)
-            }
-            Button(role: .destructive) {
-                model.cancelScoreAll()
-            } label: {
-                Text("Stop")
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-        }
-        .padding(.horizontal, 24)
-    }
-
     private var deck: some View {
         VStack(spacing: 16) {
             if model.isScoringAll {
-                scoreAllBanner
+                ScoreAllBanner(done: model.scoreAllDone, total: model.scoreAllTotal) {
+                    model.cancelScoreAll()
+                }
             }
             HStack {
                 Eyebrow(text: "\(model.inbox.count) to scout")
