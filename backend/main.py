@@ -92,6 +92,10 @@ async def lifespan(app: FastAPI):
     if reset_count:
         logger.warning("Reset %d application(s) stuck in 'applying' state from previous session", reset_count)
 
+    # Rebuild today's rate-limit counters from the DB — otherwise a restart
+    # silently resets the applications-per-day cap to 0.
+    await auto_apply.hydrate_rate_limits()
+
     # Kick off a background LinkedIn session validity check on startup (non-blocking).
     if auto_apply.has_linkedin_session():
         asyncio.create_task(_bg_check_linkedin_session())

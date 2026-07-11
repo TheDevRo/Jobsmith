@@ -1387,6 +1387,50 @@ async def get_activity(limit: int = 20) -> list[dict]:
         await db.close()
 
 
+async def applied_job_urls_today() -> list[Optional[str]]:
+    """Job URLs for successful applications logged today (local date).
+
+    Sourced from ``activity_log`` rows with action='applied' — the same event
+    the auto-apply rate limiter counts — joined to ``jobs`` for the URL. Used to
+    rehydrate the orchestrator's in-memory daily/per-domain counters on startup
+    so a server restart no longer silently resets the applications-per-day cap.
+
+    activity_log timestamps are stored as UTC ISO strings; the rate limiter keys
+    by local ``date.today()``, so we bucket by local date here to match. Each
+    element is the job URL (or None if the job row was since deleted).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT a.timestamp AS ts, j.url AS url
+                 FROM activity_log a
+                 LEFT JOIN jobs j ON j.id = a.job_id
+                WHERE a.action = 'applied'
+                ORDER BY a.timestamp DESC
+                LIMIT 500"""
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    today = datetime.now().date()  # local
+    urls: list[Optional[str]] = []
+    for r in rows:
+        ts = r["ts"]
+        if not ts:
+            continue
+        try:
+            when = datetime.fromisoformat(ts)
+        except ValueError:
+            continue
+        # Stored UTC → local for date comparison; naive stamps assumed UTC.
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when.astimezone().date() == today:
+            urls.append(r["url"])
+    return urls
+
+
 async def log_activity(action: str, details: str, job_id: Optional[str] = None) -> None:
     """Write an entry to the activity log."""
     db = await _get_db()

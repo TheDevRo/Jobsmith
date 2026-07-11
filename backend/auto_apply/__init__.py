@@ -39,6 +39,7 @@ from .orchestrator import (
     force_stop,                              # async coroutine — closes browser
     _force_stop_event   as _async_force_stop, # asyncio.Event — checked by wait_if_paused()
     get_apply_progress,
+    hydrate_rate_limits,                     # rebuild daily caps from DB at startup
 )
 from . import orchestrator
 
@@ -212,6 +213,7 @@ __all__ = [
     "is_paused",
     "_async_force_stop",  # asyncio.Event — the force-stop signal object
     "force_stop",         # async coroutine — closes browser + sets the event
+    "hydrate_rate_limits",
     "linkedin_login",
     "linkedin_logout",
     "has_linkedin_session",
