@@ -185,6 +185,49 @@ class TestGlobalFilters:
         job = _job(location="Berlin, Germany", is_remote=False, source="arbeitnow")
         assert not _passes_global_filters(job, _CONFIG)
 
+    # --- Salary: unknown period is ambiguous, never filtered (fix #4) ---
+
+    def test_unknown_period_salary_not_filtered(self):
+        # A bare 990 must NOT be inferred hourly (→ ~$2M) and clear the floor,
+        # nor be inferred annual and dropped: unknown period = pass, unfiltered.
+        assert _passes_global_filters(_job(salary_max=990), _CONFIG)
+        assert _passes_global_filters(_job(salary_max=30), _CONFIG)
+        assert _passes_global_filters(_job(salary_max=70000), _CONFIG)
+
+    # --- Keyword gate (fix #2) ---
+
+    def test_keyword_gate_drops_unrelated_from_client_side_source(self):
+        cfg = {"search": dict(_CONFIG["search"], keywords=["security"])}
+        # greenhouse filters keywords in-Python; a "Barista" it admitted (parser
+        # broke) matches no field and is caught by the global keyword gate.
+        junk = _job(title="Barista", company="Cafe", description="make coffee",
+                    source="greenhouse")
+        assert not _passes_global_filters(junk, cfg)
+
+    def test_keyword_gate_keeps_match_on_any_unioned_field(self):
+        cfg = {"search": dict(_CONFIG["search"], keywords=["python"])}
+        # Tags-only match (RemoteOK semantics) survives — haystack unions tags.
+        job = _job(title="Engineer", tags=["python"], description="", source="remoteok")
+        assert _passes_global_filters(job, cfg)
+
+    def test_keyword_gate_skips_server_side_search_sources(self):
+        cfg = {"search": dict(_CONFIG["search"], keywords=["sre"], locations=["Remote"])}
+        # Indeed's fuzzy API surfaces this despite no literal "sre" token; a
+        # strict local gate must not drop it.
+        job = _job(title="Site Reliability Engineer", tags=[], description="",
+                   source="indeed", is_remote=True)
+        assert _passes_global_filters(job, cfg)
+
+    # --- Location trust set (fix #5) ---
+
+    def test_empty_location_trusted_for_server_side_location_sources(self):
+        job = _job(location="", is_remote=False, source="adzuna")
+        assert _passes_global_filters(job, _CONFIG)
+
+    def test_empty_location_dropped_for_per_board_ats_sources(self):
+        job = _job(location="", is_remote=False, source="greenhouse")
+        assert not _passes_global_filters(job, _CONFIG)
+
 
 # ---------------------------------------------------------------------------
 # Cross-source identity key

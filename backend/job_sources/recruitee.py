@@ -80,6 +80,36 @@ def _parse_salary(salary: dict | None) -> tuple[int | None, int | None, str]:
     return salary_min, salary_max, period
 
 
+def detect_recruitee_apply_type(job: dict) -> str:
+    """Classify a stored Recruitee job dict as 'easy_apply', 'external', or 'unknown'.
+
+    Works only from data already present in the dict — no network calls are made.
+
+    Recruitee hosts a structured native apply flow on its recruitee.com career
+    sites ({company}.recruitee.com) that is automatable in-app. A stored URL on
+    any recruitee.com domain is easy_apply; a company using a custom career
+    domain stores a non-Recruitee URL and is classified external.
+
+    Returns:
+      ``'easy_apply'``  — apply form is on recruitee.com (handled fully in-app).
+      ``'external'``    — URL points to a non-Recruitee domain.
+      ``'unknown'``     — no URL is stored; cannot classify.
+    """
+    from urllib.parse import urlparse
+
+    url = (job.get("url") or "").strip()
+    if not url:
+        return "unknown"
+
+    hostname = urlparse(url).netloc.lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    if hostname == "recruitee.com" or hostname.endswith(".recruitee.com"):
+        return "easy_apply"
+    return "external" if hostname else "unknown"
+
+
 async def _fetch_company(
     session: aiohttp.ClientSession,
     company: str,
@@ -134,14 +164,15 @@ async def _fetch_company(
         if department:
             tags.insert(0, department)
 
+        url = offer.get("careers_url") or f"https://{company}.recruitee.com/o/{slug}"
+
         results.append({
             "source": "recruitee",
             "external_id": f"recruitee-{company}-{offer_id}",
             "title": title,
             "company": offer.get("company_name") or company.replace("-", " ").title(),
             "location": location or ("Remote" if is_remote else ""),
-            "url": offer.get("careers_url")
-                or f"https://{company}.recruitee.com/o/{slug}",
+            "url": url,
             "description": description,
             "salary_min": salary_min,
             "salary_max": salary_max,
@@ -150,7 +181,7 @@ async def _fetch_company(
             "date_posted": _to_iso(offer.get("published_at") or offer.get("created_at")),
             "is_remote": is_remote,
             "is_easy_apply": False,
-            "apply_type": "external",
+            "apply_type": detect_recruitee_apply_type({"url": url}),
         })
 
     return results

@@ -248,6 +248,21 @@ public enum JobFilters {
 
     // MARK: - Global safety-net filter
 
+    /// Sources whose server-side search already did (possibly fuzzy) keyword
+    /// relevance matching — e.g. "SRE" surfacing "Site Reliability Engineer".
+    /// Re-applying a strict local gate would drop legitimate matches, so they
+    /// skip the global keyword safety net; every in-Swift-filtered source gets
+    /// it as a backstop against a silently-broken parser.
+    static let serverSideKeywordSources: Set<String> = ["adzuna", "usajobs", "indeed", "linkedin"]
+
+    /// Sources that constrain results by an authoritative server-side location
+    /// param (one query per configured location). A job they return with an
+    /// empty location was still location-filtered by the API, so an empty
+    /// location is trusted rather than dropped. Per-board ATS sources
+    /// (greenhouse/ashby/workable/recruitee) don't location-filter, so they
+    /// stay subject to the location check.
+    static let locationTrustedSources: Set<String> = ["linkedin", "indeed", "adzuna", "usajobs"]
+
     /// Final filter applied to ALL jobs from ALL sources — port of
     /// `_passes_global_filters`. Catches anything that slipped through
     /// individual source filters.
@@ -268,6 +283,18 @@ public enum JobFilters {
             return false
         }
 
+        // Keyword gate — the safety net the in-Swift per-source filters were the
+        // only line of defense for. Skipped for server-side-search sources whose
+        // API already did (possibly fuzzy) relevance matching; applied to every
+        // other source so a broken parser can't smuggle unrelated postings past
+        // us. The haystack unions every field any source matches on, so this
+        // never drops a job that a source's own keyword filter would have kept.
+        if !search.keywords.isEmpty, !serverSideKeywordSources.contains(job.source) {
+            let haystack = [job.title, job.company, job.tags.joined(separator: " "), job.description]
+                .joined(separator: " ")
+            if !matchesKeywords(haystack, search.keywords) { return false }
+        }
+
         // Max-age — only when date_posted is parseable; relative strings
         // ("Posted 3 days ago") pass through unchecked. +1 day grace for
         // timezone/rounding differences across sources.
@@ -278,15 +305,16 @@ public enum JobFilters {
         }
 
         // Min-salary — lenient: uses the job's upper bound and only drops jobs
-        // that *state* a salary below the floor. No salary data = pass.
+        // that *state* a salary below the floor with a KNOWN pay period. When the
+        // period is unknown we don't guess: annualizing a bare number is
+        // unreliable (a $990/wk stipend inferred hourly becomes ~$2M and clears
+        // any floor), so ambiguous salaries pass — same posture as "no salary =
+        // pass".
         if let minSalary = search.minSalary, minSalary != 0 {
             var amount = job.salaryMax
             if amount == nil || amount == 0 { amount = job.salaryMin }
-            if let amount, amount != 0 {
-                var period = job.salaryPeriod ?? "unknown"
-                if period.isEmpty || period == "unknown" {
-                    period = inferPeriod(fromAmount: amount)
-                }
+            let period = (job.salaryPeriod ?? "unknown").lowercased()
+            if let amount, amount != 0, period == "hourly" || period == "annual" {
                 if let annual = normalizeToAnnual(amount, period: period), annual < minSalary {
                     return false
                 }
@@ -296,9 +324,11 @@ public enum JobFilters {
         // Location — only if locations are configured.
         let locations = search.locations
         if !locations.isEmpty {
-            // LinkedIn cards sometimes omit location; if it's still empty let
-            // it through — LinkedIn's own filter already approved it.
-            if jobLocation.isEmpty && job.source == "linkedin" { return true }
+            // Sources that constrain results by an authoritative server-side
+            // location param sometimes still return a job with an empty location
+            // string. Trust the API's filtering rather than drop it — this
+            // applies to every server-side-location source, not just LinkedIn.
+            if jobLocation.isEmpty && locationTrustedSources.contains(job.source) { return true }
 
             let isRemote = job.isRemote || jobLocation.contains("remote") || title.contains("remote")
             let hasRemoteConfig = locations.contains {

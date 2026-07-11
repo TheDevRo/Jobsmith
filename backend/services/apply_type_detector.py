@@ -15,6 +15,9 @@ from backend.job_sources.linkedin import detect_linkedin_easy_apply
 from backend.job_sources.indeed import detect_indeed_quick_apply
 from backend.job_sources.usajobs import detect_usajobs_apply_type
 from backend.job_sources.greenhouse import detect_greenhouse_apply_type, detect_lever_apply_type
+from backend.job_sources.ashby import detect_ashby_apply_type
+from backend.job_sources.workable import detect_workable_apply_type
+from backend.job_sources.recruitee import detect_recruitee_apply_type
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,9 @@ _DETECTORS: dict[str, Callable[[dict], str]] = {
     "usajobs":    detect_usajobs_apply_type,
     "greenhouse": detect_greenhouse_apply_type,
     "lever":      detect_lever_apply_type,
+    "ashby":      detect_ashby_apply_type,
+    "workable":   detect_workable_apply_type,
+    "recruitee":  detect_recruitee_apply_type,
 }
 
 SummaryDict = dict  # {"processed": int, "easy_apply": int, "quick_apply": int, "external": int, "unknown": int}
