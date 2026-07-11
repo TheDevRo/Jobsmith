@@ -137,7 +137,10 @@ class TestFetchJobs:
         assert job["description"] == "We need a security engineer to protect our systems."
         assert job["tags"] == ["Security", "Detection"]
         assert job["date_posted"] == "2026-06-15T01:25:39.198+00:00"
-        assert job["apply_type"] == "external"
+        # Ashby hosts a native apply flow on ashbyhq.com, so a jobs.ashbyhq.com
+        # URL classifies as easy_apply (not the old blanket "external", which
+        # hid every Ashby job from the "Easy Apply only" filter).
+        assert job["apply_type"] == "easy_apply"
         assert job["is_easy_apply"] is False
         # Salary comes from the "Salary" compensation component, not equity
         assert job["salary_min"] == 185000

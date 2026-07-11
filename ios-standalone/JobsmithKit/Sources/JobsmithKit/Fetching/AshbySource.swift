@@ -97,7 +97,7 @@ public struct AshbySource: JobSource {
                 datePosted: jsonString(job["publishedAt"]),
                 isRemote: isRemote,
                 isEasyApply: false,
-                applyType: "external"))
+                applyType: ApplyTypeDetector.detect(source: "ashby", url: url)))
         }
         return results
     }

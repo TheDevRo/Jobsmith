@@ -15,6 +15,9 @@ public enum ApplyTypeDetector {
         case "usajobs": return usajobsApplyType(url: url)
         case "greenhouse": return greenhouseApplyType(url: url)
         case "lever": return leverApplyType(url: url)
+        case "ashby": return classify(url: url, domain: "ashbyhq.com")
+        case "workable": return classify(url: url, domain: "workable.com")
+        case "recruitee": return classify(url: url, domain: "recruitee.com")
         default: return "unknown"
         }
     }

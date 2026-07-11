@@ -84,6 +84,36 @@ def _parse_compensation(compensation: dict | None) -> tuple[int | None, int | No
     return None, None, "unknown"
 
 
+def detect_ashby_apply_type(job: dict) -> str:
+    """Classify a stored Ashby job dict as 'easy_apply', 'external', or 'unknown'.
+
+    Works only from data already present in the dict — no network calls are made.
+
+    Ashby hosts a fully structured native apply flow at jobs.ashbyhq.com that is
+    automatable in-app. A stored URL on any ashbyhq.com domain is easy_apply; a
+    board that redirects applications to an external ATS/agency site stores a
+    non-Ashby URL and is classified external.
+
+    Returns:
+      ``'easy_apply'``  — apply form is on ashbyhq.com (handled fully in-app).
+      ``'external'``    — URL points to a non-Ashby domain.
+      ``'unknown'``     — no URL is stored; cannot classify.
+    """
+    from urllib.parse import urlparse
+
+    url = (job.get("url") or "").strip()
+    if not url:
+        return "unknown"
+
+    hostname = urlparse(url).netloc.lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    if hostname == "ashbyhq.com" or hostname.endswith(".ashbyhq.com"):
+        return "easy_apply"
+    return "external" if hostname else "unknown"
+
+
 async def _fetch_board(
     session: aiohttp.ClientSession,
     board: str,
@@ -128,6 +158,7 @@ async def _fetch_board(
         is_remote = bool(job.get("isRemote")) or "remote" in location.lower()
         salary_min, salary_max, salary_period = _parse_compensation(job.get("compensation"))
         job_id = job.get("id", "")
+        url = job.get("jobUrl") or f"https://jobs.ashbyhq.com/{board}/{job_id}"
 
         results.append({
             "source": "ashby",
@@ -135,7 +166,7 @@ async def _fetch_board(
             "title": title,
             "company": board.replace("-", " ").title(),
             "location": location or ("Remote" if is_remote else ""),
-            "url": job.get("jobUrl") or f"https://jobs.ashbyhq.com/{board}/{job_id}",
+            "url": url,
             "description": description,
             "salary_min": salary_min,
             "salary_max": salary_max,
@@ -144,7 +175,7 @@ async def _fetch_board(
             "date_posted": job.get("publishedAt", ""),
             "is_remote": is_remote,
             "is_easy_apply": False,
-            "apply_type": "external",
+            "apply_type": detect_ashby_apply_type({"url": url}),
         })
 
     return results

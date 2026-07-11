@@ -107,7 +107,7 @@ public struct RecruiteeSource: JobSource {
                 datePosted: toISO(rawDate),
                 isRemote: isRemote,
                 isEasyApply: false,
-                applyType: "external"))
+                applyType: ApplyTypeDetector.detect(source: "recruitee", url: url)))
         }
         return results
     }

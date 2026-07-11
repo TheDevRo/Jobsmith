@@ -109,7 +109,10 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(ios.salaryMax, 180_000)
         XCTAssertEqual(ios.salaryPeriod, "annual")
         XCTAssertEqual(ios.tags, ["Engineering", "Mobile"])
-        XCTAssertEqual(ios.applyType, "external")
+        // Ashby's native apply flow lives on ashbyhq.com, so a jobs.ashbyhq.com
+        // URL is easy_apply (not the old blanket "external" that hid every
+        // Ashby job from the "Easy Apply only" filter).
+        XCTAssertEqual(ios.applyType, "easy_apply")
         XCTAssertEqual(ios.description, "Ship the app used by millions.")
 
         let support = jobs[1]
@@ -327,23 +330,46 @@ final class JobFiltersTests: XCTestCase {
                       "unparseable dates pass through unchecked")
     }
 
-    func testMinSalaryHourlyConversion() {
+    func testMinSalaryOnlyFiltersKnownPeriods() {
         var search = SearchConfig()
         search.locations = []
         search.minSalary = 80_000
 
-        // Bare 45 infers hourly: 45 * 2080 = 93,600 — passes.
-        XCTAssertTrue(JobFilters.passesGlobalFilters(job(salaryMin: 45), search: search))
-        // 30/hr = 62,400 — fails.
-        XCTAssertFalse(JobFilters.passesGlobalFilters(job(salaryMax: 30), search: search))
-        // Explicit hourly period.
+        // Explicit hourly: 50 * 2080 = 104,000 — passes; 30 * 2080 = 62,400 — fails.
         XCTAssertTrue(JobFilters.passesGlobalFilters(
             job(salaryMax: 50, salaryPeriod: "hourly"), search: search))
-        // Stated annual below the floor fails.
-        XCTAssertFalse(JobFilters.passesGlobalFilters(job(salaryMax: 70_000), search: search))
-        // Upper bound is what counts.
+        XCTAssertFalse(JobFilters.passesGlobalFilters(
+            job(salaryMax: 30, salaryPeriod: "hourly"), search: search))
+        // Explicit annual: below the floor fails; upper bound is what counts.
+        XCTAssertFalse(JobFilters.passesGlobalFilters(
+            job(salaryMax: 70_000, salaryPeriod: "annual"), search: search))
         XCTAssertTrue(JobFilters.passesGlobalFilters(
-            job(salaryMin: 70_000, salaryMax: 90_000), search: search))
+            job(salaryMin: 70_000, salaryMax: 90_000, salaryPeriod: "annual"), search: search))
+
+        // Unknown period: a bare number is too ambiguous to annualize (990 would
+        // infer hourly and balloon to ~$2M, clearing any floor), so we don't
+        // guess — ambiguous salaries pass, same as "no salary data = pass".
+        XCTAssertTrue(JobFilters.passesGlobalFilters(job(salaryMax: 990), search: search))
+        XCTAssertTrue(JobFilters.passesGlobalFilters(job(salaryMax: 30), search: search))
+        XCTAssertTrue(JobFilters.passesGlobalFilters(job(salaryMax: 70_000), search: search))
+    }
+
+    func testGlobalKeywordGate() {
+        var search = SearchConfig()
+        search.locations = []
+        search.keywords = ["python"]
+
+        // An in-Swift-filtered source that admits an unrelated posting (parser
+        // broke) is caught by the global keyword gate...
+        XCTAssertFalse(JobFilters.passesGlobalFilters(
+            job(title: "Barista", company: "Cafe", source: "greenhouse"), search: search))
+        // ...but a match on any unioned field (here the title) survives...
+        XCTAssertTrue(JobFilters.passesGlobalFilters(
+            job(title: "Python Developer", source: "greenhouse"), search: search))
+        // ...and server-side-search sources are trusted (fuzzy/synonym matches
+        // like "SRE" -> "Site Reliability Engineer" must not be dropped).
+        XCTAssertTrue(JobFilters.passesGlobalFilters(
+            job(title: "Site Reliability Engineer", source: "indeed"), search: search))
     }
 
     func testNoSalaryPasses() {
@@ -366,6 +392,15 @@ final class JobFiltersTests: XCTestCase {
         // RemoteOK/WWR jobs always pass the location filter.
         XCTAssertTrue(JobFilters.passesGlobalFilters(
             job(location: "Worldwide", source: "remoteok"), search: search))
+
+        // Empty location from a server-side-location source (queried per
+        // configured location) is trusted and passes...
+        XCTAssertTrue(JobFilters.passesGlobalFilters(
+            job(location: "", source: "adzuna"), search: search))
+        // ...but a per-board ATS source doesn't location-filter, so an empty
+        // location there genuinely can't be confirmed and is dropped.
+        XCTAssertFalse(JobFilters.passesGlobalFilters(
+            job(location: "", source: "greenhouse"), search: search))
 
         // No locations configured: everything passes.
         search.locations = []

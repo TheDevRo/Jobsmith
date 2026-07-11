@@ -61,6 +61,36 @@ def _job_location(job: dict) -> str:
     return ""
 
 
+def detect_workable_apply_type(job: dict) -> str:
+    """Classify a stored Workable job dict as 'easy_apply', 'external', or 'unknown'.
+
+    Works only from data already present in the dict — no network calls are made.
+
+    Workable hosts a structured native apply flow at apply.workable.com that is
+    automatable in-app. A stored URL on any workable.com domain is easy_apply;
+    an account whose posting links to a custom-domain career site stores a
+    non-Workable URL and is classified external.
+
+    Returns:
+      ``'easy_apply'``  — apply form is on workable.com (handled fully in-app).
+      ``'external'``    — URL points to a non-Workable domain.
+      ``'unknown'``     — no URL is stored; cannot classify.
+    """
+    from urllib.parse import urlparse
+
+    url = (job.get("url") or "").strip()
+    if not url:
+        return "unknown"
+
+    hostname = urlparse(url).netloc.lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    if hostname == "workable.com" or hostname.endswith(".workable.com"):
+        return "easy_apply"
+    return "external" if hostname else "unknown"
+
+
 async def _fetch_account(
     session: aiohttp.ClientSession,
     account: str,
@@ -103,6 +133,8 @@ async def _fetch_account(
         is_remote = bool(job.get("telecommuting")) or bool(job.get("remote")) \
             or "remote" in location.lower()
         shortcode = job.get("shortcode") or job.get("code") or job.get("id", "")
+        url = job.get("url") or job.get("shortlink") \
+            or f"https://apply.workable.com/{account}/j/{shortcode}/"
 
         results.append({
             "source": "workable",
@@ -110,8 +142,7 @@ async def _fetch_account(
             "title": title,
             "company": company,
             "location": location or ("Remote" if is_remote else ""),
-            "url": job.get("url") or job.get("shortlink")
-                or f"https://apply.workable.com/{account}/j/{shortcode}/",
+            "url": url,
             "description": description,
             "salary_min": None,
             "salary_max": None,
@@ -119,7 +150,7 @@ async def _fetch_account(
             "date_posted": job.get("published_on") or job.get("created_at", ""),
             "is_remote": is_remote,
             "is_easy_apply": False,
-            "apply_type": "external",
+            "apply_type": detect_workable_apply_type({"url": url}),
         })
 
     return results

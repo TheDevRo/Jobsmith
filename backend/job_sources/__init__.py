@@ -314,6 +314,23 @@ def get_source_names() -> list[str]:
     return [name for name, _ in SOURCES]
 
 
+# Sources that perform authoritative server-side keyword search — their API
+# already constrained results to the query (often with fuzzy/synonym matching,
+# e.g. "SRE" surfacing "Site Reliability Engineer"), so re-applying a strict
+# local keyword gate would drop legitimate matches. Every other source filters
+# keywords in-Python and gets the global keyword gate as a safety net against a
+# silently-broken parser (e.g. a tags field that changes shape and stops matching).
+_SERVER_SIDE_KEYWORD_SOURCES = frozenset({"adzuna", "usajobs", "indeed", "linkedin"})
+
+# Sources that constrain results by an authoritative server-side location param
+# (one query per configured location). A job they return with an empty location
+# string was still location-filtered by the API, so we trust it rather than drop
+# it. Per-board ATS sources (greenhouse/ashby/workable/recruitee) don't filter by
+# location — they return every posting on a board — so an empty location there
+# genuinely can't be confirmed and stays subject to the location check.
+_LOCATION_TRUSTED_SOURCES = frozenset({"linkedin", "indeed", "adzuna", "usajobs"})
+
+
 def _passes_global_filters(job: dict, config: dict) -> bool:
     """
     Final safety-net filter applied to ALL jobs from ALL sources.
@@ -333,6 +350,25 @@ def _passes_global_filters(job: dict, config: dict) -> bool:
                      job.get("title"), job.get("company"))
         return False
 
+    # Keyword gate — the safety net the in-Python per-source filters were the
+    # only line of defense for. Skipped for sources whose server-side search
+    # already did (possibly fuzzy) relevance matching; applied to every
+    # in-Python-filtered source so a broken parser can't smuggle unrelated
+    # postings past us. The haystack unions every field any source matches on
+    # (title/company/tags/description), so this never drops a job that a
+    # source's own keyword filter would have kept.
+    keywords = search.get("keywords") or []
+    if keywords and job.get("source") not in _SERVER_SIDE_KEYWORD_SOURCES:
+        tags = job.get("tags") or []
+        tag_text = " ".join(tags) if isinstance(tags, (list, tuple)) else str(tags)
+        haystack = " ".join((
+            job.get("title", ""), job.get("company", ""), tag_text, job.get("description", ""),
+        ))
+        if not matches_keywords(haystack, keywords):
+            logger.debug("Global filter: excluded '%s' — matched none of the configured keywords",
+                         job.get("title"))
+            return False
+
     # Max-age filter — only when date_posted is parseable; sources that emit
     # relative strings ("Posted 3 days ago") pass through unchecked.
     max_age_days = search.get("max_age_days")
@@ -347,26 +383,33 @@ def _passes_global_filters(job: dict, config: dict) -> bool:
                 return False
 
     # Min-salary filter — lenient: uses the job's upper bound and only drops
-    # jobs that *state* a salary below the floor. No salary data = pass.
+    # jobs that *state* a salary below the floor with a KNOWN pay period. When
+    # the period is unknown we don't guess: annualizing a bare number is
+    # unreliable (a $990/wk stipend inferred as hourly becomes ~$2M and clears
+    # any floor), so ambiguous salaries pass — same posture as "no salary =
+    # pass" — rather than being dropped or admitted on a bad inference.
     min_salary = search.get("min_salary")
     if min_salary:
         amount = job.get("salary_max") or job.get("salary_min")
-        if amount:
-            period = job.get("salary_period") or "unknown"
-            if period == "unknown":
-                period = infer_period_from_amount(amount)
+        period = (job.get("salary_period") or "unknown").lower()
+        if amount and period in ("hourly", "annual"):
             annual = normalize_salary_to_annual(amount, period)
             if annual is not None and annual < int(min_salary):
                 logger.debug("Global filter: excluded '%s' — salary %s/yr below floor %s",
                              job.get("title"), annual, min_salary)
                 return False
+        elif amount:
+            logger.debug("Global filter: keeping '%s' — salary %s has an unknown period; "
+                         "not filtering on an ambiguous figure", job.get("title"), amount)
 
     # Location filter — only if locations are configured
     if locations:
-        # LinkedIn cards sometimes omit location; the detail fetch may backfill
-        # it, but if it's still empty let it through — LinkedIn's own filter
-        # already approved it.
-        if not job_location and job.get("source") == "linkedin":
+        # Sources that constrain results by an authoritative server-side
+        # location param sometimes still return a job with an empty location
+        # string (e.g. a LinkedIn card whose detail fetch didn't backfill it).
+        # Trust the API's filtering rather than drop it — this applies to every
+        # server-side-location source, not just LinkedIn.
+        if not job_location and job.get("source") in _LOCATION_TRUSTED_SOURCES:
             return True
 
         is_remote = job.get("is_remote", False) or "remote" in job_location or "remote" in title

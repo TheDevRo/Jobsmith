@@ -93,7 +93,7 @@ public struct WorkableSource: JobSource {
                 datePosted: datePosted,
                 isRemote: isRemote,
                 isEasyApply: false,
-                applyType: "external"))
+                applyType: ApplyTypeDetector.detect(source: "workable", url: url)))
         }
         return results
     }
