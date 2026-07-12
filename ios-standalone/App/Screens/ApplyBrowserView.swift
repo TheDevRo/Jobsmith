@@ -161,13 +161,17 @@ struct ApplyBrowserView: View {
                 }
                 status = "Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…"
                 let values = await model.mapApplyFields(snap.fields, job: job)
-                let items = Self.buildFillItems(descriptors: snap.fields, values: values)
+                let items = Self.buildFillItems(descriptors: snap.fields, values: values,
+                                                documents: uploadDocuments(for: values))
                 status = "Filling…"
                 let fillResults = try await controller.fill(items: items)
                 rows = Self.buildRows(descriptors: snap.fields, values: values,
                                       fillResults: fillResults)
                 let filled = fillResults.filter { ($0["status"] as? String) == "filled" }.count
-                status = "Filled \(filled) of \(items.count). Review the page, attach documents, then submit."
+                let pendingUploads = rows.contains { $0.isUpload && !$0.wasFilled }
+                status = pendingUploads
+                    ? "Filled \(filled) of \(items.count). Review the page, attach documents, then submit."
+                    : "Filled \(filled) of \(items.count). Review the page, then submit."
                 showPanel = true
             } catch {
                 status = "Autofill failed: \(error.localizedDescription)"
@@ -176,13 +180,43 @@ struct ApplyBrowserView: View {
         }
     }
 
+    /// Read the tailored documents referenced by the mapping's upload items
+    /// ("resume"/"cover_letter" kind tokens in `value`) out of FileVault, so
+    /// fill.js can attach them to `<input type=file>` the same way the desktop
+    /// extension does. Base64 keeps the payload a plain string through
+    /// `callAsyncJavaScript`; the fill wrapper decodes it back to bytes.
+    private func uploadDocuments(for values: [[String: Any]]) -> [String: ApplyUploadDocument] {
+        let kinds = Set(values.compactMap { v -> String? in
+            guard (v["action"] as? String) == "upload" else { return nil }
+            return v["value"] as? String
+        })
+        let format = model.config.honesty.documentFormat
+        var docs: [String: ApplyUploadDocument] = [:]
+        for token in kinds {
+            guard let kind = FileVault.Kind(rawValue: token),
+                  let data = FileVault.read(jobId: job.id, kind: kind, format: format) else {
+                continue
+            }
+            docs[token] = ApplyUploadDocument(
+                base64: data.base64EncodedString(),
+                name: FileVault.exportFilename(name: model.config.profile.fullName,
+                                               company: job.company,
+                                               kind: kind, format: format),
+                mime: format.mime)
+        }
+        return docs
+    }
+
     // MARK: - Merge helpers (ported from SafariExt/Resources/sidepanel.js)
 
     /// Join each mapped `FieldValue` with its snapshot descriptor by `field_id`
     /// into the fill-payload shape `fill.js` expects. `options` is always an
     /// array (never null) so it survives `callAsyncJavaScript` serialization.
+    /// `documents` (kind token → tailored document) hydrates upload items with
+    /// the file payload, mirroring the extension side panel's `bytesFor`.
     static func buildFillItems(descriptors: [[String: Any]],
-                               values: [[String: Any]]) -> [[String: Any]] {
+                               values: [[String: Any]],
+                               documents: [String: ApplyUploadDocument] = [:]) -> [[String: Any]] {
         var descById: [String: [String: Any]] = [:]
         for d in descriptors {
             if let fid = d["field_id"] as? String { descById[fid] = d }
@@ -191,7 +225,7 @@ struct ApplyBrowserView: View {
         for v in values {
             guard let fid = v["field_id"] as? String else { continue }
             let d = descById[fid] ?? [:]
-            let item: [String: Any] = [
+            var item: [String: Any] = [
                 "field_id": fid,
                 "selector": d["_selector"] as? String ?? "",
                 "name": d["name"] as? String ?? "",
@@ -204,6 +238,12 @@ struct ApplyBrowserView: View {
                 "required": d["required"] as? Bool ?? false,
                 "_combobox": d["_combobox"] as? Bool ?? false,
             ]
+            if (v["action"] as? String) == "upload",
+               let doc = documents[v["value"] as? String ?? ""] {
+                item["file_b64"] = doc.base64
+                item["file_name"] = doc.name
+                item["file_mime"] = doc.mime
+            }
             items.append(item)
         }
         return items
@@ -245,6 +285,14 @@ struct ApplyBrowserView: View {
     }
 }
 
+/// A tailored document staged for in-page attachment, base64-encoded so it
+/// crosses the `callAsyncJavaScript` bridge as a string.
+struct ApplyUploadDocument {
+    let base64: String
+    let name: String
+    let mime: String
+}
+
 /// One field's outcome, shown in the fallback panel.
 struct ApplyFieldRow: Identifiable {
     let id: String
@@ -260,9 +308,10 @@ struct ApplyFieldRow: Identifiable {
     var copyable: Bool { !isUpload && !isSkipped && !value.isEmpty }
     var wasFilled: Bool { fillStatus == "filled" }
 
-    /// Lower sorts first: uploads and required-but-unfilled need attention.
+    /// Lower sorts first: unattached uploads and required-but-unfilled need
+    /// attention. An upload fill.js managed to attach is resolved.
     var attentionRank: Int {
-        if isUpload { return 0 }
+        if isUpload { return wasFilled ? 3 : 0 }
         if required && !wasFilled { return 1 }
         if !wasFilled { return 2 }
         return 3
@@ -342,10 +391,23 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
     }
 
     /// Register fill.js, then invoke the async global with the merged items.
+    /// Upload items arrive with `file_b64` (a string survives the JS bridge;
+    /// a Data/byte-array does not) — decode each back into the `file_bytes`
+    /// Uint8Array that fill.js's DataTransfer attachment path expects.
     func fill(items: [[String: Any]]) async throws -> [[String: Any]] {
         _ = try await webView.evaluateJavaScript(ApplyScripts.fill)
         let out = try await webView.callAsyncJavaScript(
-            "return await window.__jobsmithFillAndHighlight(items, {});",
+            """
+            for (const it of (items || [])) {
+                if (!it.file_b64) continue;
+                const bin = atob(it.file_b64);
+                const bytes = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                it.file_bytes = bytes;
+                delete it.file_b64;
+            }
+            return await window.__jobsmithFillAndHighlight(items, {});
+            """,
             arguments: ["items": items],
             contentWorld: .page)
         let dict = out as? [String: Any] ?? [:]
@@ -397,8 +459,9 @@ private struct ApplyFallbackPanel: View {
                 } header: {
                     Text("Documents")
                 } footer: {
-                    Text("Tap the file field on the page, choose Files, then pick the "
-                         + "exported document. WKWebView can't attach files for you.")
+                    Text("Autofill attaches these to the form's file fields when it can. "
+                         + "If one didn't stick, tap the field on the page, choose Files, "
+                         + "then pick the exported document.")
                 }
 
                 Section("Answers — tap to copy") {
@@ -464,14 +527,14 @@ private struct ApplyFallbackPanel: View {
 
     /// The words behind the status dot's color.
     private func statusText(_ row: ApplyFieldRow) -> String {
-        if row.isUpload { return "file upload" }
+        if row.isUpload { return row.wasFilled ? "file attached" : "file upload needed" }
         if row.wasFilled { return "filled" }
         if row.required { return "required, not filled" }
         return "optional, not filled"
     }
 
     private func statusDot(_ row: ApplyFieldRow) -> some View {
-        let color: Color = row.isUpload ? .orange
+        let color: Color = row.isUpload ? (row.wasFilled ? .green : .orange)
             : row.wasFilled ? .green
             : row.required ? .red
             : .secondary
