@@ -274,13 +274,34 @@ struct ApplyFieldRow: Identifiable {
 /// Owns the WKWebView and exposes async snapshot/fill helpers. Kept out of the
 /// SwiftUI view so the injected-script calls read cleanly.
 @MainActor
-final class ApplyWebController: ObservableObject {
+final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
     let webView: WKWebView
 
-    init() {
+    override init() {
         let config = WKWebViewConfiguration()
         webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        super.init()
+        webView.uiDelegate = self
+    }
+
+    /// LinkedIn's external Apply button hands off to the company ATS via
+    /// `window.open` / `target="_blank"`. WKWebView routes new-window
+    /// navigations here and silently drops them without a UI delegate, so
+    /// load them in the same web view (swipe-back returns to the posting).
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard navigationAction.targetFrame == nil,
+              let url = navigationAction.request.url else { return nil }
+        if url.scheme == "http" || url.scheme == "https" {
+            webView.load(navigationAction.request)
+        } else if UIApplication.shared.canOpenURL(url) {
+            // Non-web schemes (mailto:, tel:, …) can't render in the web view.
+            UIApplication.shared.open(url)
+        }
+        return nil
     }
 
     /// Inject the stored LinkedIn `li_at` session cookie (if any) into the web
@@ -423,13 +444,30 @@ private struct ApplyFallbackPanel: View {
                 if copiedId == row.id {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
+                        .accessibilityHidden(true)
                 } else if row.copyable {
                     Image(systemName: "doc.on.doc")
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
             }
         }
         .disabled(!row.copyable)
+        // The dot's color is the only visual carrier of field status, so fold
+        // it into the row's spoken label rather than leaving it color-only.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(row.label), \(statusText(row)). \(displayValue)")
+        .accessibilityHint(row.copyable
+                           ? (copiedId == row.id ? "Copied" : "Copies the answer to the clipboard")
+                           : "")
+    }
+
+    /// The words behind the status dot's color.
+    private func statusText(_ row: ApplyFieldRow) -> String {
+        if row.isUpload { return "file upload" }
+        if row.wasFilled { return "filled" }
+        if row.required { return "required, not filled" }
+        return "optional, not filled"
     }
 
     private func statusDot(_ row: ApplyFieldRow) -> some View {
@@ -441,6 +479,7 @@ private struct ApplyFallbackPanel: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .padding(.top, 6)
+            .accessibilityHidden(true)
     }
 }
 
