@@ -288,6 +288,38 @@ public final class SyncEngine {
         try ApplicationStore.recomputeOutcome(dbc, applicationId: appId)
     }
 
+    /// The `application_schedule` entity — reminder dates, keyed by application id.
+    ///
+    /// Its own entity for the same reason the outcome is: LWW resolves whole
+    /// records, so dates carried on `application` would be wiped by any unrelated
+    /// edit from the other device. Unlike events these are mutable (you reschedule
+    /// an interview), so they stay last-writer-wins — just on their own stream.
+    /// An application with no dates is absent from the snapshot, which the engine
+    /// emits as a tombstone: "no dates", not "no application".
+    private func scheduleSnapshot(_ dbc: Database) throws -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for row in try Row.fetchAll(dbc, sql: """
+            SELECT a.id, a.followUpAt, a.interviewAt
+            FROM applications a JOIN jobs j ON j.id = a.jobId
+            WHERE j.externalId IS NOT NULL AND j.externalId != ''
+              AND (a.followUpAt IS NOT NULL OR a.interviewAt IS NOT NULL)
+            """) {
+            var data: [String: JSONValue] = [:]
+            data["follow_up_at"] = (row["followUpAt"] as String?).map { .string($0) } ?? .null
+            data["interview_at"] = (row["interviewAt"] as String?).map { .string($0) } ?? .null
+            out[row["id"]] = data
+        }
+        return out
+    }
+
+    private func applySchedule(_ dbc: Database, _ id: String, _ canonData: [String: JSONValue]) throws {
+        guard try Row.fetchOne(dbc, sql: "SELECT id FROM applications WHERE id = ?",
+                               arguments: [id]) != nil else { throw DeferError() }
+        try dbc.execute(sql: "UPDATE applications SET followUpAt = ?, interviewAt = ? WHERE id = ?",
+                        arguments: [canonData["follow_up_at"]?.stringValue,
+                                    canonData["interview_at"]?.stringValue, id])
+    }
+
     private func appSnapshot(_ dbc: Database, _ store: DocumentStore?) throws -> [String: [String: JSONValue]] {
         var out: [String: [String: JSONValue]] = [:]
         let cols = (["id"] + SyncEngine.appKinds.map { "a.\($0.0)" } + SyncEngine.appDocs.map { "a.\($0.1)" }).joined(separator: ", ")
@@ -364,6 +396,7 @@ public final class SyncEngine {
             try diff(entity: "triage", current: try triageSnapshot(dbc))
             try diff(entity: "application", current: try appSnapshot(dbc, store))
             try diff(entity: "application_event", current: try appEventSnapshot(dbc))
+            try diff(entity: "application_schedule", current: try scheduleSnapshot(dbc))
 
             if let iosProfile = loadProfile() {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
@@ -427,9 +460,23 @@ public final class SyncEngine {
                 do { try applyAppEvent(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application_event:\(key.id)"); stats.deferred += 1 }
             }
+            for (key, rec) in winners where key.entity == "application_schedule" && !rec.deleted {
+                do { try applySchedule(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
+                catch is DeferError { deferred.insert("application_schedule:\(key.id)"); stats.deferred += 1 }
+            }
             // Tombstones, children before parents. `triage` never tombstones
             // (a delete is a live 'deleted' status). Job tombstones are the
             // generic safety net for a physically-removed row.
+            //
+            // A schedule tombstone means "the dates were cleared", NOT "the
+            // application was deleted" — so it nulls the columns and leaves the
+            // row alone.
+            for (key, rec) in winners where key.entity == "application_schedule" && rec.deleted {
+                try dbc.execute(
+                    sql: "UPDATE applications SET followUpAt = NULL, interviewAt = NULL WHERE id = ?",
+                    arguments: [key.id])
+                stats.deletes += 1
+            }
             for (key, rec) in winners where key.entity == "application_event" && rec.deleted {
                 try deleteAppEvent(dbc, key.id); stats.deletes += 1
             }
@@ -573,6 +620,7 @@ public final class SyncEngine {
         let triage = try triageSnapshot(dbc)
         let apps = try appSnapshot(dbc, store)
         let appEvents = try appEventSnapshot(dbc)
+        let schedules = try scheduleSnapshot(dbc)
         for (key, rec) in winners {
             if rec.deleted {
                 try putSnapshot(dbc, key.entity, key.id, rec.updatedAt, true, nil); continue
@@ -593,6 +641,9 @@ public final class SyncEngine {
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             case "application_event":
                 guard let known = appEvents[key.id] else { continue }
+                dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
+            case "application_schedule":
+                guard let known = schedules[key.id] else { continue }
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             default: continue
             }

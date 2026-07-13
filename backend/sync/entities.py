@@ -419,6 +419,57 @@ async def recompute_outcome(conn: aiosqlite.Connection, application_id: str) -> 
 
 
 # ---------------------------------------------------------------------------
+# application_schedule  (follow-up / interview reminder dates)
+# ---------------------------------------------------------------------------
+
+class ApplicationScheduleAdapter:
+    """The reminder dates for an application, keyed by the application's sync id.
+
+    Its own entity for the same reason the outcome is: LWW resolves whole records,
+    so dates carried on `application` would be wiped whenever the other device
+    edited an unrelated field. Unlike events these ARE mutable (you reschedule an
+    interview), so they stay last-writer-wins — but on their own independent
+    stream, which is exactly the `triage` pattern.
+    """
+
+    entity = "application_schedule"
+
+    SCALAR = ("follow_up_at", "interview_at")
+
+    async def snapshot(self, conn: aiosqlite.Connection) -> dict[str, dict]:
+        cols = ", ".join(f"a.{c}" for c in self.SCALAR)
+        cur = await conn.execute(
+            f"""SELECT a.id, {cols}
+                FROM applications a JOIN jobs j ON j.id = a.job_id
+                WHERE j.external_id IS NOT NULL AND j.external_id != ''
+                  AND (a.follow_up_at IS NOT NULL OR a.interview_at IS NOT NULL)"""
+        )
+        out: dict[str, dict] = {}
+        for row in await cur.fetchall():
+            r = dict(row)
+            out[r["id"]] = {c: r[c] for c in self.SCALAR}
+        return out
+
+    async def apply_live(self, conn: aiosqlite.Connection, sync_id: str, data: dict) -> None:
+        cur = await conn.execute("SELECT id FROM applications WHERE id = ?", (sync_id,))
+        if not await cur.fetchone():
+            raise DeferRecord(f"application_schedule {sync_id}: application not present yet")
+        await conn.execute(
+            "UPDATE applications SET follow_up_at = ?, interview_at = ? WHERE id = ?",
+            (data.get("follow_up_at"), data.get("interview_at"), sync_id),
+        )
+
+    async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        # Clearing both dates drops the row from the snapshot, which the engine
+        # emits as a tombstone — so a tombstone means "no dates", not "no
+        # application". Never delete the application itself here.
+        await conn.execute(
+            "UPDATE applications SET follow_up_at = NULL, interview_at = NULL WHERE id = ?",
+            (sync_id,),
+        )
+
+
+# ---------------------------------------------------------------------------
 # answer (qa_cache)
 # ---------------------------------------------------------------------------
 
@@ -465,6 +516,7 @@ def db_adapters(document_store=None):
         AnswerAdapter(),
         ApplicationAdapter(document_store),
         ApplicationEventAdapter(),
+        ApplicationScheduleAdapter(),
     )
 
 

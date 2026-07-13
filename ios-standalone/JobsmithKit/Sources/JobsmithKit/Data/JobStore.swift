@@ -92,6 +92,42 @@ public struct JobStore: Sendable {
         }
     }
 
+    /// Normalized (title, company) of every role you've actually applied to.
+    ///
+    /// The fetch-time `Deduplicator` only removes duplicates *within one fetch*,
+    /// so a repost — or the same role picked up from a second board — arrives with
+    /// a new externalId and URL and looks brand new. This is the key that catches
+    /// it. Location is deliberately excluded: the same role in another office is
+    /// still a role you already applied to. Must match the desktop's
+    /// database.normalize_identity.
+    public func appliedIdentities() throws -> Set<String> {
+        try db.writer.read { dbc in
+            var out: Set<String> = []
+            for row in try Row.fetchAll(dbc, sql: """
+                SELECT DISTINCT j.title, j.company
+                FROM applications a JOIN jobs j ON j.id = a.jobId
+                WHERE a.status = 'applied'
+                """) {
+                if let key = Self.identityKey(title: row["title"], company: row["company"]) {
+                    out.insert(key)
+                }
+            }
+            return out
+        }
+    }
+
+    /// nil when either half is missing — never match on a half-identity.
+    public static func identityKey(title: String?, company: String?) -> String? {
+        func norm(_ s: String?) -> String {
+            (s ?? "")
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+        }
+        let t = norm(title), c = norm(company)
+        return (t.isEmpty || c.isEmpty) ? nil : "\(t)|\(c)"
+    }
+
     public func jobs(triage: String? = nil, status: String? = nil) throws -> [Job] {
         try db.writer.read { dbc in
             var request = Job.all()

@@ -171,7 +171,35 @@ that doesn't silently drop it.
 
 ---
 
-## Phase 3 — A2, reminders (iOS is the surface; backend computes)
+## Phases 3–5 — DONE
+
+All shipped. What changed from the sketches below:
+
+- **Reminder dates hit the same LWW hazard as the outcome**, so they got the same
+  treatment: their own `application_schedule` entity rather than fields on
+  `application`. They stay last-writer-wins (you do reschedule an interview) — just
+  on an independent stream, so a resume edit on the desktop can't wipe them. A
+  schedule *tombstone* means "the dates were cleared", NOT "the application was
+  deleted"; getting that wrong would delete applications.
+- **The reminder is the capture flow.** The notification carries its own answers
+  ("Heard back" / "Rejected" / "Still waiting") so an outcome can be recorded from
+  the lock screen. A reminder that makes you open the app, find the job, and pick
+  from a menu is one you dismiss — and then the funnel stays empty, which is the
+  problem this whole plan exists to solve. "Still waiting" deliberately records
+  nothing and snoozes a week instead of padding the history.
+- Fixed on the way: notifications wrote `userInfo["deepLink"]` that **nothing ever
+  read**, so taps went nowhere. There is now a `UNUserNotificationCenterDelegate`
+  (retained for the app's lifetime — the notification center holds it weakly).
+- **The dupe guard is computed at read time, not stored.** A flag written at fetch
+  time goes stale the moment you apply to something new, and rows fetched earlier
+  would never be re-flagged.
+- **The digest's conversion term treats an unproven source as neutral (0.5), not
+  zero.** One silent application is not evidence a board is bad; below 3 submitted
+  applications a source is left out of the measurement rather than judged on noise.
+
+---
+
+## Phase 3 (original sketch) — A2, reminders (iOS is the surface; backend computes)
 
 **Do not put the notification on the desktop.** Backend notifications are an in-memory
 `deque` (`app_state.py:110`) that the frontend polls every 3s (`frontend/js/core.js:425`)

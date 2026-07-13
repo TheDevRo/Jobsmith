@@ -69,6 +69,14 @@ function qualityBadge(job) {
     return `<span class="quality-badge ${cls}" title="Posting-quality signals suggest this may be a ghost job">⚠ Quality ${Math.round(report.score)}</span>`;
 }
 
+function appliedBadge(job) {
+    // A repost, or the same role picked up from another board. The dedup only
+    // removes duplicates within a single fetch, and the DB only hides the exact
+    // job row you applied to — so these otherwise come back looking brand new.
+    if (!job.already_applied) return '';
+    return '<span class="quality-badge quality-badge-amber" title="You already applied to this role at this company — this looks like a repost or a cross-posting">↩ Already applied</span>';
+}
+
 function renderQualitySection(job) {
     const report = safeParseJSON(job.quality_report, null);
     if (!report || !Array.isArray(report.signals) || report.signals.length === 0) return '';
@@ -102,6 +110,16 @@ function renderJobs(jobs, total) {
     updateSelectedCount();
     if (selectModeActive) container.classList.add('select-mode');
 
+    // Handoff from the dashboard's "Apply Today" card: select the job it sent us
+    // to, once the list it lives in actually exists.
+    if (window._pendingJobSelection) {
+        const wanted = window._pendingJobSelection;
+        window._pendingJobSelection = null;
+        if (window._currentJobs[wanted]) {
+            setTimeout(() => selectJob(wanted), 0);
+        }
+    }
+
     container.innerHTML = jobs.map(job => {
         const status = job.app_status || job.status;
         const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
@@ -121,6 +139,7 @@ function renderJobs(jobs, total) {
                             <span class="source-badge">${escapeHtml(job.source)}</span>
                             ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
                             ${qualityBadge(job)}
+                            ${appliedBadge(job)}
                             <span>${timeAgo(job.date_discovered)}</span>
                         </div>
                     </div>
@@ -194,6 +213,7 @@ function selectJob(jobId) {
                     <span class="source-badge">${escapeHtml(job.source)}</span>
                     ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
                     ${qualityBadge(job)}
+                    ${appliedBadge(job)}
                     <span style="font-size:12px;color:var(--text-muted)">${timeAgo(job.date_discovered)}</span>
                 </div>
             </div>

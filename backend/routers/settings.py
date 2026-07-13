@@ -111,6 +111,19 @@ async def get_outcome_analytics():
     return await db.get_outcome_analytics()
 
 
+@router.get("/api/digest")
+async def get_digest(limit: int = 5):
+    """Today's shortlist — the few jobs actually worth applying to right now.
+
+    Weighted by fit, freshness, salary and apply-effort, and by how often each
+    source has actually replied to *you* (measured from the outcome history).
+    Weights are overridable via config `pipeline.digest_weights`.
+    """
+    cfg = state.load_config()
+    weights = cfg.get("pipeline", {}).get("digest_weights") or {}
+    return await db.get_digest(limit=limit, weights=weights)
+
+
 @router.get("/api/fit-breakdown")
 async def get_fit_breakdown():
     return await db.get_fit_breakdown()

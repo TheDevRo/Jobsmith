@@ -736,3 +736,49 @@ async def test_identically_stamped_events_converge(tmp_path, monkeypatch):
 
     assert outcomes[0] == outcomes[1], (
         f"devices disagree on an identical history: {outcomes}")
+
+
+@pytest.mark.asyncio
+async def test_schedule_survives_a_concurrent_edit(tmp_path, monkeypatch):
+    """Reminder dates get their own entity for the same reason the outcome does:
+    on `application` they'd be wiped by any unrelated edit from the other device."""
+    path_a, path_b, folder = tmp_path / "a.db", tmp_path / "b.db", tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.update_application_status("app-1", "applied")
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+
+    # A schedules an interview; B, not yet having seen it, edits the resume.
+    await dbmod.set_application_schedule("app-1", interview_at="2026-07-20T15:00:00+00:00")
+    conn = sqlite3.connect(path_b)
+    conn.execute("UPDATE applications SET resume_content = 'REVISED' WHERE id = 'app-1'")
+    conn.commit()
+    conn.close()
+
+    await a.export_changes(folder)
+    await b.export_changes(folder)
+    await b.import_changes(folder)
+    await a.import_changes(folder)
+
+    for path in (path_a, path_b):
+        app = _rows(path, "SELECT * FROM applications WHERE id = 'app-1'")[0]
+        assert app["interview_at"] == "2026-07-20T15:00:00+00:00", f"interview lost on {path.name}"
+        assert app["resume_content"] == "REVISED", f"resume edit lost on {path.name}"
+
+    # Clearing the dates propagates as a tombstone — and must not delete the app.
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.set_application_schedule("app-1", clear_interview=True, clear_follow_up=True)
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+    app_b = _rows(path_b, "SELECT * FROM applications WHERE id = 'app-1'")[0]
+    assert app_b["interview_at"] is None
+    assert app_b["resume_content"] == "REVISED"  # the application itself survives

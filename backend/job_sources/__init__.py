@@ -647,5 +647,44 @@ async def fetch_all_jobs(
     if removed > 0:
         logger.info("Global filter removed %d jobs that didn't match filter criteria", removed)
 
+    filtered = await _flag_already_applied(filtered, config)
+
     logger.info("Total unique jobs after filtering: %d", len(filtered))
     return filtered
+
+
+async def _flag_already_applied(jobs: list[dict], config: dict) -> list[dict]:
+    """Mark jobs matching a role you already applied to at the same company.
+
+    The dedup above only removes duplicates *within this fetch*, and the DB only
+    hides the exact job row you applied to — so reposts and cross-source copies
+    of a role you already applied to sail straight back into the inbox. Sets
+    `already_applied` for a badge; drops them outright when
+    `pipeline.skip_already_applied` is on.
+
+    Never blocks a fetch: on any failure the jobs pass through unflagged.
+    """
+    try:
+        from backend.database import get_applied_identities, normalize_identity
+        applied = await get_applied_identities()
+    except Exception:
+        logger.debug("Could not load applied identities for the dupe guard", exc_info=True)
+        return jobs
+    if not applied:
+        return jobs
+
+    flagged = 0
+    for job in jobs:
+        key = normalize_identity(job.get("title", ""), job.get("company", ""))
+        if key is not None and key in applied:
+            job["already_applied"] = True
+            flagged += 1
+
+    if flagged:
+        logger.info("Dupe guard flagged %d job(s) you've already applied to", flagged)
+    if config.get("pipeline", {}).get("skip_already_applied"):
+        kept = [j for j in jobs if not j.get("already_applied")]
+        if len(kept) < len(jobs):
+            logger.info("Dupe guard skipped %d already-applied job(s)", len(jobs) - len(kept))
+        return kept
+    return jobs

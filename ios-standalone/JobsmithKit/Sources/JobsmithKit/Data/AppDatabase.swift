@@ -160,6 +160,16 @@ public struct AppDatabase: Sendable {
             try db.create(indexOn: "application_events", columns: ["applicationId"])
         }
 
+        // Reminder dates. Sync as their own `application_schedule` entity — on
+        // `application` they'd be clobbered by any unrelated edit from the other
+        // device, same reason the outcome doesn't live there.
+        migrator.registerMigration("v4_reminders") { db in
+            try db.alter(table: "applications") { t in
+                t.add(column: "followUpAt", .text)
+                t.add(column: "interviewAt", .text)
+            }
+        }
+
         return migrator
     }
 }

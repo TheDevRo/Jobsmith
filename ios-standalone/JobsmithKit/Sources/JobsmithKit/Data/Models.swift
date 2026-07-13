@@ -133,6 +133,10 @@ public struct Application: Codable, Equatable, Sendable, Identifiable,
     /// `application_events` history; never written directly by sync.
     public var outcome: String
     public var outcomeUpdatedAt: String?
+    /// Reminder dates. Like `outcome`, these sync as their own entity rather than
+    /// as fields on the application — see SyncEngine.scheduleSnapshot.
+    public var followUpAt: String?
+    public var interviewAt: String?
 
     public init(jobId: String, resumeContent: String, coverLetterContent: String,
                 honestyLevel: String, stylePreset: String) {
@@ -152,6 +156,8 @@ public struct Application: Codable, Equatable, Sendable, Identifiable,
         self.updatedAt = now
         self.outcome = ApplicationOutcome.awaiting.rawValue
         self.outcomeUpdatedAt = nil
+        self.followUpAt = nil
+        self.interviewAt = nil
     }
 }
 

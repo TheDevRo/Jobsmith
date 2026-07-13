@@ -24,6 +24,16 @@ final class AppModel {
     /// pipeline and detail screens show a submitted job's outcome without a
     /// per-row query.
     var applicationsByJob: [String: Application] = [:]
+    /// Set when a notification tap should route to a job; the Pipeline consumes
+    /// and clears it. Before this, notifications wrote a `deepLink` into userInfo
+    /// that nothing ever read, so a tap went nowhere.
+    var deepLinkedJobId: String?
+    /// Normalized (title, company) keys of roles already applied to — drives the
+    /// "already applied" badge. See isAlreadyApplied.
+    var appliedIdentities: Set<String> = []
+    /// How often each source has actually replied to you. Drives the "Best bets"
+    /// sort; empty for sources with too little history to judge.
+    var conversionBySource: [String: Double] = [:]
     var isFetching = false
     /// Live per-source progress for the in-flight fetch, or nil when idle.
     /// Drives the Inbox "Searching…" banner; cleared when the fetch ends.
@@ -121,6 +131,18 @@ final class AppModel {
         applicationsByJob = Dictionary(
             ((try? applicationStore.applications()) ?? []).map { ($0.jobId, $0) },
             uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
+        appliedIdentities = (try? jobStore.appliedIdentities()) ?? []
+        conversionBySource = (try? applicationStore.responseRateBySource()) ?? [:]
+    }
+
+    /// True when this posting is a repost — or a cross-posting — of a role you
+    /// already applied to at the same company. Computed rather than stored: a
+    /// stored flag goes stale the moment you apply to something new.
+    func isAlreadyApplied(_ job: Job) -> Bool {
+        guard job.status != "applied",
+              let key = JobStore.identityKey(title: job.title, company: job.company)
+        else { return false }
+        return appliedIdentities.contains(key)
     }
 
     // MARK: outcomes
@@ -146,6 +168,25 @@ final class AppModel {
     /// Funnel counts over submitted applications, for the Activity screen.
     var outcomeFunnel: (applied: Int, stages: [(ApplicationOutcome, Int)]) {
         (try? applicationStore.funnel()) ?? (0, [])
+    }
+
+    /// Set or clear a reminder date, then rebuild the notification schedule.
+    func setSchedule(jobId: String, followUpAt: Date? = nil, interviewAt: Date? = nil,
+                     clearFollowUp: Bool = false, clearInterview: Bool = false) {
+        guard let application = applicationsByJob[jobId] else { return }
+        do {
+            try applicationStore.setSchedule(
+                id: application.id,
+                followUpAt: followUpAt.map(ApplicationStore.isoMs),
+                interviewAt: interviewAt.map(ApplicationStore.isoMs),
+                clearFollowUp: clearFollowUp, clearInterview: clearInterview)
+        } catch {
+            lastError = "Could not save the reminder: \(error.localizedDescription)"
+            return
+        }
+        refresh()
+        NotificationManager.rescheduleReminders(model: self)
+        Task { await syncNow() }
     }
 
     // MARK: foreground auto-sync
