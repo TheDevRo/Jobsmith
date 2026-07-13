@@ -5,11 +5,21 @@ services:
     container_name: jobsmith
     restart: unless-stopped
     ports:
-      - "8888:8888"
+      # Dashboard API. Loopback-only by default: the API is unauthenticated for
+      # local callers and /api/config can return profile PII and API keys, so
+      # publishing it on all interfaces hands the LAN your data.
+      # To reach it from another machine: set a token first
+      # (Settings → Integrations → the Jobsmith API token), then widen the bind
+      # by setting JOBSMITH_BIND=0.0.0.0 in .env — or, better, put it behind a
+      # reverse proxy / Tailscale rather than raw LAN.
+      - "${JOBSMITH_BIND:-127.0.0.1}:8888:8888"
       # noVNC (headed browser view). Loopback-only by default — the VNC
       # session holds logged-in job-site cookies, so don't expose it to the
-      # LAN unless you mean to (set NOVNC_BIND=0.0.0.0 in .env, and consider
-      # VNC_PASSWORD).
+      # LAN unless you mean to. If you set NOVNC_BIND=0.0.0.0 you MUST also set
+      # VNC_PASSWORD; otherwise the container auto-generates one and prints it
+      # once to the log (`docker compose logs jobsmith`), because x11vnc's
+      # no-password mode on a LAN-reachable port is an open remote desktop into
+      # your logged-in LinkedIn/Indeed session.
       - "${NOVNC_BIND:-127.0.0.1}:6080:6080"
     # Defaults below let the container boot with no .env present. If a
     # .env exists alongside this compose file, Compose auto-reads it and
@@ -20,6 +30,9 @@ services:
       JOBSMITH_FLARESOLVERR_URL: ${JOBSMITH_FLARESOLVERR_URL:-}
       BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
       VNC_PASSWORD: ${VNC_PASSWORD:-}
+      # Mirrors the port binding above so the entrypoint knows whether noVNC is
+      # actually reachable off-host and can refuse to run it without a password.
+      NOVNC_BIND: ${NOVNC_BIND:-127.0.0.1}
       USE_BROWSER_USE: ${USE_BROWSER_USE:-false}
       BROWSER_USE_MAX_STEPS: ${BROWSER_USE_MAX_STEPS:-50}
       BROWSER_PROFILE_DIR: ${BROWSER_PROFILE_DIR:-.browser-profile}
