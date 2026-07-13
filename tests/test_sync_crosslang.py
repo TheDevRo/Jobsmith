@@ -16,6 +16,7 @@ import json
 import shutil
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,14 @@ REPO = Path(__file__).resolve().parent.parent
 SYNC_SRC = REPO / "ios-standalone/JobsmithKit/Sources/JobsmithKit/Sync"
 TOOL_SRC = REPO / "tools/sync-crosslang/main.swift"
 
-pytestmark = pytest.mark.skipif(shutil.which("swiftc") is None, reason="swiftc not available")
+# Darwin-only, not merely swiftc-only: the Linux toolchain ships swiftc but no
+# CoreFoundation, and JSONValue.swift needs CFGetTypeID/CFBooleanGetTypeID to tell
+# a Bool from an NSNumber. On the Linux CI runner swiftc exists and the compile
+# fails; the macOS job is where this test earns its keep.
+pytestmark = pytest.mark.skipif(
+    shutil.which("swiftc") is None or sys.platform != "darwin",
+    reason="needs swiftc on macOS (JSONValue.swift depends on CoreFoundation)",
+)
 
 
 @pytest.fixture(scope="module")

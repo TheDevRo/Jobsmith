@@ -27,6 +27,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
+      - name: Install optional extras
+        # browser-use is feature-flagged out of requirements.txt and the Docker
+        # image, but tests/auto_apply/test_browser_use_agent.py patches its Agent
+        # and skips itself without it — including the constraint tests that pin
+        # directly_open_url/use_vision to False. Install it so those actually run.
+        run: pip install -r requirements-optional.txt
+      - name: Seed config.yaml
+        # A fresh checkout has no config.yaml (it's gitignored). The app writes one
+        # from the example on first boot, but TestClient(app) never runs that
+        # lifespan, so /api/config would 500 on FileNotFoundError.
+        run: cp config.example.yaml config.yaml
       - name: Run tests
         # tests/ only: the repo root contains standalone scripts (e.g.
         # scripts/test_indeed_session.py) that sys.exit() at import time and
@@ -72,3 +83,19 @@ jobs:
           xcodebuild -scheme JobsmithKit \
             -destination "platform=iOS Simulator,name=$DEST" \
             test CODE_SIGNING_ALLOWED=NO | xcpretty || exit 1
+
+      # tests/test_sync_crosslang.py compiles the real JobsmithKit sync sources and
+      # checks the Swift merge agrees with the Python oracle. It only builds on
+      # Darwin (JSONValue.swift needs CoreFoundation), so it self-skips on the
+      # Linux backend job — this is the job where it runs.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Cross-language sync convergence
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+          cp config.example.yaml config.yaml
+          pytest tests/test_sync_crosslang.py -q
