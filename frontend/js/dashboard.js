@@ -58,6 +58,109 @@ async function loadDashboard() {
     } catch (e) {
         renderError('outcomes-panel', 'Failed to load outcome analytics.', loadDashboard);
     }
+
+    // Needs-attention queue — non-fatal if it fails
+    try {
+        renderDuePanel(await api('/api/applications/due'));
+    } catch (e) {
+        /* the card just stays hidden */
+    }
+
+    // Today's shortlist — non-fatal if it fails
+    try {
+        renderDigestPanel(await api('/api/digest?limit=5'));
+    } catch (e) {
+        /* the card just stays hidden */
+    }
+}
+
+// ---- Apply Today ----
+// Ranked by fit, freshness, salary and apply-effort — and by how often each
+// source has actually replied to you. Every pick shows why it's here, because a
+// ranking you can't interrogate is a ranking you won't trust.
+function renderDigestPanel(data) {
+    const card = document.getElementById('digest-card');
+    const panel = document.getElementById('digest-panel');
+    if (!card || !panel) return;
+
+    const jobs = (data && data.jobs) || [];
+    if (jobs.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = '';
+    panel.innerHTML = jobs.map(job => {
+        const reasons = digestReasons(job, data.conversion_by_source || {});
+        return `
+            <div class="outcome-bar-row" style="cursor:pointer" onclick="showJobFromDigest('${job.id}')">
+                <span class="outcome-bar-label">
+                    ${escapeHtml(job.title)} · ${escapeHtml(job.company || '')}
+                    <span style="color:var(--text-muted)">${reasons}</span>
+                </span>
+                <span class="outcome-bar-value">${Math.round(job.fit_score)} fit</span>
+            </div>`;
+    }).join('');
+}
+
+function digestReasons(job, conversionBySource) {
+    const bits = [];
+    if (job.is_easy_apply) bits.push('easy apply');
+    if (job.components && job.components.freshness > 0.9) bits.push('posted just now');
+    const rate = conversionBySource[job.source];
+    if (rate !== undefined && rate > 0) {
+        bits.push(`${escapeHtml(job.source)} replies ${Math.round(rate * 100)}% of the time`);
+    }
+    return bits.length ? `— ${bits.join(', ')}` : '';
+}
+
+function showJobFromDigest(jobId) {
+    window.location.hash = '#jobs';
+    // The Jobs view owns selection; it picks this up once it has rendered.
+    window._pendingJobSelection = jobId;
+}
+
+// ---- Needs Attention ----
+// A pull queue, deliberately: backend notifications live in an in-memory deque
+// the frontend polls, so they only fire while the app is open — useless for a
+// "you applied 7 days ago" nudge. The phone, which has real scheduled
+// notifications, is the push surface. See PIPELINE_INTELLIGENCE_PLAN.md.
+function renderDuePanel(data) {
+    const card = document.getElementById('due-card');
+    const panel = document.getElementById('due-panel');
+    if (!card || !panel) return;
+
+    const groups = [
+        ['follow_up', 'Follow up', a => `applied ${daysAgo(a.applied_at)}, no response yet`],
+        ['interview', 'Interview coming up', a => `on ${shortDate(a.interview_at)}`],
+        ['silent', 'Going quiet', a => `applied ${daysAgo(a.applied_at)} — still awaiting a reply`],
+    ].filter(([key]) => (data[key] || []).length > 0);
+
+    if (groups.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = '';
+    panel.innerHTML = groups.map(([key, title, detail]) => `
+        <div class="outcome-breakdown">
+            <h4>${escapeHtml(title)}</h4>
+            ${data[key].map(a => `
+                <div class="outcome-bar-row">
+                    <span class="outcome-bar-label">${escapeHtml(a.title)} · ${escapeHtml(a.company || '')}</span>
+                    <span class="outcome-bar-value">${escapeHtml(detail(a))}</span>
+                </div>`).join('')}
+        </div>`).join('');
+}
+
+function daysAgo(iso) {
+    const then = Date.parse(iso);
+    if (!then) return 'recently';
+    const days = Math.max(0, Math.floor((Date.now() - then) / 86400000));
+    return days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function shortDate(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // ---- Outcomes panel ----

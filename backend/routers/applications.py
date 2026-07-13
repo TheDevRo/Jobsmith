@@ -47,6 +47,15 @@ class ApplicationOutcomeUpdate(BaseModel):
     outcome: str  # awaiting | no_response | screening | interview | offer | rejected | withdrawn
 
 
+class ApplicationScheduleUpdate(BaseModel):
+    """Omit a field to leave it alone; send an explicit clear_* to unset it —
+    None can't mean "clear" or you couldn't set one date without wiping the other."""
+    follow_up_at: Optional[str] = None
+    interview_at: Optional[str] = None
+    clear_follow_up: bool = False
+    clear_interview: bool = False
+
+
 class ApplicationReviseRequest(BaseModel):
     target: str  # "resume" | "cover_letter"
     instructions: str
@@ -447,6 +456,36 @@ async def get_application_events(application_id: str):
     """Append-only outcome history — every stage this application reached, and
     whether each transition came from the user, the ghost sweep, or email."""
     return {"events": await db.get_application_events(application_id)}
+
+
+@router.get("/api/applications/due")
+async def get_due_applications():
+    """Applications wanting attention: follow-ups now due, upcoming interviews,
+    and still-silent applications nearing the ghost threshold.
+
+    The desktop renders this as a queue rather than a push: backend notifications
+    are an in-memory deque the frontend polls, so they only fire while the app is
+    open — useless for a "you applied 7 days ago" nudge. The phone, which has real
+    scheduled notifications, is the push surface.
+    """
+    cfg = state.load_config()
+    days = int(cfg.get("pipeline", {}).get("ghost_after_days", 21))
+    return await db.get_due_applications(ghost_after_days=days)
+
+
+@router.patch("/api/applications/{application_id}/schedule")
+async def update_application_schedule(application_id: str, body: ApplicationScheduleUpdate):
+    """Set or clear an application's follow-up / interview dates."""
+    updated = await db.set_application_schedule(
+        application_id,
+        follow_up_at=body.follow_up_at,
+        interview_at=body.interview_at,
+        clear_follow_up=body.clear_follow_up,
+        clear_interview=body.clear_interview,
+    )
+    if not updated:
+        raise HTTPException(404, "Application not found")
+    return {"ok": True}
 
 
 _ALLOWED_MANUAL_STATUSES = {"applied", "manual"}

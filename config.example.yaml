@@ -174,6 +174,22 @@ pipeline:
   # response rates reflect reality instead of un-entered data.
   # Set to 0 to disable the sweep and track outcomes entirely by hand.
   ghost_after_days: 21
+  # Jobs matching a role you already applied to at the same company get an
+  # "Already applied" badge (reposts and cross-postings otherwise look brand new,
+  # because dedup only catches duplicates *within* one fetch). Set this to true to
+  # drop them at fetch time instead of just flagging them.
+  skip_already_applied: false
+  # "Apply Today" ranking (GET /api/digest). `conversion` weights each job by how
+  # often its source has actually replied to YOU — measured from your outcome
+  # history — so a board that never converts stops crowding out one that does.
+  # A source with fewer than 3 submitted applications is treated as neutral
+  # rather than judged on noise.
+  digest_weights:
+    fit: 1.0
+    freshness: 0.5
+    salary: 0.3
+    effort: 0.2
+    conversion: 0.5
 application_honesty:
   # Controls how much latitude the AI takes when tailoring applications.
   # honest: only real profile data | tailored: rephrase/reorder, no fabrication

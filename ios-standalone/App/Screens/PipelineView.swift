@@ -41,7 +41,8 @@ struct PipelineView: View {
                       "review": "Ready to review", "applied": "Applied", "manual": "Manual"]
         return grouped
             .sorted { (order[$0.key] ?? 9) < (order[$1.key] ?? 9) }
-            .map { (labels[$0.key] ?? $0.key.capitalized, sort.sorted($0.value)) }
+            .map { (labels[$0.key] ?? $0.key.capitalized,
+                     sort.sorted($0.value, conversion: model.conversionBySource)) }
     }
 
     // Select-all targets only what's currently visible (filtered) set.
@@ -97,6 +98,12 @@ struct PipelineView: View {
             .toolbar { toolbarContent }
             .sensoryFeedback(.selection, trigger: isSelecting)
             .refreshable { model.refresh() }
+            // A tapped reminder routes here (NotificationDelegate sets the id).
+            .onChange(of: model.deepLinkedJobId) { _, jobId in
+                guard let jobId else { return }
+                path.append(jobId)
+                model.deepLinkedJobId = nil
+            }
             .confirmationDialog("Delete \(selection.count) posting\(selection.count == 1 ? "" : "s")?",
                                 isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                 Button("Delete \(selection.count)", role: .destructive) {

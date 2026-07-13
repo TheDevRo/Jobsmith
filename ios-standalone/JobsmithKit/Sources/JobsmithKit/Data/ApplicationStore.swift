@@ -179,24 +179,83 @@ public struct ApplicationStore: Sendable {
         }
     }
 
+    /// How often each source has actually replied to you — the signal behind the
+    /// "Best bets" ranking. "Replied" means the outcome moved past awaiting /
+    /// no-response; a rejection is still a reply.
+    ///
+    /// Sources with fewer than `DigestRanker.minConversionSample` submitted
+    /// applications are omitted, so the ranker treats them as neutral rather than
+    /// judging a board on one silent application. Mirrors the desktop's
+    /// get_outcome_analytics response_rate.by_source.
+    public func responseRateBySource() throws -> [String: Double] {
+        try db.writer.read { dbc in
+            var out: [String: Double] = [:]
+            for row in try Row.fetchAll(dbc, sql: """
+                SELECT j.source AS source,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN a.outcome NOT IN ('awaiting', 'no_response')
+                                THEN 1 ELSE 0 END) AS responded
+                FROM applications a JOIN jobs j ON j.id = a.jobId
+                WHERE a.status = 'applied'
+                GROUP BY j.source
+                """) {
+                let total: Int = row["total"]
+                guard total >= DigestRanker.minConversionSample else { continue }
+                let responded: Int = row["responded"] ?? 0
+                out[row["source"]] = Double(responded) / Double(total)
+            }
+            return out
+        }
+    }
+
+    // MARK: reminders
+
+    /// Set or clear the reminder dates. `nil` means "leave alone"; pass the
+    /// matching `clear` flag to unset, or you couldn't set one date without
+    /// wiping the other.
+    ///
+    /// Like `recordOutcome`, this does NOT bump `updatedAt` — that is the LWW
+    /// clock for the `application` entity, and the dates ride their own stream.
+    public func setSchedule(id: String, followUpAt: String? = nil, interviewAt: String? = nil,
+                            clearFollowUp: Bool = false, clearInterview: Bool = false) throws {
+        try db.writer.write { dbc in
+            guard var app = try Application.fetchOne(dbc, key: id) else { return }
+            if clearFollowUp { app.followUpAt = nil } else if let followUpAt { app.followUpAt = followUpAt }
+            if clearInterview { app.interviewAt = nil } else if let interviewAt { app.interviewAt = interviewAt }
+            try app.update(dbc)
+        }
+    }
+
+    /// Open applications carrying a reminder date — what the phone schedules
+    /// notifications for. An employer who already rejected you needs no nudge.
+    public func scheduled() throws -> [Application] {
+        try db.writer.read { dbc in
+            try Application
+                .filter(Column("status") == "applied")
+                .filter(!["rejected", "withdrawn", "offer", "no_response"].contains(Column("outcome")))
+                .filter(Column("followUpAt") != nil || Column("interviewAt") != nil)
+                .fetchAll(dbc)
+        }
+    }
+
     // MARK: event timestamps
 
     /// RFC3339 UTC, milliseconds — the same shape the sync engine emits.
-    static func isoMs(_ date: Date) -> String {
+    public static func isoMs(_ date: Date) -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         f.timeZone = TimeZone(identifier: "UTC")
         return f.string(from: date)
     }
 
-    static func isoNow() -> String { isoMs(Date()) }
+    public static func isoNow() -> String { isoMs(Date()) }
 
     /// Parse an event stamp from either platform. iOS writes `…060Z`; the desktop
     /// writes `…060761+00:00` (microseconds, explicit offset), and no single
     /// ISO8601 formatter accepts both. Both are always UTC, so parse the fixed
     /// `yyyy-MM-dd'T'HH:mm:ss` prefix they share and add back the fractional
     /// seconds by hand.
-    static func parseEventDate(_ iso: String) -> Date? {
+    public static func parseEventDate(_ iso: String) -> Date? {
         guard let base = secondsParser.date(from: String(iso.prefix(19))) else { return nil }
         // ".060761+00:00" / ".060Z" -> 0.060
         var fraction: TimeInterval = 0

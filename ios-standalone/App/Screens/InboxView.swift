@@ -27,7 +27,7 @@ struct InboxView: View {
     private var filteredInbox: [Job] {
         JobListFilter.apply(model.inbox, query: searchQuery, boards: selectedBoards)
     }
-    private var sortedInbox: [Job] { sort.sorted(filteredInbox) }
+    private var sortedInbox: [Job] { sort.sorted(filteredInbox, conversion: model.conversionBySource) }
     private var availableBoards: [String] { JobListFilter.availableBoards(in: model.inbox) }
 
     private var scoreCap: Int { model.config.ai.scoreAllCap }
@@ -448,6 +448,7 @@ struct SwipeCard: View {
 
 struct JobCardView: View {
     let job: Job
+    @Environment(AppModel.self) private var model
     /// The card must be able to grow with Dynamic Type or the title, chips, and
     /// description clip against each other at AX sizes.
     @ScaledMetric(relativeTo: .body) private var minCardHeight: CGFloat = 340
@@ -466,6 +467,7 @@ struct JobCardView: View {
         if job.isRemote { parts.append("remote") }
         if !job.location.isEmpty { parts.append(job.location) }
         if let salary = salaryText { parts.append(salary) }
+        if model.isAlreadyApplied(job) { parts.append("you already applied to this role") }
         return parts.joined(separator: ", ")
     }
 
@@ -495,6 +497,14 @@ struct JobCardView: View {
                 if let salary = salaryText {
                     chip(salary, system: "dollarsign")
                 }
+            }
+
+            // A repost, or the same role from another board. Worth saying out
+            // loud right here — this is the screen where you decide to keep it.
+            if model.isAlreadyApplied(job) {
+                Label("You already applied to this role", systemImage: "arrow.uturn.left")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.ember)
             }
 
             Text(job.description.isEmpty ? "No description captured yet." : job.description)

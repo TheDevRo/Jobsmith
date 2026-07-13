@@ -637,3 +637,200 @@ extension SyncEngineTests {
         XCTAssertEqual(try XCTUnwrap(ApplicationStore(db).application(id: app.id)).outcome, "screening")
     }
 }
+
+// MARK: - reminder dates (the `application_schedule` entity)
+
+extension SyncEngineTests {
+
+    /// Dates get their own entity for the same reason the outcome does: on
+    /// `application` they'd be wiped by any unrelated edit from the other device.
+    func testScheduleSurvivesConcurrentEditAndClears() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 80)
+        let app = try seedApplication(dbA, jobId: jobId)
+
+        let dbB = try AppDatabase.inMemory()
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+
+        // A schedules an interview; B, not yet having seen it, edits the resume.
+        try ApplicationStore(dbA).setSchedule(id: app.id, interviewAt: "2026-07-20T15:00:00.000Z")
+        try ApplicationStore(dbB).updateContent(id: app.id, resume: "REVISED", coverLetter: nil)
+
+        try a.export(to: folder)
+        try b.export(to: folder)
+        try b.importChanges(from: folder)
+        try a.importChanges(from: folder)
+
+        for (name, db) in [("A", dbA), ("B", dbB)] {
+            let merged = try XCTUnwrap(ApplicationStore(db).application(id: app.id))
+            XCTAssertEqual(merged.interviewAt, "2026-07-20T15:00:00.000Z", "interview lost on \(name)")
+            XCTAssertEqual(merged.resumeContent, "REVISED", "resume edit lost on \(name)")
+        }
+
+        // Clearing the dates propagates as a tombstone — which must mean "no
+        // dates", not "no application".
+        try ApplicationStore(dbA).setSchedule(id: app.id, clearFollowUp: true, clearInterview: true)
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+
+        let cleared = try XCTUnwrap(ApplicationStore(dbB).application(id: app.id))
+        XCTAssertNil(cleared.interviewAt)
+        XCTAssertEqual(cleared.resumeContent, "REVISED", "the application itself was deleted")
+    }
+
+    /// Only open applications want a nudge — an employer that already said no
+    /// doesn't need chasing.
+    func testScheduledExcludesClosedApplications() throws {
+        let db = try AppDatabase.inMemory()
+        let store = ApplicationStore(db)
+
+        let openJob = try seedJob(db, externalId: "111", fitScore: 80)
+        let closedJob = try seedJob(db, externalId: "222", fitScore: 80)
+        let open = try seedApplication(db, jobId: openJob)
+        let closed = try seedApplication(db, jobId: closedJob)
+
+        try store.setSchedule(id: open.id, followUpAt: "2026-07-20T15:00:00.000Z")
+        try store.setSchedule(id: closed.id, followUpAt: "2026-07-20T15:00:00.000Z")
+        try store.recordOutcome(id: closed.id, outcome: .rejected)
+
+        XCTAssertEqual(try store.scheduled().map(\.id), [open.id])
+    }
+}
+
+// MARK: - duplicate-application guard
+
+final class DupeGuardTests: XCTestCase {
+
+    /// Must match the desktop's database.normalize_identity, or the two platforms
+    /// would badge different jobs.
+    func testIdentityKeyNormalizesAndRequiresBothHalves() {
+        XCTAssertEqual(JobStore.identityKey(title: "Senior  Engineer", company: "Acme, Inc."),
+                       JobStore.identityKey(title: "senior engineer", company: "acme inc"))
+        XCTAssertNil(JobStore.identityKey(title: "Engineer", company: ""))
+        XCTAssertNil(JobStore.identityKey(title: "", company: "Acme"))
+    }
+
+    /// A repost from another board carries a new externalId and URL, so the
+    /// fetch-time deduplicator can't see it — only the applied-history key can.
+    func testRepostFromAnotherBoardMatchesAppliedHistory() throws {
+        let db = try AppDatabase.inMemory()
+        let store = JobStore(db)
+        let apps = ApplicationStore(db)
+
+        let appliedId = try db.writer.write { dbc -> String in
+            var job = Job(from: NormalizedJob(source: "greenhouse", externalId: "1",
+                                              title: "Senior Backend Engineer", company: "Acme Corp"))
+            job.status = "applied"
+            try job.insert(dbc)
+            return job.id
+        }
+        let application = try apps.createOrReplace(jobId: appliedId, resume: "r", coverLetter: "c",
+                                                   honestyLevel: "honest", stylePreset: "standard")
+        try apps.updateStatus(id: application.id, status: "applied")
+
+        let identities = try store.appliedIdentities()
+        // Same role, different board, punctuation and spacing differ.
+        XCTAssertTrue(identities.contains(
+            JobStore.identityKey(title: "Senior  Backend Engineer", company: "Acme Corp.")!))
+        XCTAssertFalse(identities.contains(
+            JobStore.identityKey(title: "Platform Engineer", company: "Globex")!))
+    }
+}
+
+// MARK: - "Best bets" ranking
+
+final class DigestRankerTests: XCTestCase {
+
+    private func job(_ db: AppDatabase, _ externalId: String, source: String,
+                     score: Double?, easy: Bool = false, salary: Int? = nil) throws -> Job {
+        try db.writer.write { dbc in
+            var job = Job(from: NormalizedJob(source: source, externalId: externalId,
+                                              title: "Engineer \(externalId)",
+                                              company: "Co\(externalId)",
+                                              salaryMax: salary, isEasyApply: easy))
+            job.fitScore = score
+            try job.insert(dbc)
+            return job
+        }
+    }
+
+    /// The whole point of the ranking: a board that has never once replied to you
+    /// stops outranking one that converts, even at identical fit.
+    func testASourceThatNeverRepliesGetsBuried() throws {
+        let db = try AppDatabase.inMemory()
+        let dead = try job(db, "1", source: "linkedin", score: 80)
+        let live = try job(db, "2", source: "greenhouse", score: 80)
+
+        let ranked = DigestRanker.rank([dead, live],
+                                       conversion: ["linkedin": 0.0, "greenhouse": 1.0])
+        XCTAssertEqual(ranked.map(\.id), [live.id, dead.id])
+    }
+
+    /// One silent application is not evidence a board is bad. With no measured
+    /// history a source scores neutral, not zero.
+    func testUnprovenSourceIsNeutralNotPenalized() throws {
+        let db = try AppDatabase.inMemory()
+        let unproven = try job(db, "1", source: "arbeitnow", score: 80)
+        let silent = try job(db, "2", source: "linkedin", score: 80)
+
+        let ranked = DigestRanker.rank([silent, unproven], conversion: ["linkedin": 0.0])
+        XCTAssertEqual(ranked.map(\.id), [unproven.id, silent.id],
+                       "an unproven board should not be buried like a proven-silent one")
+    }
+
+    /// Unscored jobs have no fit signal, so they sink rather than scoring as zero.
+    func testUnscoredJobsSinkBelowScoredOnes() throws {
+        let db = try AppDatabase.inMemory()
+        let unscored = try job(db, "1", source: "greenhouse", score: nil)
+        let weak = try job(db, "2", source: "greenhouse", score: 10)
+
+        XCTAssertEqual(DigestRanker.rank([unscored, weak], conversion: [:]).map(\.id),
+                       [weak.id, unscored.id])
+    }
+
+    func testEasyApplyAndSalaryLiftTheScore() throws {
+        let db = try AppDatabase.inMemory()
+        let plain = try job(db, "1", source: "greenhouse", score: 80)
+        let easyWellPaid = try job(db, "2", source: "greenhouse", score: 80,
+                                   easy: true, salary: 200_000)
+
+        XCTAssertEqual(DigestRanker.rank([plain, easyWellPaid], conversion: [:]).map(\.id),
+                       [easyWellPaid.id, plain.id])
+    }
+
+    /// The iOS response-rate query must agree with the desktop's: below the
+    /// sample threshold a source is omitted (and so scores neutral), and a
+    /// rejection still counts as a reply.
+    func testResponseRateBySourceMatchesTheDesktopRules() throws {
+        let db = try AppDatabase.inMemory()
+        let apps = ApplicationStore(db)
+
+        func applied(_ source: String, _ id: String, _ outcome: ApplicationOutcome?) throws {
+            let j = try job(db, id, source: source, score: 50)
+            let a = try apps.createOrReplace(jobId: j.id, resume: "r", coverLetter: "c",
+                                             honestyLevel: "honest", stylePreset: "standard")
+            try apps.updateStatus(id: a.id, status: "applied")
+            if let outcome { try apps.recordOutcome(id: a.id, outcome: outcome) }
+        }
+
+        // greenhouse: 3 applications — one rejection (a reply!), two silent.
+        try applied("greenhouse", "g1", .rejected)
+        try applied("greenhouse", "g2", nil)
+        try applied("greenhouse", "g3", .noResponse)
+        // linkedin: only 2 — too thin to judge, so it must be omitted entirely.
+        try applied("linkedin", "l1", .interview)
+        try applied("linkedin", "l2", nil)
+
+        let rates = try apps.responseRateBySource()
+        XCTAssertEqual(rates["greenhouse"] ?? -1, 1.0 / 3.0, accuracy: 0.001)
+        XCTAssertNil(rates["linkedin"], "a source below the sample threshold must not be judged")
+    }
+}

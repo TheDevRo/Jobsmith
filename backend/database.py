@@ -8,6 +8,7 @@ Provides helper functions for jobs, applications, and activity logging.
 import uuid
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -94,6 +95,10 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
             WHERE status = 'applied'
               AND outcome IS NOT NULL
               AND outcome <> 'awaiting'"""),
+    # Reminder dates. These sync as their own `application_schedule` entity, not
+    # as fields on `application` — same reason the outcome doesn't live there.
+    (24, "ALTER TABLE applications ADD COLUMN follow_up_at TIMESTAMP"),
+    (25, "ALTER TABLE applications ADD COLUMN interview_at TIMESTAMP"),
 ]
 
 
@@ -537,6 +542,25 @@ async def get_jobs(
         )
         rows = await cursor.fetchall()
         jobs = [dict(r) for r in rows]
+
+        # "You already applied to this role at this company." Computed here rather
+        # than stored at fetch time: a stored flag goes stale the moment you apply
+        # to something new, and rows fetched earlier would never be re-flagged.
+        cursor = await db.execute(
+            """SELECT DISTINCT j.title, j.company
+               FROM applications a JOIN jobs j ON j.id = a.job_id
+               WHERE a.status = 'applied'"""
+        )
+        applied = set()
+        for r in await cursor.fetchall():
+            if (key := normalize_identity(r["title"], r["company"])) is not None:
+                applied.add(key)
+        for job in jobs:
+            key = normalize_identity(job.get("title", ""), job.get("company", ""))
+            # Don't badge the application's own job row — only its reposts/copies.
+            job["already_applied"] = bool(
+                key is not None and key in applied and job.get("app_status") != "applied"
+            )
 
         return {"jobs": jobs, "total": total, "limit": limit, "offset": offset}
     finally:
@@ -1183,6 +1207,128 @@ async def mark_ghosted_applications(after_days: int) -> list[str]:
     return stale
 
 
+def normalize_identity(title: str, company: str) -> Optional[tuple[str, str]]:
+    """Normalized (title, company) — the key for "have I already applied here?".
+
+    Deliberately excludes location, unlike the fetch-time dedup key: a repost of
+    the same role in another office is still a role you already applied to.
+    Returns None when either half is missing — never match on a half-identity.
+    """
+    def norm(s: str) -> str:
+        return re.sub(r"\W+", " ", (s or "").lower()).strip()
+    t, c = norm(title), norm(company)
+    return (t, c) if t and c else None
+
+
+async def get_applied_identities() -> set[tuple[str, str]]:
+    """Normalized (title, company) of every job you've actually applied to.
+
+    Reposts and cross-source duplicates carry a different external_id and URL, so
+    the existing dedup — which only excludes the *same job row* — lets them
+    straight back into the inbox. This is the key that catches them.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT DISTINCT j.title, j.company
+               FROM applications a JOIN jobs j ON j.id = a.job_id
+               WHERE a.status = 'applied'"""
+        )
+        out = set()
+        for row in await cursor.fetchall():
+            key = normalize_identity(row["title"], row["company"])
+            if key:
+                out.add(key)
+        return out
+    finally:
+        await db.close()
+
+
+async def set_application_schedule(
+    app_id: str, *, follow_up_at: Optional[str] = None, interview_at: Optional[str] = None,
+    clear_follow_up: bool = False, clear_interview: bool = False,
+) -> bool:
+    """Set (or clear) an application's follow-up / interview dates.
+
+    Explicit `clear_*` flags rather than "None means clear": None has to mean
+    "leave alone" so a caller can set one date without wiping the other.
+    """
+    sets, params = [], []
+    if clear_follow_up:
+        sets.append("follow_up_at = NULL")
+    elif follow_up_at is not None:
+        sets.append("follow_up_at = ?")
+        params.append(follow_up_at)
+    if clear_interview:
+        sets.append("interview_at = NULL")
+    elif interview_at is not None:
+        sets.append("interview_at = ?")
+        params.append(interview_at)
+    if not sets:
+        return True
+
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            f"UPDATE applications SET {', '.join(sets)} WHERE id = ?", (*params, app_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_due_applications(ghost_after_days: int = 21) -> dict:
+    """Applications wanting the user's attention, for the desktop's queue and the
+    phone's reminders.
+
+    Three buckets, all restricted to still-open applications (an employer that
+    already rejected you doesn't need a follow-up nudge):
+      follow_up  — a follow-up date that has passed
+      interview  — an interview date in the future (soonest first)
+      silent     — no response and the ghost threshold is approaching
+    """
+    now = datetime.now(timezone.utc)
+    soon = (now - timedelta(days=max(ghost_after_days - 3, 1))).isoformat()
+    now_iso = now.isoformat()
+
+    db = await _get_db()
+    try:
+        async def _q(where: str, params: tuple, order: str) -> list[dict]:
+            cursor = await db.execute(
+                f"""SELECT a.id, a.job_id, a.outcome, a.applied_at, a.follow_up_at,
+                           a.interview_at, j.title, j.company
+                    FROM applications a JOIN jobs j ON j.id = a.job_id
+                    WHERE a.status = 'applied'
+                      AND COALESCE(a.outcome, 'awaiting') NOT IN
+                          ('rejected', 'withdrawn', 'offer', 'no_response')
+                      AND {where}
+                    ORDER BY {order}""",
+                params,
+            )
+            return [dict(r) for r in await cursor.fetchall()]
+
+        return {
+            "follow_up": await _q(
+                "a.follow_up_at IS NOT NULL AND a.follow_up_at <= ?", (now_iso,),
+                "a.follow_up_at",
+            ),
+            "interview": await _q(
+                "a.interview_at IS NOT NULL AND a.interview_at >= ?", (now_iso,),
+                "a.interview_at",
+            ),
+            "silent": await _q(
+                """COALESCE(a.outcome, 'awaiting') = 'awaiting'
+                   AND a.applied_at IS NOT NULL AND a.applied_at <= ?
+                   AND a.follow_up_at IS NULL""",
+                (soon,),
+                "a.applied_at",
+            ),
+        }
+    finally:
+        await db.close()
+
+
 async def increment_apply_attempts(app_id: str) -> int:
     """Increment auto_apply_attempts for an application and return the new count."""
     db = await _get_db()
@@ -1288,6 +1434,96 @@ async def get_failed_applications(limit: int = 50) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# Default digest weights. Overridable via config `pipeline.digest_weights`.
+DIGEST_WEIGHTS = {
+    "fit": 1.0,          # how well the role matches you
+    "freshness": 0.5,    # a week-old posting is a worse bet than today's
+    "salary": 0.3,
+    "effort": 0.2,       # easy-apply first — the cheapest shot on goal
+    "conversion": 0.5,   # how often THIS source has actually replied to you
+}
+# Below this many submitted applications, a source's response rate is noise, so
+# the conversion term stays neutral rather than confidently wrong.
+_MIN_CONVERSION_SAMPLE = 3
+
+
+async def get_digest(limit: int = 5, weights: Optional[dict] = None) -> dict:
+    """Today's shortlist: the handful of jobs actually worth applying to now.
+
+    Blends fit, freshness, salary and apply-effort — and then the part that makes
+    this more than another sort order: each source is weighted by how often it has
+    actually replied to *you*, measured from the outcome event history. A board
+    that has never once responded stops crowding out one that does.
+
+    Returns each pick with its component scores, because a ranking you can't
+    interrogate is a ranking you won't trust.
+    """
+    w = {**DIGEST_WEIGHTS, **(weights or {})}
+    analytics = await get_outcome_analytics()
+    rates = {
+        r["key"]: r["rate"] / 100.0
+        for r in analytics["response_rate"]["by_source"]
+        if r["total"] >= _MIN_CONVERSION_SAMPLE
+    }
+
+    db = await _get_db()
+    try:
+        # Scored, still-open jobs the user hasn't acted on. Anything already
+        # applied to, passed, or deleted is not a candidate for "apply today".
+        cursor = await db.execute(
+            """SELECT j.* FROM jobs j
+               WHERE j.fit_score IS NOT NULL
+                 AND j.status IN ('discovered', 'shortlisted')
+                 AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)"""
+        )
+        jobs = [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    if not jobs:
+        return {"jobs": [], "weights": w, "conversion_by_source": rates}
+
+    now = datetime.now(timezone.utc)
+    salaries = [j["salary_max"] or j["salary_min"] or 0 for j in jobs]
+    top_salary = max(salaries) or 0
+
+    def _freshness(job: dict) -> float:
+        posted = _parse_ts(job.get("date_posted")) or _parse_ts(job.get("date_discovered"))
+        if posted is None:
+            return 0.5  # unknown age: neither reward nor punish
+        days = max((now - posted).total_seconds() / 86400, 0)
+        return max(0.0, 1.0 - days / 30.0)  # linear decay to zero over a month
+
+    scored = []
+    for job in jobs:
+        pay = job["salary_max"] or job["salary_min"] or 0
+        components = {
+            "fit": (job["fit_score"] or 0) / 100.0,
+            "freshness": _freshness(job),
+            "salary": (pay / top_salary) if top_salary else 0.0,
+            "effort": 1.0 if job.get("is_easy_apply") else 0.0,
+            # Neutral (0.5) for a source without enough history to judge — an
+            # unproven board shouldn't be penalized like a proven-silent one.
+            "conversion": rates.get(job.get("source"), 0.5),
+        }
+        total = sum(w[k] * v for k, v in components.items())
+        scored.append({
+            "id": job["id"], "title": job["title"], "company": job["company"],
+            "source": job["source"], "url": job["url"], "fit_score": job["fit_score"],
+            "is_easy_apply": bool(job.get("is_easy_apply")),
+            "salary_min": job["salary_min"], "salary_max": job["salary_max"],
+            "score": round(total, 3), "components": {k: round(v, 3) for k, v in components.items()},
+        })
+
+    scored.sort(key=lambda j: j["score"], reverse=True)
+    return {
+        "jobs": scored[:limit],
+        "weights": w,
+        # Surfaced so the UI can say *why* a source is being favored or buried.
+        "conversion_by_source": rates,
+    }
 
 
 def _parse_ts(value: Optional[str]) -> Optional[datetime]:

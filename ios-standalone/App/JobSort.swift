@@ -6,12 +6,13 @@ import JobsmithKit
 ///
 /// Job-board selection is a *filter*, not a sort — see `JobFilter`.
 enum JobSort: String, CaseIterable, Identifiable {
-    case bestMatch, newest, salary, company
+    case bestBets, bestMatch, newest, salary, company
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .bestBets: return "Best bets"
         case .bestMatch: return "Best match"
         case .newest: return "Newest"
         case .salary: return "Salary"
@@ -21,6 +22,7 @@ enum JobSort: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .bestBets: return "target"
         case .bestMatch: return "flame"
         case .newest: return "clock"
         case .salary: return "dollarsign.circle"
@@ -30,8 +32,15 @@ enum JobSort: String, CaseIterable, Identifiable {
 
     /// Stable reorder of `jobs` for this option. Ties fall back to newest so
     /// the order is deterministic regardless of the source query.
-    func sorted(_ jobs: [Job]) -> [Job] {
+    ///
+    /// `conversion` (how often each source has actually replied to you) is only
+    /// consulted by `.bestBets`; the other options ignore it.
+    func sorted(_ jobs: [Job], conversion: [String: Double] = [:]) -> [Job] {
         switch self {
+        case .bestBets:
+            // Fit is only part of the story — a perfect match on a board that
+            // never replies is a worse bet than a good match on one that does.
+            return DigestRanker.rank(jobs, conversion: conversion)
         case .bestMatch:
             // Unscored jobs (nil) sink below scored ones.
             return jobs.sorted { ($0.fitScore ?? -1, $0.dateDiscovered) > ($1.fitScore ?? -1, $1.dateDiscovered) }

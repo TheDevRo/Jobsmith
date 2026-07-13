@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import JobsmithKit
 
 @main
@@ -6,12 +7,21 @@ struct JobsmithStandaloneApp: App {
     @State private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Retained for the app's lifetime: UNUserNotificationCenter holds its
+    /// delegate weakly, so a local would be deallocated and the action buttons
+    /// would silently stop working.
+    @State private var notificationDelegate: NotificationDelegate
+
     init() {
         let model = AppModel()
         _model = State(initialValue: model)
+        let delegate = NotificationDelegate(model: model)
+        _notificationDelegate = State(initialValue: delegate)
         // BGTask registration must happen before the app finishes launching.
         BackgroundScheduler.register(model: model)
         NotificationManager.requestProvisionalAuthorization()
+        NotificationManager.registerCategories()
+        UNUserNotificationCenter.current().delegate = delegate
     }
 
     var body: some Scene {
@@ -30,6 +40,9 @@ struct JobsmithStandaloneApp: App {
                         // auto-sync (an immediate catch-up cycle + polling).
                         model.refresh()
                         model.startAutoSync()
+                        // Dates change on either device and arrive by sync, so
+                        // rebuild the schedule whenever we come back.
+                        NotificationManager.rescheduleReminders(model: model)
                     default:
                         break
                     }

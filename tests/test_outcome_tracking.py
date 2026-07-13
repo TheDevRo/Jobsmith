@@ -248,3 +248,40 @@ async def test_stage_durations(tmp_path, monkeypatch):
     assert hops[("screening", "interview")] == {
         "from": "screening", "to": "interview", "samples": 0, "median_days": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_due_applications_buckets(tmp_path, monkeypatch):
+    await _setup_temp_db(tmp_path, monkeypatch)
+
+    overdue = await _make_applied_app(dbmod, "test", "1", 80, "honest")
+    upcoming = await _make_applied_app(dbmod, "test", "2", 80, "honest")
+    silent = await _make_applied_app(dbmod, "test", "3", 80, "honest")
+    fresh = await _make_applied_app(dbmod, "test", "4", 80, "honest")
+    closed = await _make_applied_app(dbmod, "test", "5", 80, "honest")
+
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    future = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    await dbmod.set_application_schedule(overdue, follow_up_at=past)
+    await dbmod.set_application_schedule(upcoming, interview_at=future)
+    await _backdate_applied_at(silent, days_ago=19)   # inside the 3-day warning window
+    await _backdate_applied_at(closed, days_ago=19)
+    await dbmod.update_application_outcome(closed, "rejected")
+
+    due = await dbmod.get_due_applications(ghost_after_days=21)
+    assert [a["id"] for a in due["follow_up"]] == [overdue]
+    assert [a["id"] for a in due["interview"]] == [upcoming]
+    # `silent` is nearing the ghost threshold; `fresh` isn't; `closed` was
+    # rejected, and an employer who already said no doesn't need a nudge.
+    assert [a["id"] for a in due["silent"]] == [silent]
+    assert fresh not in [a["id"] for a in due["silent"]]
+
+    # Setting one date must not wipe the other.
+    await dbmod.set_application_schedule(overdue, interview_at=future)
+    due = await dbmod.get_due_applications(ghost_after_days=21)
+    assert [a["id"] for a in due["follow_up"]] == [overdue]
+    assert {a["id"] for a in due["interview"]} == {overdue, upcoming}
+    # ...and an explicit clear does unset it.
+    await dbmod.set_application_schedule(overdue, clear_follow_up=True)
+    due = await dbmod.get_due_applications(ghost_after_days=21)
+    assert due["follow_up"] == []

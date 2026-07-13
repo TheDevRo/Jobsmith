@@ -60,6 +60,7 @@ struct JobDetailView: View {
 
                 if job.status == "applied", let application = model.applicationsByJob[job.id] {
                     outcomeSection(job, application)
+                    reminderSection(job, application)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -149,6 +150,52 @@ struct JobDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+        }
+    }
+
+    /// Follow-up and interview reminders. The notification these schedule carries
+    /// its own answers ("Heard back" / "Rejected" / "Still waiting"), so the nudge
+    /// doubles as the outcome-capture flow — see NotificationDelegate.
+    private func reminderSection(_ job: Job, _ application: Application) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Eyebrow(text: "Reminders")
+            reminderRow(
+                label: "Follow up", systemImage: "bell",
+                value: application.followUpAt,
+                set: { model.setSchedule(jobId: job.id, followUpAt: $0) },
+                clear: { model.setSchedule(jobId: job.id, clearFollowUp: true) })
+            reminderRow(
+                label: "Interview", systemImage: "calendar",
+                value: application.interviewAt,
+                set: { model.setSchedule(jobId: job.id, interviewAt: $0) },
+                clear: { model.setSchedule(jobId: job.id, clearInterview: true) })
+        }
+    }
+
+    private func reminderRow(label: String, systemImage: String, value: String?,
+                             set: @escaping (Date) -> Void,
+                             clear: @escaping () -> Void) -> some View {
+        let date = value.flatMap { ApplicationStore.parseEventDate($0) }
+        return HStack {
+            DatePicker(
+                selection: Binding(
+                    get: { date ?? Date().addingTimeInterval(7 * 86_400) },
+                    set: { set($0) }),
+                displayedComponents: [.date]
+            ) {
+                Label(label, systemImage: systemImage)
+                    .font(.callout)
+            }
+            if date != nil {
+                Button {
+                    clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear \(label.lowercased()) reminder")
             }
         }
     }
