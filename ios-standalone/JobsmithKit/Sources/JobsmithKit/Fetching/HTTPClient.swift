@@ -4,7 +4,11 @@ import Foundation
 /// fetch-with-retries policy ported from Python `fetch_with_retries`, and the
 /// browser-like header preset RemoteOK / WeWorkRemotely / generic pages need.
 public enum HTTPClient {
-    public static let session: URLSession = {
+    /// The session every source shares. A `var` only so tests can install a
+    /// `URLProtocol` stub (a custom session snapshots its protocol classes at
+    /// creation, so the global `URLProtocol.registerClass` registry can't reach
+    /// it); nothing in the app ever reassigns it.
+    public nonisolated(unsafe) static var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300

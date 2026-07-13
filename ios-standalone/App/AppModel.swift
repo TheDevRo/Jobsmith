@@ -198,13 +198,13 @@ final class AppModel {
 
     /// Untriaged jobs that have no fit score yet — the Score-all candidates.
     var unscoredInboxJobs: [Job] {
-        inbox.filter { ($0.fitScore ?? 0) <= 0 }
+        ScoreBatch.unscored(inbox)
     }
 
     /// Shortlisted (in-pipeline) jobs that were never scored — e.g. shortlisted
     /// straight from the Inbox before scoring. The Pipeline tab's Score-all set.
     var unscoredPipelineJobs: [Job] {
-        pipeline.filter { ($0.fitScore ?? 0) <= 0 }
+        ScoreBatch.unscored(pipeline)
     }
 
     /// The job whose apply flow is in progress — set while the in-app Apply
@@ -236,15 +236,18 @@ final class AppModel {
         }
     }
 
+    /// Score one job. A failure (offline endpoint, unparseable answer) leaves the
+    /// job *unscored* and raises `lastError` — writing a `0` would permanently
+    /// brand it a bad fit with no way to tell it apart from a real one.
     func score(_ job: Job) async {
         busyJobIds.insert(job.id)
         defer { busyJobIds.remove(job.id); refresh() }
-        let result = await ScoringService.score(job: job, profile: config.profile,
-                                                config: config, engine: aiEngine)
-        try? jobStore.setScore(jobId: job.id, score: result.score,
-                               reasoning: result.reasoning,
-                               matchReport: result.matchReportJSON)
-        activityStore.log("scored", "\(job.title): \(Int(result.score))/100", jobId: job.id)
+        do {
+            let result = try await scoreOne(job)
+            activityStore.log("scored", "\(job.title): \(Int(result.score))/100", jobId: job.id)
+        } catch {
+            lastError = "Scoring failed: \(error.localizedDescription)"
+        }
     }
 
     /// Score up to `cap` unscored jobs. Runs sequentially — never a concurrent
@@ -253,23 +256,34 @@ final class AppModel {
     /// (config.ai.scoreAllCap) is the hard ceiling on calls per run.
     /// `candidates` selects the source set — unscored inbox jobs by default,
     /// or e.g. `unscoredPipelineJobs` when scoring from the Pipeline tab.
+    ///
+    /// The first failure ends the run: a dead endpoint fails for every job, so
+    /// hammering it for the whole batch just burns the user's time (and, before
+    /// REL-01, poisoned every job with a `0`).
     func scoreAll(cap: Int, candidates: [Job]? = nil) {
         guard !isScoringAll else { return }
-        let batch = Array((candidates ?? unscoredInboxJobs).prefix(max(0, cap)))
+        let batch = ScoreBatch.plan(candidates: candidates ?? unscoredInboxJobs, cap: cap)
         guard !batch.isEmpty else { return }
         isScoringAll = true
         scoreAllTotal = batch.count
         scoreAllDone = 0
         scoreAllTask = Task { @MainActor in
+            var failure: String?
             for job in batch {
                 if Task.isCancelled { break }
-                await scoreOne(job)
+                do {
+                    _ = try await scoreOne(job)
+                } catch {
+                    failure = "Scoring stopped: \(error.localizedDescription)"
+                    break
+                }
                 scoreAllDone += 1
             }
             let done = scoreAllDone
             let stopped = Task.isCancelled
             isScoringAll = false
             scoreAllTask = nil
+            if let failure { lastError = failure }
             refresh()
             activityStore.log("scored_batch",
                 "Scored \(done) job\(done == 1 ? "" : "s")\(stopped ? " (stopped early)" : "")")
@@ -283,13 +297,16 @@ final class AppModel {
     }
 
     /// Score one job and persist the result, without the per-job activity-log
-    /// entry or UI refresh that the interactive `score(_:)` performs.
-    private func scoreOne(_ job: Job) async {
-        let result = await ScoringService.score(job: job, profile: config.profile,
-                                                config: config, engine: aiEngine)
+    /// entry or UI refresh that the interactive `score(_:)` performs. Throws
+    /// (leaving the job unscored) rather than persisting a placeholder.
+    @discardableResult
+    private func scoreOne(_ job: Job) async throws -> FitResult {
+        let result = try await ScoringService.score(job: job, profile: config.profile,
+                                                    config: config, engine: aiEngine)
         try? jobStore.setScore(jobId: job.id, score: result.score,
                                reasoning: result.reasoning,
                                matchReport: result.matchReportJSON)
+        return result
     }
 
     func tailor(_ job: Job) async {
@@ -435,7 +452,14 @@ final class AppModel {
         progressTask.cancel()
         let total = summary.inserted
         activityStore.log("fetched", "\(total) new job\(total == 1 ? "" : "s") from \(summary.perSource.count) sources")
-        if !summary.failed.isEmpty || !summary.timedOut.isEmpty {
+        // A rejected key is actionable in a way "had trouble" is not, so it wins
+        // the one error slot.
+        if !summary.authFailed.isEmpty {
+            let names = summary.authFailed
+                .map { SourceCatalog.displayName(for: $0) }
+                .sorted().joined(separator: ", ")
+            lastError = "Check the API key for: \(names)"
+        } else if !summary.failed.isEmpty || !summary.timedOut.isEmpty {
             let names = (summary.failed + summary.timedOut).joined(separator: ", ")
             lastError = "Some sources had trouble: \(names)"
         }

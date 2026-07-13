@@ -11,6 +11,9 @@ struct OnboardingFlow: View {
 
     enum Step { case welcome, ai, resume, profile, companies, sources }
     @State private var step: Step = .welcome
+    /// The welcome hero glyph. A fixed 52pt symbol ignored Dynamic Type, so it
+    /// scales against the title it sits above.
+    @ScaledMetric(relativeTo: .largeTitle) private var heroGlyphSize: CGFloat = 52
 
     var body: some View {
         NavigationStack {
@@ -68,8 +71,9 @@ struct OnboardingFlow: View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "hammer.fill")
-                .font(.system(size: 52))
+                .font(.system(size: heroGlyphSize))
                 .foregroundStyle(Theme.ember)
+                .accessibilityHidden(true)
             Text("Jobsmith")
                 .font(.largeTitle.weight(.bold))
             Text("Fetch jobs from a dozen boards, score them against your resume with your own AI, forge tailored documents, and apply — all from your phone, no server required.")
@@ -115,7 +119,7 @@ struct OnboardingFlow: View {
         VStack(spacing: 0) {
             stepHeader("Connect your AI",
                        "LM Studio on your network, any OpenAI-compatible provider, or Apple's on-device model. This powers the profile import on the next step.")
-            AISettingsView()
+            AIConnectionSettingsView()
             Button {
                 advance()
             } label: {

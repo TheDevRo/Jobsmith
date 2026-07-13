@@ -214,11 +214,11 @@ final class ScoringServiceTests: XCTestCase {
 "missing_soft_skills": [], "title_alignment": "strong", "keywords": ["Swift", "SwiftUI"]}
 """
 
-    func testCleanJSONResponse() async {
+    func testCleanJSONResponse() async throws {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .text(goodJSON))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         XCTAssertEqual(result.score, 88)
         XCTAssertEqual(result.reasoning, "Great fit")
         let report = LenientJSON.parseObject(result.matchReportJSON ?? "")
@@ -229,81 +229,130 @@ final class ScoringServiceTests: XCTestCase {
         XCTAssertEqual(mock.requests[0].tier, .fast)
     }
 
-    func testListCapsSanitized() async {
+    func testListCapsSanitized() async throws {
         let many = (1...20).map { "\"Skill\($0)\"" }.joined(separator: ", ")
         let mock = MockAIEngine()
         mock.register("career advisor AI",
                       .text("{\"score\": 50, \"reasoning\": \"r\", \"matched_skills\": [\(many)]}"))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         let report = LenientJSON.parseObject(result.matchReportJSON ?? "")
         XCTAssertEqual((report?["matched_skills"] as? [String])?.count, 12)
     }
 
-    func testEmbeddedObjectSalvage() async {
+    func testEmbeddedObjectSalvage() async throws {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .text("Here you go: \(goodJSON) — enjoy!"))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         XCTAssertEqual(result.score, 88)
         XCTAssertNotNil(result.matchReportJSON)
     }
 
-    func testRegexScoreSalvage() async {
+    func testRegexScoreSalvage() async throws {
         let mock = MockAIEngine()
         mock.register("career advisor AI",
                       .text("The verdict — \"score\": 72, \"reasoning\": \"Decent overlap\" and so on"))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         XCTAssertEqual(result.score, 72)
         XCTAssertEqual(result.reasoning, "Decent overlap")
         XCTAssertNil(result.matchReportJSON)
     }
 
-    func testNumberScanFallback() async {
+    func testNumberScanFallback() async throws {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .text("I would rate this candidate 85 out of 100."))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         XCTAssertEqual(result.score, 85)
         XCTAssertTrue(result.reasoning.hasPrefix("(Score parsed from raw response)"))
     }
 
-    func testUnparseableReturnsZero() async {
+    /// REL-01: an unsalvageable response must throw, not return a `0` that the
+    /// caller would persist as a real (and permanent) bad-fit score.
+    func testUnparseableThrows() async {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .text("no idea, sorry"))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
-        XCTAssertEqual(result.score, 0.0)
-        XCTAssertTrue(result.reasoning.hasPrefix("ERROR: Could not parse score"))
+        do {
+            let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                        config: AppConfig(), engine: mock)
+            XCTFail("expected a throw, got score \(result.score)")
+        } catch let error as ScoringError {
+            guard case .unparseableResponse = error else {
+                return XCTFail("expected .unparseableResponse, got \(error)")
+            }
+        } catch {
+            XCTFail("expected ScoringError, got \(error)")
+        }
     }
 
-    func testRetryOnceAtLowTemperature() async {
+    func testRetryOnceAtLowTemperature() async throws {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .failure("connection reset"), .text(goodJSON))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
+        let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                    config: AppConfig(), engine: mock)
         XCTAssertEqual(mock.requests.count, 2)
         XCTAssertEqual(mock.requests[0].temperature, 0.7)
         XCTAssertEqual(mock.requests[1].temperature, 0.3)
         XCTAssertEqual(result.score, 88)
     }
 
-    func testBothCallsFailing() async {
+    /// REL-01: the offline case. Both the call and its retry fail, so the score
+    /// throws — one "Score all" run offline used to write a fake `0` onto every
+    /// unscored job, indistinguishable from a genuine bad fit.
+    func testBothCallsFailingThrows() async {
         let mock = MockAIEngine()
         mock.register("career advisor AI", .failure("down"), .failure("still down"))
-        let result = await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
-                                                config: AppConfig(), engine: mock)
-        XCTAssertEqual(mock.requests.count, 2)
-        XCTAssertEqual(result.score, 0.0)
-        XCTAssertTrue(result.reasoning.hasPrefix("AI error:"))
+        do {
+            let result = try await ScoringService.score(job: aiTestJob(), profile: aiTestProfile(),
+                                                        config: AppConfig(), engine: mock)
+            XCTFail("expected a throw, got score \(result.score)")
+        } catch let error as ScoringError {
+            guard case .engineUnavailable = error else {
+                return XCTFail("expected .engineUnavailable, got \(error)")
+            }
+            XCTAssertEqual(mock.requests.count, 2)
+        } catch {
+            XCTFail("expected ScoringError, got \(error)")
+        }
+    }
+}
+
+// MARK: - Score-all batching (CQ-05)
+
+final class ScoreBatchTests: XCTestCase {
+    private func job(_ id: String, score: Double?) -> Job {
+        var j = Job(from: NormalizedJob(source: "test", externalId: id, title: "Engineer",
+                                        company: "Acme", url: "https://example.com/\(id)"))
+        j.fitScore = score
+        return j
+    }
+
+    func testUnscoredSelectsNilAndZeroScores() {
+        let jobs = [job("a", score: nil), job("b", score: 0), job("c", score: 71),
+                    job("d", score: -1)]
+        XCTAssertEqual(ScoreBatch.unscored(jobs).map(\.externalId), ["a", "b", "d"])
+    }
+
+    func testPlanTruncatesToCap() {
+        let jobs = (1...10).map { job("j\($0)", score: nil) }
+        XCTAssertEqual(ScoreBatch.plan(candidates: jobs, cap: 3).count, 3)
+        XCTAssertEqual(ScoreBatch.plan(candidates: jobs, cap: 25).count, 10)
+    }
+
+    /// A non-positive cap must yield no work at all, never the whole list.
+    func testPlanWithNonPositiveCapIsEmpty() {
+        let jobs = (1...5).map { job("j\($0)", score: nil) }
+        XCTAssertTrue(ScoreBatch.plan(candidates: jobs, cap: 0).isEmpty)
+        XCTAssertTrue(ScoreBatch.plan(candidates: jobs, cap: -3).isEmpty)
     }
 }
 
 // MARK: - Title suggestions
 
 final class TitleSuggestionServiceTests: XCTestCase {
-    func testParsesTitlesWithReasonsAtStrongTier() async {
+    func testParsesTitlesWithReasonsAtStrongTier() async throws {
         let mock = MockAIEngine()
         mock.register("Recommend job titles", .text("""
         {"titles": [{"title": "Backend Engineer", "reason": "Matches your Python work"}, \
@@ -323,7 +372,7 @@ final class TitleSuggestionServiceTests: XCTestCase {
                        ["Data Engineer", "ML Engineer"])
     }
 
-    func testPreferencesBecomeAnswerLinesDroppingBlanks() async {
+    func testPreferencesBecomeAnswerLinesDroppingBlanks() async throws {
         let mock = MockAIEngine()
         mock.register("Recommend job titles", .text("{\"titles\": [\"X\"]}"))
         _ = try? await TitleSuggestionService.suggest(
@@ -354,7 +403,7 @@ final class RoleSelectionTests: XCTestCase {
         ]
     }
 
-    func testNoCapReturnsAllWithoutEngineCall() async {
+    func testNoCapReturnsAllWithoutEngineCall() async throws {
         let mock = MockAIEngine()
         let out = await TailoringService.selectResumeExperiences(
             fiveRoles(), job: aiTestJob(), maxEntries: nil, config: AppConfig(), engine: mock)
@@ -362,7 +411,7 @@ final class RoleSelectionTests: XCTestCase {
         XCTAssertEqual(mock.requests.count, 0)
     }
 
-    func testPinnedAlwaysIncludedAndSortedPresentFirst() async {
+    func testPinnedAlwaysIncludedAndSortedPresentFirst() async throws {
         let mock = MockAIEngine()
         // Unpinned indices: 0=B, 1=C, 2=D. Rank C highest.
         mock.register("ranking past job roles",
@@ -379,7 +428,7 @@ final class RoleSelectionTests: XCTestCase {
         XCTAssertFalse(mock.requests[0].user.contains("PinCo"))
     }
 
-    func testEngineFailureFallsBackToOriginalOrder() async {
+    func testEngineFailureFallsBackToOriginalOrder() async throws {
         let mock = MockAIEngine() // nothing registered → complete throws
         let out = await TailoringService.selectResumeExperiences(
             fiveRoles(), job: aiTestJob(), maxEntries: 3, config: AppConfig(), engine: mock)
@@ -387,7 +436,7 @@ final class RoleSelectionTests: XCTestCase {
         XCTAssertEqual(out.map(\.title), ["B", "A", "E"])
     }
 
-    func testPinnedExceedingCapAllKept() async {
+    func testPinnedExceedingCapAllKept() async throws {
         let mock = MockAIEngine()
         var roles = fiveRoles()
         roles[1].pinned = true
@@ -398,7 +447,7 @@ final class RoleSelectionTests: XCTestCase {
         XCTAssertEqual(mock.requests.count, 0)
     }
 
-    func testRegexSalvageOfRoleScores() async {
+    func testRegexSalvageOfRoleScores() async throws {
         let mock = MockAIEngine()
         mock.register("ranking past job roles",
                       .text(#"Scores below: "index": 2, "score": 90 then "index": 0, "score": 5"#))
@@ -485,7 +534,7 @@ final class TailoringServiceTests: XCTestCase {
         XCTAssertEqual(mock.requests[0].tier, .strong) // default aiEditTier
     }
 
-    func testEmbellishmentLogFabricatedWarning() async {
+    func testEmbellishmentLogFabricatedWarning() async throws {
         let mock = MockAIEngine()
         mock.register("Compare the original profile data", .text(
             #"{"resume_changes": [{"field": "skills", "original": "a", "modified": "b"}, {"field": "bad"}], "cover_letter_changes": []}"#))
@@ -501,7 +550,7 @@ final class TailoringServiceTests: XCTestCase {
         XCTAssertFalse(log.generatedAt.isEmpty)
     }
 
-    func testEmbellishmentLogAlwaysValidOnBadOutput() async {
+    func testEmbellishmentLogAlwaysValidOnBadOutput() async throws {
         let mock = MockAIEngine()
         mock.register("Compare the original profile data", .text("not json at all"))
         let log = await TailoringService.embellishmentLog(
@@ -513,7 +562,7 @@ final class TailoringServiceTests: XCTestCase {
         XCTAssertNil(log.warning)
     }
 
-    func testCustomAnswers() async {
+    func testCustomAnswers() async throws {
         let mock = MockAIEngine()
         mock.register("custom application questions", .text(#"{"Why us?": "Because Swift."}"#))
         let answers = await TailoringService.customAnswers(
@@ -523,7 +572,7 @@ final class TailoringServiceTests: XCTestCase {
         XCTAssertTrue(mock.requests[0].user.contains("- Why us?"))
     }
 
-    func testCustomAnswersFallbackToEmpty() async {
+    func testCustomAnswersFallbackToEmpty() async throws {
         let mock = MockAIEngine()
         mock.register("custom application questions", .text("cannot help"))
         let answers = await TailoringService.customAnswers(
@@ -536,7 +585,7 @@ final class TailoringServiceTests: XCTestCase {
 // MARK: - Connection test
 
 final class ConnectionTests: XCTestCase {
-    func testConnectionProbe() async {
+    func testConnectionProbe() async throws {
         let mock = MockAIEngine()
         mock.setModels(["llama-3.1-8b", "qwen2.5"])
         let ok = await mock.testConnection(config: AIConfig())

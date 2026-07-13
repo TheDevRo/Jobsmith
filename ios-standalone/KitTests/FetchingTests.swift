@@ -712,3 +712,122 @@ final class FetchPipelineTests: XCTestCase {
         XCTAssertNil(SourceRegistry.source(for: "indeed"))
     }
 }
+
+// MARK: - Auth failures (REL-02)
+
+/// Answers every request with a fixed status, so a source's 401/403 handling can
+/// be exercised without the network.
+final class StubURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var status = 200
+    nonisolated(unsafe) static var body = Data("{}".utf8)
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: Self.status,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+final class SourceAuthErrorTests: XCTestCase {
+    private var realSession: URLSession!
+
+    override func setUp() {
+        super.setUp()
+        realSession = HTTPClient.session
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        HTTPClient.session = URLSession(configuration: config)
+    }
+
+    override func tearDown() {
+        HTTPClient.session = realSession
+        StubURLProtocol.status = 200
+        super.tearDown()
+    }
+
+    /// A wrong Adzuna app id/key must surface as an auth failure, not as the
+    /// "0 jobs" that three runs of would silently demote the source to suspect.
+    func testAdzuna401Throws() async {
+        StubURLProtocol.status = 401
+        var config = AppConfig()
+        config.search.keywords = ["engineer"]
+        config.apiKeys.adzunaAppID = "bad"
+        config.apiKeys.adzunaAppKey = "bad"
+
+        do {
+            let jobs = try await AdzunaSource().fetchJobs(config: config, knownExternalIDs: [])
+            XCTFail("expected SourceAuthError, got \(jobs.count) jobs")
+        } catch let error as SourceAuthError {
+            XCTAssertEqual(error.source, "adzuna")
+            XCTAssertEqual(error.status, 401)
+        } catch {
+            XCTFail("expected SourceAuthError, got \(error)")
+        }
+    }
+
+    func testUSAJobs401Throws() async {
+        StubURLProtocol.status = 401
+        var config = AppConfig()
+        config.search.keywords = ["analyst"]
+        config.apiKeys.usajobsEmail = "a@b.com"
+        config.apiKeys.usajobsAPIKey = "bad"
+
+        do {
+            _ = try await USAJobsSource().fetchJobs(config: config, knownExternalIDs: [])
+            XCTFail("expected SourceAuthError")
+        } catch let error as SourceAuthError {
+            XCTAssertEqual(error.source, "usajobs")
+        } catch {
+            XCTFail("expected SourceAuthError, got \(error)")
+        }
+    }
+
+    func testGreenhouse403Throws() async {
+        StubURLProtocol.status = 403
+        var config = AppConfig()
+        config.search.greenhouseBoards = ["gated-co"]
+
+        do {
+            _ = try await GreenhouseSource().fetchJobs(config: config, knownExternalIDs: [])
+            XCTFail("expected SourceAuthError")
+        } catch let error as SourceAuthError {
+            XCTAssertEqual(error.status, 403)
+        } catch {
+            XCTFail("expected SourceAuthError, got \(error)")
+        }
+    }
+
+    /// 404 is a genuine "nothing here" (a retired board slug) — it must stay a
+    /// quiet empty result, not an alarm about credentials.
+    func testGreenhouse404StaysEmpty() async throws {
+        StubURLProtocol.status = 404
+        var config = AppConfig()
+        config.search.greenhouseBoards = ["gone-co"]
+        let jobs = try await GreenhouseSource().fetchJobs(config: config, knownExternalIDs: [])
+        XCTAssertTrue(jobs.isEmpty)
+    }
+
+    /// The pipeline must file an auth failure under `authFailed`, apart from the
+    /// generic `failed` bucket the UI reports as "had trouble".
+    func testPipelineRecordsAuthFailed() async throws {
+        StubURLProtocol.status = 401
+        let db = try AppDatabase.inMemory()
+        var config = AppConfig()
+        config.search.keywords = ["engineer"]
+        config.apiKeys.adzunaAppID = "bad"
+        config.apiKeys.adzunaAppKey = "bad"
+
+        let summary = await FetchPipeline().run(config: config, sources: ["adzuna"],
+                                                jobStore: JobStore(db))
+        XCTAssertEqual(summary.authFailed, ["adzuna"])
+        XCTAssertTrue(summary.failed.isEmpty)
+        XCTAssertTrue(summary.blocked.isEmpty)
+    }
+}

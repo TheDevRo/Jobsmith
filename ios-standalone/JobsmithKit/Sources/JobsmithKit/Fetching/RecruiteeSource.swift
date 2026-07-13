@@ -23,7 +23,9 @@ public struct RecruiteeSource: JobSource {
         let limiter = AsyncLimiter(Self.companyConcurrency)
         var results: [NormalizedJob] = []
 
-        await withTaskGroup(of: [NormalizedJob].self) { group in
+        // Throwing group: a 401/403 means the career site is gated, not empty —
+        // that must reach the user, not look like "no jobs" (see REL-02).
+        try await withThrowingTaskGroup(of: [NormalizedJob].self) { group in
             for company in companies {
                 group.addTask {
                     await limiter.acquire()
@@ -31,25 +33,35 @@ public struct RecruiteeSource: JobSource {
                         await limiter.release()
                         return []
                     }
-                    let jobs = await Self.fetchCompany(company: company, keywords: keywords,
-                                                       excludePatterns: excludePatterns)
-                    await limiter.release()
-                    return jobs
+                    do {
+                        let jobs = try await Self.fetchCompany(company: company, keywords: keywords,
+                                                               excludePatterns: excludePatterns)
+                        await limiter.release()
+                        return jobs
+                    } catch {
+                        await limiter.release()
+                        throw error
+                    }
                 }
             }
-            for await jobs in group { results += jobs }
+            for try await jobs in group { results += jobs }
         }
         return results
     }
 
     private static func fetchCompany(company: String, keywords: [String],
-                                     excludePatterns: [NSRegularExpression]) async -> [NormalizedJob] {
+                                     excludePatterns: [NSRegularExpression]) async throws -> [NormalizedJob] {
         guard let url = URL(string: "https://\(company).recruitee.com/api/offers/") else { return [] }
         do {
             let response = try await HTTPClient.fetchWithRetries(url, headers: headers, timeout: 30)
+            if SourceAuthError.isAuthFailure(response.status) {
+                throw SourceAuthError(source: id, status: response.status)
+            }
             guard response.status == 200 else { return [] }
             return try parse(data: response.data, company: company, keywords: keywords,
                              excludePatterns: excludePatterns)
+        } catch let authError as SourceAuthError {
+            throw authError
         } catch {
             return []
         }

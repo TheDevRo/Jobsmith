@@ -27,13 +27,7 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
   opts = opts || {};
   const LOW_CONF = 0.60;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  // ---- Option matching ---------------------------------------------------
-  // Scored matching instead of greedy substring, so "No" never grabs
-  // "Not applicable" and state abbreviations still find their full names.
-
   const OPT_THRESHOLD = 55;
-
   const US_STATES = {
     al: "alabama", ak: "alaska", az: "arizona", ar: "arkansas", ca: "california",
     co: "colorado", ct: "connecticut", de: "delaware", fl: "florida", ga: "georgia",
@@ -52,7 +46,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     "united states": ["usa", "us", "united states of america", "america"],
     "united kingdom": ["uk", "great britain", "england"],
   };
-  // Degree strings ("BS Computer Science") → education-level dropdown buckets.
   const DEGREE_LEVELS = [
     [/\b(ph\.?d|doctor)/, ["phd", "doctorate", "doctoral degree"]],
     [/\bmba\b/, ["mba", "master's degree", "masters"]],
@@ -60,7 +53,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     [/\b(bs|bsc|ba|bachelor)\b/, ["bachelor's degree", "bachelors", "bachelor"]],
     [/\b(associate|aa|aas)\b/, ["associate's degree", "associate degree", "associate"]],
   ];
-
   function normText(s) {
     return (s || "").toLowerCase()
       .replace(/[^a-z0-9+#.\s]/g, " ")
@@ -68,12 +60,10 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       .trim();
   }
   function tokensOf(s) { return normText(s).split(" ").filter(Boolean); }
-
   function isPlaceholderOption(text) {
     const t = normText(text);
     return !t || /^(select|choose|please|pick|none selected)\b/.test(t);
   }
-
   function candidatesFor(want) {
     const w = normText(want);
     const out = [want];
@@ -88,7 +78,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return out;
   }
-
   function optionScore(want, text) {
     const w = normText(want), t = normText(text);
     if (!w || !t) return 0;
@@ -115,7 +104,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     const sub = (t.includes(w) || w.includes(t)) ? 25 : 0;
     return Math.round(40 * (inter / uni)) + sub;
   }
-
   function scoreAgainst(want, text) {
     let best = 0;
     for (const cand of candidatesFor(want)) {
@@ -124,19 +112,10 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return best;
   }
-
-  // ---- Combobox driving --------------------------------------------------
-  // Handles react-select / Ashby / Greenhouse typeaheads (typeable inputs)
-  // AND Workday-style button widgets (open + click, no typing). Retries with
-  // progressively shorter queries because async option lists (Workday
-  // location lookups) often return nothing for a full-string query.
-  // Multi-select widgets (aria-multiselectable) get the value split on
-  // separators and each part selected in turn.
   async function fillCombobox(el, value) {
     const want = (value || "").trim();
     if (!want) return { ok: false, message: "empty value" };
     const canType = el.tagName === "INPUT" || el.tagName === "TEXTAREA";
-
     function openWidget() {
       try { el.focus(); } catch (_) {}
       fireFocus(el);
@@ -144,11 +123,9 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
       el.click();
     }
-
     function visibleOptions() {
       const root = el.getRootNode ? el.getRootNode() : document;
       const scopes = [];
-      // The listbox the widget declares it controls is the highest-signal scope.
       const ids = (
         (el.getAttribute("aria-controls") || "") + " " + (el.getAttribute("aria-owns") || "")
       ).split(/\s+/).filter(Boolean);
@@ -177,7 +154,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       }
       return [];
     }
-
     async function pollOptions(ms) {
       const deadline = Date.now() + ms;
       let found = [];
@@ -188,14 +164,12 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       }
       return found;
     }
-
     function typeQuery(q) {
       nativeSet(el, "");
       fireInputEvents(el, "");
       nativeSet(el, q);
       fireInputEvents(el, q);
     }
-
     function pickFrom(rendered, wanted) {
       let best = null, bestScore = 0;
       for (const o of rendered) {
@@ -208,14 +182,12 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       }
       return bestScore >= OPT_THRESHOLD ? best : null;
     }
-
     function clickOption(target) {
       try { target.scrollIntoView({ block: "nearest" }); } catch (_) {}
       target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
       target.click();
     }
-
     function isMultiselectable() {
       if ((el.getAttribute("aria-multiselectable") || "").toLowerCase() === "true") return true;
       const root = el.getRootNode ? el.getRootNode() : document;
@@ -230,9 +202,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       const lb = document.querySelector('[role="listbox"][aria-multiselectable="true"]');
       return !!lb;
     }
-
-    // Select a single value via the query ladder. Returns
-    // { ok, message?, unverified? }.
     async function selectOne(wanted) {
       const queries = [];
       if (canType) {
@@ -243,7 +212,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       } else {
         queries.push(null);  // button widget — just open and read the list
       }
-
       let sawOptions = false;
       for (let i = 0; i < queries.length; i++) {
         if (queries[i] !== null) typeQuery(queries[i]);
@@ -256,8 +224,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           clickOption(target);
           await sleep(80);
           if (!canType) {
-            // Button widgets show the selection as their own text — verify
-            // the click actually took, and flag for review if we can't tell.
             const shown = normText(el.textContent || el.value || "");
             const pickedN = normText(pickedText);
             if (shown && pickedN && !(shown.includes(pickedN) || pickedN.includes(shown))) {
@@ -267,13 +233,9 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           return { ok: true };
         }
       }
-
       if (!canType) {
         return { ok: false, message: sawOptions ? `no option matches "${wanted.slice(0, 40)}"` : "no options rendered" };
       }
-
-      // Last resort: retype the full value and commit with Enter — many
-      // comboboxes accept the highlighted entry or free text.
       typeQuery(wanted);
       await sleep(150);
       const target = pickFrom(visibleOptions(), wanted);
@@ -290,14 +252,11 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       }
       return { ok: false, message: sawOptions ? `no option matches "${wanted.slice(0, 40)}"` : "no options rendered" };
     }
-
     openWidget();
     await sleep(50);
-
     const parts = isMultiselectable()
       ? want.split(/[;,]/).map((s) => s.trim()).filter(Boolean)
       : [want];
-
     let unverified = null;
     const failed = [];
     for (let i = 0; i < parts.length; i++) {
@@ -306,7 +265,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       if (!res.ok) failed.push(parts[i]);
       else if (res.unverified) unverified = res.message;
     }
-
     if (failed.length === parts.length) {
       return { ok: false, message: `no option matches "${failed[0].slice(0, 40)}"` };
     }
@@ -318,16 +276,11 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return { ok: true };
   }
-
   function nativeSet(el, value) {
     const proto =
       el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype :
       el instanceof HTMLSelectElement   ? HTMLSelectElement.prototype :
       HTMLInputElement.prototype;
-    // React tracks the last value it knows about on el._valueTracker.
-    // Seeding the tracker with the current value forces React to treat the
-    // upcoming setter as a real user change, so onChange fires and the new
-    // value sticks instead of snapping back on next render.
     const tracker = el._valueTracker;
     if (tracker && typeof tracker.setValue === "function") {
       try { tracker.setValue(el.value || ""); } catch (_) { /* ignore */ }
@@ -336,11 +289,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     if (desc && desc.set) desc.set.call(el, value);
     else el.value = value;
   }
-
-  // Explicitly dispatch focus/blur events. We can't rely on el.focus()/
-  // el.blur() because an injected content script often runs while the page
-  // tab is NOT the focused document (the side panel holds focus), so those
-  // calls silently no-op and validators that fire on blur never run.
   function fireFocus(el) {
     el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     el.dispatchEvent(new FocusEvent("focus",   { bubbles: false }));
@@ -349,11 +297,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     el.dispatchEvent(new FocusEvent("blur",     { bubbles: false }));
   }
-
-  // Fire the event sequence a real keystroke produces. Plain Event("input")
-  // is not enough for frameworks (Angular value accessor, Vue, Lit) and
-  // masked-input libs that read InputEvent.inputType/data or listen for key
-  // events. `value` is optional (combobox calls pass it to drive filtering).
   function fireInputEvents(el, value) {
     const v = value == null ? "" : String(value);
     const last = v.length ? v[v.length - 1] : "";
@@ -369,9 +312,7 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     try { el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: last })); } catch (_) {}
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
-
   function deepQuerySelector(sel) {
-    // querySelector across light DOM + open shadow roots.
     if (!sel) return null;
     try {
       const direct = document.querySelector(sel);
@@ -395,7 +336,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return null;
   }
-
   function findElement(item) {
     if (item.selector) {
       const el = deepQuerySelector(item.selector);
@@ -409,7 +349,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return null;
   }
-
   function pickSelectOption(selectEl, wantedValue) {
     const want = (wantedValue || "").trim();
     if (!want) return null;
@@ -428,7 +367,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return bestScore >= OPT_THRESHOLD ? best : null;
   }
-
   function pickRadioInGroup(anchorEl, name, wantedValue) {
     const want = (wantedValue || "").trim();
     if (!want) return null;
@@ -446,7 +384,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return bestScore >= OPT_THRESHOLD ? best : null;
   }
-
   function labelTextFor(el) {
     const root = (el.getRootNode ? el.getRootNode() : document);
     if (el.id && root.querySelector) {
@@ -458,12 +395,9 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     while (p && p.tagName !== "LABEL") p = p.parentElement;
     return p ? p.textContent.trim() : "";
   }
-
   function isTruthyAnswer(s) {
     return /^(y(es)?|true|1|on)$/i.test((s || "").trim());
   }
-
-  // <input type=date> needs YYYY-MM-DD regardless of what the profile says.
   function normalizeDateValue(el, value) {
     const t = (el.type || "").toLowerCase();
     if (t !== "date" && t !== "month") return value;
@@ -480,22 +414,17 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
       ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
       : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
-
-  // ---- Apply fills -----------------------------------------------------
   const results = [];
-
   for (const item of items || []) {
     if (item.action === "skip" || !item.value) {
       results.push({ field_id: item.field_id, status: "skipped" });
       continue;
     }
-
     const el = findElement(item);
     if (!el) {
       results.push({ field_id: item.field_id, status: "not_found" });
       continue;
     }
-
     try {
       if (item.field_type === "file" || item.action === "upload") {
         if (!item.file_bytes || !item.file_name) {
@@ -509,7 +438,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           const file = new File([bytes], item.file_name, { type: item.file_mime || "application/octet-stream" });
           const dt = new DataTransfer();
           dt.items.add(file);
-          // Find the real <input type=file>: may be hidden, with a styled dropzone wrapper.
           const input = (el.tagName === "INPUT" && el.type === "file")
             ? el
             : (el.querySelector && el.querySelector('input[type="file"]')) || el;
@@ -519,7 +447,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
             input.dispatchEvent(new Event("change", { bubbles: true }));
           };
           assign();
-          // Best-effort: some dropzones (Greenhouse, Lever) listen for drop on a wrapper.
           const dropTarget = input.closest('[data-test-id*="drop"], .dropzone, [class*="drop"]') || input.parentElement;
           if (dropTarget && dropTarget !== input) {
             try {
@@ -527,15 +454,17 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
               dropTarget.dispatchEvent(dropEvt);
             } catch (_) { /* DragEvent constructor may not accept dataTransfer in all browsers */ }
           }
-          // Some uploaders clear the input while starting their own async
-          // handling — give them a beat, then retry the assignment once.
-          await sleep(250);
-          if (!input.files || input.files.length === 0) {
-            assign();
-            await sleep(250);
+          const deadline = Date.now() + 1500;
+          while ((!input.files || input.files.length === 0) && Date.now() < deadline) {
+            await sleep(150);
+            if (!input.files || input.files.length === 0) assign();
           }
           if (!input.files || input.files.length === 0) {
-            results.push({ field_id: item.field_id, status: "failed", message: "input.files did not accept assignment" });
+            results.push({
+              field_id: item.field_id,
+              status: "failed",
+              message: "this uploader rejects scripted files — drag the tile onto the upload box",
+            });
             continue;
           }
           const targetDesc = input.id ? `#${input.id}` : (input.name ? `[name=${input.name}]` : "file input");
@@ -545,7 +474,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         }
         continue;
       }
-
       if (item._combobox || (item.field_type === "select" && el.tagName !== "SELECT")) {
         const out = await fillCombobox(el, item.value);
         if (!out.ok) { results.push({ field_id: item.field_id, status: "failed", message: out.message }); continue; }
@@ -566,7 +494,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         if (!target) { results.push({ field_id: item.field_id, status: "failed", message: "no matching radio" }); continue; }
         target.click();
         if (!target.checked) {
-          // Custom widgets sometimes intercept the click — force it through.
           target.checked = true;
           fireInputEvents(target);
         }
@@ -603,7 +530,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         fireInputEvents(el, value);
         fireBlur(el);
         el.blur();
-        // Verify-after-fill: if React snapped the value back, surface it.
         const actual = (el.value || "");
         if (actual !== value && !(value && actual.includes(value))) {
           results.push({
@@ -614,23 +540,18 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           continue;
         }
       }
-
       const lowConf = typeof item.confidence === "number" && item.confidence < LOW_CONF;
       results.push({ field_id: item.field_id, status: lowConf ? "low_confidence" : "filled" });
     } catch (e) {
       results.push({ field_id: item.field_id, status: "failed", message: String(e && e.message || e) });
     }
   }
-
-  // ---- Highlight overlay ----------------------------------------------
   const styleId = "__jobsmith-hl__";
   const prev = document.getElementById(styleId);
   if (prev) prev.remove();
-
   if (opts.clearOnly) {
     return { results, highlighted: 0 };
   }
-
   const colors = {
     filled:          "#a6e3a1",
     low_confidence:  "#f9e2af",
@@ -638,13 +559,11 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     not_found:       "#f38ba8",
     failed:          "#f38ba8",
   };
-
   const byId = Object.fromEntries((items || []).map(i => [i.field_id, i]));
   const rules = [];
   for (const r of results) {
     const it = byId[r.field_id];
     if (!it || !it.selector) continue;
-    // Required + skipped/not-filled gets a loud red so the user notices.
     let color = colors[r.status] || "#6c7086";
     if (it.required && (r.status === "skipped" || r.status === "not_found")) {
       color = "#f38ba8";
@@ -658,9 +577,6 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     style.textContent = rules.join("\n");
     (document.head || document.documentElement).appendChild(style);
   }
-
   return { results, highlighted: rules.length };
 };
-
-// Final expression must be structured-clonable for Firefox's executeScript.
 true;

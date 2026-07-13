@@ -29,8 +29,9 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: 0.1.2
-    CURRENT_PROJECT_VERSION: 6
+    # Tracks package.json, the version source of truth for the whole repo.
+    MARKETING_VERSION: 0.2.4
+    CURRENT_PROJECT_VERSION: 7
     CODE_SIGN_STYLE: Automatic
     # Team is declared here so `xcodegen generate` preserves signing config for
     # headless archiving — regenerating from this file otherwise wipes a
@@ -62,11 +63,6 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes:
           - fetch
           - processing
@@ -87,7 +83,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone only. The UI is a flat TabView with a swipe deck — on an iPad it
+        # would render as a stretched phone app, and no NavigationSplitView work
+        # is planned (UX-06).
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
@@ -119,7 +118,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone.Share
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # Must match the host app's device family.
+        TARGETED_DEVICE_FAMILY: "1"
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
   JobsmithStandaloneUITests:

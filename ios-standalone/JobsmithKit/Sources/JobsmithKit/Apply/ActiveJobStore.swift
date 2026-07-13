@@ -1,7 +1,7 @@
 import Foundation
 
 /// The app↔extension "active job" handoff: when the user opens a job's apply
-/// page from the app, the job context is written here so the Safari extension
+/// page from the app, the job context is written here so the Share extension
 /// can bind its scan to the right job.
 public struct ActiveJob: Codable, Equatable, Sendable {
     public var jobId: String

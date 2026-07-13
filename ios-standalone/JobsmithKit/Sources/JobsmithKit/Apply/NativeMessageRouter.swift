@@ -1,12 +1,18 @@
 import Foundation
 
-/// Pure dispatcher for the Safari extension's native messages
-/// ({name, body} → {result} | {error, status}). The JS side
-/// (SafariExt/Resources/common/api.js) maps its former backend HTTP routes
-/// onto these message names; the shapes mirror backend/extension_api.py.
+/// Pure dispatcher for the Apply browser's message names
+/// ({name, body} → {result} | {error, status}), the on-device stand-in for the
+/// desktop's `/api/ext/*` HTTP surface — the shapes still mirror
+/// backend/extension_api.py.
 ///
-/// Everything except `scan` is fast local IO — safe to run inline in the
-/// extension request handler.
+/// It is named for the Safari Web Extension it was originally written for. That
+/// extension is gone: `ApplyBrowserView` now injects snapshot.js/fill.js into an
+/// in-app WKWebView and calls `handle(name:body:)` directly, in-process
+/// (`AppModel.mapApplyFields`). The message-name indirection is kept because it
+/// is the same contract the desktop extension speaks.
+///
+/// Everything except `scan` is fast local IO — safe to run inline from the
+/// caller.
 public struct NativeMessageRouter: Sendable {
     let db: AppDatabase
     let engine: any AIEngine

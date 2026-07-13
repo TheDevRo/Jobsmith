@@ -80,6 +80,7 @@ struct FetchProgressBanner: View {
         for source in p.blocked.sorted() { lines.append("\(name(source)) — blocked") }
         for source in p.timedOut.sorted() { lines.append("\(name(source)) — timed out") }
         for source in p.failed.sorted() { lines.append("\(name(source)) — no response") }
+        for source in p.authFailed.sorted() { lines.append("\(name(source)) — check the API key") }
 
         let remaining = p.sourcesTotal - p.sourcesDone
         if remaining > 0 { lines.append("…\(remaining) still searching") }

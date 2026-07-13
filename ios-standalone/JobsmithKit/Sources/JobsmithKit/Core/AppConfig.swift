@@ -1,7 +1,7 @@
 import Foundation
 
 /// App-wide configuration, persisted as JSON in the App Group container so
-/// the Safari and Share extensions read the same settings. Mirrors the
+/// the Share extension reads the same settings. Mirrors the
 /// desktop config.yaml sections.
 public struct AppConfig: Codable, Equatable, Sendable {
     public var profile: Profile
@@ -18,6 +18,33 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.profile = profile; self.search = search; self.ai = ai
         self.honesty = honesty; self.apiKeys = apiKeys
         self.promptOverrides = promptOverrides
+    }
+
+    // Tolerant decoding, mirroring the sub-structs. Without it a single new
+    // required section — or one section that fails to decode — would fail the
+    // whole AppConfig and silently reset the user's profile, settings, and keys
+    // on upgrade. Each section independently falls back to its defaults instead.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        profile = c.lenient(Profile.self, .profile, Profile())
+        search = c.lenient(SearchConfig.self, .search, SearchConfig())
+        ai = c.lenient(AIConfig.self, .ai, AIConfig())
+        honesty = c.lenient(HonestyConfig.self, .honesty, HonestyConfig())
+        apiKeys = c.lenient(APIKeys.self, .apiKeys, APIKeys())
+        promptOverrides = c.lenient([String: String].self, .promptOverrides, [:])
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case profile, search, ai, honesty, apiKeys, promptOverrides
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// Decode a value, falling back to `fallback` when the key is missing *or*
+    /// its payload is malformed. The building block of the tolerant decoders:
+    /// one bad field must never take the whole config down with it.
+    func lenient<T: Decodable>(_ type: T.Type, _ key: Key, _ fallback: @autoclosure () -> T) -> T {
+        ((try? decodeIfPresent(type, forKey: key)) ?? nil) ?? fallback()
     }
 }
 
@@ -51,6 +78,35 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         self.ashbyBoards = ashbyBoards; self.workableAccounts = workableAccounts
         self.recruiteeCompanies = recruiteeCompanies
         self.enabledSources = enabledSources
+    }
+
+    // Tolerant decoding — a watchlist added in a later build must not reset the
+    // user's keywords and sources.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SearchConfig()
+        keywords = c.lenient([String].self, .keywords, d.keywords)
+        locations = c.lenient([String].self, .locations, d.locations)
+        excludeKeywords = c.lenient([String].self, .excludeKeywords, d.excludeKeywords)
+        // Explicit null means "no limit" — distinct from an absent key, which
+        // means "this build didn't write it", so decodeIfPresent won't do.
+        minSalary = c.contains(.minSalary) ? ((try? c.decode(Int?.self, forKey: .minSalary)) ?? nil) : nil
+        maxAgeDays = c.contains(.maxAgeDays)
+            ? ((try? c.decode(Int?.self, forKey: .maxAgeDays)) ?? nil)
+            : d.maxAgeDays
+        remoteOnly = c.lenient(Bool.self, .remoteOnly, d.remoteOnly)
+        greenhouseBoards = c.lenient([String].self, .greenhouseBoards, [])
+        leverCompanies = c.lenient([String].self, .leverCompanies, [])
+        ashbyBoards = c.lenient([String].self, .ashbyBoards, [])
+        workableAccounts = c.lenient([String].self, .workableAccounts, [])
+        recruiteeCompanies = c.lenient([String].self, .recruiteeCompanies, [])
+        enabledSources = c.lenient(Set<String>.self, .enabledSources, d.enabledSources)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case keywords, locations, excludeKeywords, minSalary, maxAgeDays, remoteOnly
+        case greenhouseBoards, leverCompanies, ashbyBoards, workableAccounts
+        case recruiteeCompanies, enabledSources
     }
 }
 
@@ -235,6 +291,11 @@ public struct APIKeys: Codable, Equatable, Sendable {
     /// LinkedIn `li_at` session cookie captured by the in-app sign-in.
     /// Stored for future authenticated features; the job scraper stays on
     /// the guest API so the user's account is never used for scraping.
+    ///
+    /// Unlike every other field here, this one is a live credential (it is
+    /// account takeover if it leaks), so `ConfigStore` round-trips it through
+    /// the Keychain instead of this struct's JSON — see `SecretStore`. It stays
+    /// a plain property so callers don't have to care.
     public var linkedInCookie: String
 
     public init(adzunaAppID: String = "", adzunaAppKey: String = "",

@@ -51,6 +51,42 @@ public struct Profile: Codable, Equatable, Sendable {
         self.certifications = certifications; self.references = references
     }
 
+    // Tolerant decoding: a field added in a later build (or one whose payload
+    // went bad) must not fail the whole Profile — that would reset the user's
+    // resume data on upgrade. Missing/malformed fields fall back to defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fullName = c.lenient(String.self, .fullName, "")
+        email = c.lenient(String.self, .email, "")
+        phone = c.lenient(String.self, .phone, "")
+        location = c.lenient(String.self, .location, "")
+        streetAddress = c.lenient(String.self, .streetAddress, "")
+        city = c.lenient(String.self, .city, "")
+        state = c.lenient(String.self, .state, "")
+        zipCode = c.lenient(String.self, .zipCode, "")
+        linkedin = c.lenient(String.self, .linkedin, "")
+        github = c.lenient(String.self, .github, "")
+        portfolio = c.lenient(String.self, .portfolio, "")
+        desiredSalary = c.lenient(String.self, .desiredSalary, "")
+        workAuthorization = c.lenient(String.self, .workAuthorization, "")
+        sponsorshipRequired = c.lenient(String.self, .sponsorshipRequired, "")
+        availableStart = c.lenient(String.self, .availableStart, "")
+        noticePeriod = c.lenient(String.self, .noticePeriod, "")
+        summary = c.lenient(String.self, .summary, "")
+        skills = c.lenient([String].self, .skills, [])
+        experience = c.lenient([WorkExperience].self, .experience, [])
+        education = c.lenient([Education].self, .education, [])
+        certifications = c.lenient([String].self, .certifications, [])
+        references = c.lenient([Reference].self, .references, [])
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case fullName, email, phone, location, streetAddress, city, state, zipCode
+        case linkedin, github, portfolio, desiredSalary, workAuthorization
+        case sponsorshipRequired, availableStart, noticePeriod, summary, skills
+        case experience, education, certifications, references
+    }
+
     public var isEmpty: Bool {
         fullName.isEmpty && summary.isEmpty && skills.isEmpty && experience.isEmpty
     }

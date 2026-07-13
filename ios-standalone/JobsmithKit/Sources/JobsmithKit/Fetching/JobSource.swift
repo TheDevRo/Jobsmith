@@ -17,6 +17,25 @@ public struct SourceBlockedError: Error, Sendable {
     public init(_ message: String) { self.message = message }
 }
 
+/// Raised when a source rejects our credentials (401) or refuses the request
+/// outright (403). Without it, a wrong API key reads to the pipeline exactly
+/// like "no jobs today" — and after three such runs the source is quietly
+/// demoted to `suspect` while the user is never told to fix the key.
+public struct SourceAuthError: Error, Sendable {
+    public let source: String
+    public let status: Int
+
+    public init(source: String, status: Int) {
+        self.source = source
+        self.status = status
+    }
+
+    /// Whether an HTTP status means "your credentials are the problem".
+    public static func isAuthFailure(_ status: Int) -> Bool {
+        status == 401 || status == 403
+    }
+}
+
 // MARK: - JSON coercion helpers (Python-dict-style leniency)
 
 func jsonString(_ value: Any?) -> String {

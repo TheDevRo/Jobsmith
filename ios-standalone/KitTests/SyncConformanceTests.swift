@@ -7,9 +7,11 @@ import XCTest
 final class SyncConformanceTests: XCTestCase {
 
     /// Repo-root vendored vectors (shared with the Python conformance test).
+    /// #filePath is ios-standalone/KitTests/<this file>, so three pops reach the
+    /// repo root.
     private var vectorsDir: URL {
         var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { url.deleteLastPathComponent() }  // -> repo root
+        for _ in 0..<3 { url.deleteLastPathComponent() }  // -> repo root
         return url.appendingPathComponent("backend/sync/test-vectors")
     }
 

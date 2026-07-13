@@ -6,7 +6,6 @@ __pycache__/
 
 # Node
 node_modules/
-stagehand-service/node_modules/
 
 # Desktop build (Tauri + PyInstaller)
 /build/
@@ -19,6 +18,10 @@ src-tauri/gen/schemas/
 
 # Extension build output
 extension/dist/
+
+# TestFlight upload script — carries App Store Connect key/issuer/team ids.
+# Copy ios-standalone/scripts/testflight-upload.sh.example and fill in via env.
+ios-standalone/scripts/testflight-upload.sh
 
 # Runtime data (repo-root dirs only — anchored so they don't match nested
 # source dirs like ios-standalone/.../JobsmithKit/Data on a case-insensitive FS)

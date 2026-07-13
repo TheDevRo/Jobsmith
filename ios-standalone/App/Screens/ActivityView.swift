@@ -61,6 +61,10 @@ struct ActivityView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+        // Read as "Jobs tracked, 12" instead of the bare number followed by an
+        // uppercased, letter-spaced eyebrow.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(value)")
     }
 
     private func formatted(_ iso: String) -> String {

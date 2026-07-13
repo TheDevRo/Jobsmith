@@ -16,6 +16,17 @@ public struct AppDatabase: Sendable {
         var config = Configuration()
         config.busyMode = .timeout(5)
         let pool = try DatabasePool(path: AppGroup.databaseURL.path, configuration: config)
+        // The db, -wal and -shm files hold every posting and application. New
+        // files inherit the directory's protection class; set it explicitly too
+        // so databases created by an earlier build are upgraded in place. Not
+        // `.complete` — background fetch/scoring must open it while locked.
+        for path in [AppGroup.databaseURL.path,
+                     AppGroup.databaseURL.path + "-wal",
+                     AppGroup.databaseURL.path + "-shm"] {
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: path)
+        }
         return try AppDatabase(pool)
     }
 
