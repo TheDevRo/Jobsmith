@@ -1,9 +1,18 @@
+<!-- notes-updated-for: 0.2.2 -->
+<!--
+  Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
+  at render time. Before every release: rewrite the "What's new" section, then
+  bump the notes-updated-for marker above to the version being shipped —
+  release.sh refuses to tag while it lags package.json, so last release's notes
+  can't ship again by accident.
+-->
+
 # Jobsmith __VERSION__
 
 A standalone macOS app (Apple Silicon), the browser extension zips, and the
 Docker image — all built from the same tag.
 
-## What's new in 0.2.2
+## What's new in __VERSION__
 
 - **Bring your own AI + API key support** — the AI connection now works with
   any OpenAI-compatible server, not just LM Studio: Ollama locally, or hosted
@@ -51,10 +60,10 @@ If the dmg itself won't open, use the `Jobsmith___VERSION___aarch64.app.tar.gz`
 asset instead: `tar -xzf` it, move Jobsmith.app to Applications, then apply the
 same steps above.
 
-**First launch** downloads a private copy of Chromium (~150 MB) before the
-dashboard appears — expect a few minutes on the splash screen. Later launches
-are fast. App data (config, database, browsers) lives in
-`~/Library/Application Support/Jobsmith`.
+**First launch** downloads a private copy of Chromium (~150 MB) for auto-apply,
+but it now downloads **in the background** — the dashboard opens immediately and
+Jobsmith shows the install status (with a retry) until it's ready. App data
+(config, database, browsers) lives in `~/Library/Application Support/Jobsmith`.
 
 **Prerequisite:** AI features need an OpenAI-compatible server —
 [LM Studio](https://lmstudio.ai) on `http://localhost:1234` by default, or
