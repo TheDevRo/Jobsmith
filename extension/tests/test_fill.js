@@ -38,11 +38,42 @@ const html = `<!DOCTYPE html><html><body>
       <option value="v2">I am not a protected veteran</option>
       <option value="v3">I don't wish to answer</option>
     </select>
+
+    <input type="file" id="resume" data-jobsmith-fid="resume">
+    <input type="file" id="cover" data-jobsmith-fid="cover">
   </form>
 </body></html>`;
 
 const dom = loadDom(html);
 const { window } = dom;
+
+// jsdom has no DataTransfer, and HTMLInputElement.files is getter-only.
+// Both are stand-ins for the browser behavior fill.js relies on.
+window.DataTransfer = function DataTransfer() {
+  const files = [];
+  this.items = { add: (f) => files.push(f) };
+  Object.defineProperty(this, "files", { get: () => files });
+};
+
+// A file input that only accepts an assignment on the Nth try — the hardened
+// ATS uploaders (Workday, some Greenhouse) clear it while their own async
+// handler runs. acceptOnAttempt = Infinity → it never accepts.
+function hostileFileInput(id, acceptOnAttempt) {
+  const el = window.document.getElementById(id);
+  const state = { attempts: 0, stored: null };
+  Object.defineProperty(el, "files", {
+    configurable: true,
+    get: () => state.stored,
+    set: (v) => {
+      state.attempts++;
+      if (state.attempts >= acceptOnAttempt) state.stored = v;
+    },
+  });
+  return state;
+}
+const resumeInput = hostileFileInput("resume", 3);       // accepts on the 3rd assignment
+const coverInput = hostileFileInput("cover", Infinity);  // never accepts
+
 evalScript(window, "common/fill.js");
 
 const items = [
@@ -55,6 +86,10 @@ const items = [
   { field_id: "vet", selector: '[data-jobsmith-fid="vet"]', value: "I am not a veteran", action: "select", field_type: "select", confidence: 0.95 },
   { field_id: "missing", selector: '[data-jobsmith-fid="nope"]', value: "x", action: "fill", field_type: "text", confidence: 0.95 },
   { field_id: "skipme", selector: '[data-jobsmith-fid="fname"]', value: "", action: "skip", field_type: "text", confidence: 0 },
+  { field_id: "resume", selector: '[data-jobsmith-fid="resume"]', value: "resume", action: "upload", field_type: "file", confidence: 1,
+    file_bytes: [1, 2, 3], file_name: "Resume.docx", file_mime: "application/octet-stream" },
+  { field_id: "cover", selector: '[data-jobsmith-fid="cover"]', value: "cover_letter", action: "upload", field_type: "file", confidence: 1,
+    file_bytes: [4, 5, 6], file_name: "CoverLetter.docx", file_mime: "application/octet-stream" },
 ];
 
 (async () => {
@@ -73,6 +108,14 @@ const items = [
     ["missing → not_found", byId.missing.status === "not_found"],
     ["skip honored", byId.skipme.status === "skipped"],
     ["highlights applied", out.highlighted > 0],
+
+    // Upload retry poll (REL-11): keep re-assigning while the uploader clears
+    // the input, up to ~1.5s.
+    ["upload retried until accepted", byId.resume.status === "filled" && resumeInput.attempts >= 3],
+    ["upload attached the right file", resumeInput.stored && resumeInput.stored.length === 1 && resumeInput.stored[0].name === "Resume.docx"],
+    ["upload that never sticks → failed", byId.cover.status === "failed"],
+    ["failed upload points at the drag path", /drag the tile/i.test(byId.cover.message || "")],
+    ["failed upload retried several times", coverInput.attempts >= 5],
   ]);
 
   if (fail) {

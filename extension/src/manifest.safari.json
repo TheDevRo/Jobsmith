@@ -20,7 +20,7 @@
         "http://*/assist/launch/*",
         "https://*/assist/launch/*"
       ],
-      "js": ["assist_handshake.js"],
+      "js": ["common/storage.js", "common/handshake.js", "assist_handshake.js"],
       "run_at": "document_end"
     }
   ],

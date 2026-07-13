@@ -8,11 +8,16 @@
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://*.linkedin.com/*",
-    "https://*.indeed.com/*",
-    "<all_urls>"
+    "https://*.indeed.com/*"
   ],
+  "optional_host_permissions": ["<all_urls>"],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "common/storage.js",
+      "common/handshake.js",
+      "common/permissions.js",
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
@@ -20,14 +25,14 @@
         "http://localhost/assist/launch/*",
         "http://127.0.0.1/assist/launch/*"
       ],
-      "js": ["assist_handshake.js"],
+      "js": ["common/storage.js", "common/handshake.js", "assist_handshake.js"],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
       "resources": ["sidepanel.html"],
-      "matches": ["<all_urls>"]
+      "matches": ["http://*/*", "https://*/*"]
     }
   ],
   "options_ui": {
@@ -46,7 +51,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "jobsmith@localhost",
-      "strict_min_version": "115.0",
+      "strict_min_version": "116.0",
       "data_collection_permissions": {
         "required": ["none"]
       }

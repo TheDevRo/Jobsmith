@@ -3,12 +3,12 @@
 
 const DEFAULT_BACKEND = "http://localhost:8888";
 
-const jobsmithBrowser = (typeof browser !== "undefined") ? browser : chrome;
+// Promise-shimmed storage — the one implementation, shared with the background
+// and the content scripts (common/storage.js, loaded before this file).
+const jobsmithStore = globalThis.JobsmithStorage;
 
 async function jobsmithGetConfig() {
-  const out = await new Promise((resolve) => {
-    jobsmithBrowser.storage.local.get(["backendUrl", "token", "deepScan", "autoScan", "autoFill"], resolve);
-  });
+  const out = await jobsmithStore.get(["backendUrl", "token", "deepScan", "autoScan", "autoFill"]);
   return {
     backendUrl: (out.backendUrl || DEFAULT_BACKEND).replace(/\/+$/, ""),
     token: out.token || "",
@@ -34,9 +34,7 @@ async function jobsmithSetConfig({ backendUrl, token, deepScan, autoScan, autoFi
   if (deepScan !== undefined) patch.deepScan = !!deepScan;
   if (autoScan !== undefined) patch.autoScan = !!autoScan;
   if (autoFill !== undefined) patch.autoFill = !!autoFill;
-  await new Promise((resolve) => {
-    jobsmithBrowser.storage.local.set(patch, resolve);
-  });
+  await jobsmithStore.set(patch);
 }
 
 async function jobsmithFetch(path, { method = "GET", body, signal, raw = false } = {}) {

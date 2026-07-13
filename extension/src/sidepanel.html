@@ -181,6 +181,7 @@
     gap: 6px;
     margin-bottom: 12px;
   }
+  [hidden] { display: none !important; }
   button {
     flex: 1;
     padding: 8px 10px;
@@ -443,11 +444,14 @@
   </div>
 
   <div id="status"></div>
+  <button id="retry" class="secondary" hidden style="width:100%;margin-top:8px;">Retry connection</button>
   <div id="fields"></div>
 </div>
 
 <div id="toast"></div>
 
+<script src="common/storage.js"></script>
+<script src="common/permissions.js"></script>
 <script src="common/api.js"></script>
 <script src="sidepanel.js"></script>
 </body>

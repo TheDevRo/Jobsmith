@@ -125,6 +125,25 @@
   #status:not(:empty) { background: rgba(255,255,255,0.03); }
   .ok  { color: var(--ok); }
   .err { color: var(--err); }
+  .warn { color: var(--warn); }
+  .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 5px 0 0;
+  }
+  .hint a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .hint a:hover { text-decoration: underline; }
+  .site-access {
+    margin-top: 14px;
+    padding: 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: rgba(240,134,58,0.06);
+  }
+  .site-access .sa-text { font-size: 11.5px; color: var(--text-dim); margin-bottom: 8px; }
+  .site-access .sa-text b { color: var(--text); font-weight: 600; }
+  .site-access button { width: 100%; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -142,6 +161,18 @@
 
   <label for="token">Extension token</label>
   <input id="token" type="text" placeholder="from data/extension_token.txt">
+  <div class="hint">
+    Don't have it? <a id="detect">Auto-detect from Jobsmith</a> — or copy it from
+    <a id="openSettings">Settings → Integrations</a> in the Jobsmith app.
+  </div>
+
+  <div id="siteAccess" class="site-access" hidden>
+    <div class="sa-text">
+      Jobsmith has no access to <b id="siteHost">this site</b> yet, so it can't
+      scan or autofill here.
+    </div>
+    <button id="grantSite">Grant access to this site</button>
+  </div>
 
   <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:normal;font-size:12px;color:var(--text);margin-top:14px;cursor:pointer;">
     <input id="deepScan" type="checkbox" style="width:auto;margin:0;">
@@ -169,6 +200,8 @@
   <div id="status"></div>
 </div>
 
+<script src="common/storage.js"></script>
+<script src="common/permissions.js"></script>
 <script src="common/api.js"></script>
 <script src="popup.js"></script>
 </body>
