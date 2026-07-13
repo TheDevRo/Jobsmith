@@ -29,6 +29,22 @@ struct ProfileEditorView: View {
             }
 
             Section {
+                TextField("Street address", text: $profile.streetAddress)
+                    .textContentType(.streetAddressLine1)
+                TextField("City", text: $profile.city)
+                    .textContentType(.addressCity)
+                TextField("State", text: $profile.state)
+                    .textContentType(.addressState)
+                TextField("ZIP code", text: $profile.zipCode)
+                    .textContentType(.postalCode)
+                    .keyboardType(.numbersAndPunctuation)
+            } header: {
+                Eyebrow(text: "Address")
+            } footer: {
+                Text("Some applications ask for a full mailing address — Apply Assist fills these automatically.")
+            }
+
+            Section {
                 TextField("Professional summary", text: $profile.summary, axis: .vertical)
                     .lineLimit(4...10)
             } header: {
