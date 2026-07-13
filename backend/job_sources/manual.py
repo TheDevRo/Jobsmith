@@ -11,8 +11,10 @@ scraped jobs and won't collide on the (source, external_id) UNIQUE constraint.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urlparse
 
 import aiohttp
@@ -170,11 +172,16 @@ async def _fetch_generic(url: str) -> dict:
     return parse_jsonld_jobposting(html, url)
 
 
-async def fetch_job_from_url(url: str) -> dict:
-    """Fetch and parse a single job URL into a job dict ready for upsert_job().
+def assert_public_http_url(url: str) -> str:
+    """Validate a user-supplied URL before we fetch it server-side (SSRF guard).
 
-    Always sets source="manual" and a deterministic external_id so re-pasting
-    the same URL is idempotent.
+    /api/jobs/ingest-url hands us an arbitrary URL and we fetch it from inside
+    the server — which, on a cloud box or in Docker, can reach things the user
+    cannot: link-local metadata (169.254.169.254), the Docker bridge, internal
+    admin panels on 127.0.0.1. Scheme+netloc validation alone does not stop any
+    of that, so resolve the host and refuse any non-public address.
+
+    Returns the trimmed URL; raises ValueError if it must not be fetched.
     """
     if not url or not url.strip():
         raise ValueError("URL is required")
@@ -182,6 +189,35 @@ async def fetch_job_from_url(url: str) -> dict:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("URL must be an http(s) link")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL must be an http(s) link")
+
+    # A hostname can resolve to several addresses; every one of them must be
+    # public, or an attacker just points a public name at 127.0.0.1.
+    try:
+        infos = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve {hostname}") from e
+
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise ValueError("Refusing to fetch a private/internal address")
+    return url
+
+
+async def fetch_job_from_url(url: str) -> dict:
+    """Fetch and parse a single job URL into a job dict ready for upsert_job().
+
+    Always sets source="manual" and a deterministic external_id so re-pasting
+    the same URL is idempotent.
+    """
+    url = assert_public_http_url(url)
+    parsed = urlparse(url)
 
     host = (parsed.hostname or "").lower()
 

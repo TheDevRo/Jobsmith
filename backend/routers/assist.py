@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -300,6 +301,17 @@ async function triggerAutofill() {{
   }}
 }}
 
+// Everything below renders strings that came from the *third-party job page*
+// (scanned field labels) or from thrown errors. This page is served from the
+// backend's own origin, so an unescaped '<img src=x onerror=...>' label would
+// run script here with full access to /api/assist/* — escape before innerHTML.
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 function showAutofillResult(data) {{
   const el = document.getElementById('autofill-result');
   if (!data || (!data.filled_count && !data.failed)) {{ el.style.display = 'none'; return; }}
@@ -328,17 +340,17 @@ async function scanForm() {{
     if (!data.fields || !data.fields.length) {{
       scanEl.innerHTML = '<span style="color:#a6adc8">No form fields found on this page</span>';
     }} else {{
-      let html = '<div style="color:#89b4fa;margin-bottom:6px;font-weight:700">Form fields (' + data.count + ')</div>';
+      let html = '<div style="color:#89b4fa;margin-bottom:6px;font-weight:700">Form fields (' + esc(data.count) + ')</div>';
       data.fields.forEach(f => {{
         const reqBadge = f.required ? '<span class="sf-req"> *</span>' : '';
         const lbl = (f.label || f.field_id || 'unknown').substring(0, 40);
-        html += '<div class="sf-item">' + lbl + reqBadge + ' <span style="color:#6c7086">(' + (f.type || 'text') + ')</span></div>';
+        html += '<div class="sf-item">' + esc(lbl) + reqBadge + ' <span style="color:#6c7086">(' + esc(f.type || 'text') + ')</span></div>';
       }});
       scanEl.innerHTML = html;
     }}
     scanEl.style.display = 'block';
   }} catch (e) {{
-    scanEl.innerHTML = '<span style="color:#f38ba8">Scan failed: ' + e.message + '</span>';
+    scanEl.innerHTML = '<span style="color:#f38ba8">Scan failed: ' + esc(e.message) + '</span>';
     scanEl.style.display = 'block';
   }} finally {{
     btn.disabled = false;
@@ -459,8 +471,12 @@ async def assist_launch(req: AssistLaunchRequest):
         cover_letter_docx_path=str(cl_path),
     )
 
-    token = extension_api.get_or_create_token()
-    record = applicant_assist.create_handoff_session(job, setup_token=token)
+    # The setup token is embedded in the launch page's DOM and shown on screen,
+    # so it must NOT be the long-lived extension token (which unlocks all of
+    # /api/ext/*). Mint a fresh per-session secret instead; the extension trades
+    # it for the persistent token in the checkin response (see assist_checkin).
+    setup_token = secrets.token_urlsafe(32)
+    record = applicant_assist.create_handoff_session(job, setup_token=setup_token)
 
     # JOBSMITH_PORT is the port the desktop sidecar actually bound (the Tauri
     # shell picks a free one when 8888 is taken); config.yaml only knows the
@@ -604,7 +620,7 @@ async def assist_launch_page(session_id: str, request: Request):
     </div>
     <div id="manual-token" class="hidden" style="margin-top:14px">
       <div style="font-size:13px;color:#a6adc8">Copy this token into the extension popup (Backend URL + Token):</div>
-      <code class="token-block">{setup_token_attr}</code>
+      <code class="token-block" id="persistent-token">Loading…</code>
     </div>
   </div>
 </div>
@@ -694,7 +710,26 @@ async def assist_launch_page(session_id: str, request: Request):
   $('retry').addEventListener('click', () => {{
     hide('status-needs-install'); show('status-pending'); pollCount = 0; pollState();
   }});
-  $('manual-token-toggle').addEventListener('click', () => $('manual-token').classList.toggle('hidden'));
+  $('manual-token-toggle').addEventListener('click', async () => {{
+    const panel = $('manual-token');
+    panel.classList.toggle('hidden');
+    if (panel.classList.contains('hidden')) return;
+    // The persistent token is deliberately NOT baked into this page's HTML —
+    // the setup token in the DOM is ephemeral. Fetch the real one on demand,
+    // only when the user explicitly asks to configure the extension by hand.
+    // /api/extension/token is loopback-only, and this page is loopback-served.
+    const out = $('persistent-token');
+    if (out.dataset.loaded) return;
+    try {{
+      const r = await fetch('/api/extension/token');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      out.textContent = d.token || '(unavailable)';
+      out.dataset.loaded = '1';
+    }} catch (e) {{
+      out.textContent = 'Could not load token — see Settings → Integrations';
+    }}
+  }});
   $('isolated-fallback').addEventListener('click', async () => {{
     $('isolated-fallback').disabled = true;
     try {{

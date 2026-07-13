@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
 from .. import app_state as state
@@ -16,10 +16,44 @@ from .. import ai_engine
 from .. import resume_parser
 from .. import linkedin_profile_import
 from ..auto_apply import has_linkedin_session
+from . import _auth
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Shown instead of a stored secret when the caller isn't on this machine. It is
+# a *display* value: POST /api/config strips any field still equal to it, so an
+# untouched form field round-trips as "leave unchanged" rather than writing the
+# mask into config.yaml. Clearing the field still clears the secret.
+SECRET_MASK = "•" * 8
+
+# (section, key) pairs never handed to an off-machine caller in the clear.
+_SECRET_FIELDS = (
+    ("profile", "workday_password"),
+    ("profile", "ats_login_password"),
+    ("ai", "api_key"),
+    ("api_keys", "adzuna_app_key"),
+    ("api_keys", "usajobs_api_key"),
+)
+
+
+def _mask_secrets(payload: dict) -> dict:
+    """Replace stored secrets with SECRET_MASK (only where one is actually set)."""
+    for section, key in _SECRET_FIELDS:
+        if payload.get(section, {}).get(key):
+            payload[section][key] = SECRET_MASK
+    bls = payload.get("salary_estimator", {}).get("bls", {})
+    if bls.get("api_key"):
+        bls["api_key"] = SECRET_MASK
+    return payload
+
+
+def _strip_masked(section: Optional[dict]) -> Optional[dict]:
+    """Drop keys the client echoed back untouched, so the mask is never saved."""
+    if not section:
+        return section
+    return {k: v for k, v in section.items() if v != SECRET_MASK}
 
 
 class ConfigUpdate(BaseModel):
@@ -107,10 +141,17 @@ async def ai_status():
 
 
 @router.get("/api/config")
-async def get_config():
+async def get_config(
+    request: Request,
+    x_jobsmith_token: str | None = Header(default=None),
+):
     cfg = state.load_config()
-    # Return non-sensitive parts
-    return {
+    # Callers reaching us from off this machine (LAN / Docker) have already
+    # proven they hold the token, but there is still no reason to hand them the
+    # user's Workday password and API keys back in the clear — the settings form
+    # only ever *writes* these. Loopback (the desktop/local case) is unchanged.
+    _local = _auth.auth_disabled() or state.is_loopback_request(request)
+    payload = {
         "search": cfg.get("search", {}),
         "auto_apply": cfg.get("auto_apply", {}),
         "ai": {
@@ -175,11 +216,19 @@ async def get_config():
             "port": (cfg.get("server") or {}).get("port", 8888),
         },
     }
+    return payload if _local else _mask_secrets(payload)
 
 
 @router.post("/api/config")
 async def update_config(body: ConfigUpdate):
     cfg = state.load_config()
+    # A masked field means "the client never saw, and never touched, this
+    # secret" — drop it so the mask can't overwrite the real value.
+    body.profile = _strip_masked(body.profile)
+    body.ai = _strip_masked(body.ai)
+    body.api_keys = _strip_masked(body.api_keys)
+    if body.salary_estimator and isinstance(body.salary_estimator.get("bls"), dict):
+        body.salary_estimator["bls"] = _strip_masked(body.salary_estimator["bls"])
     if body.profile:
         cfg["profile"] = {**cfg.get("profile", {}), **body.profile}
     if body.search:

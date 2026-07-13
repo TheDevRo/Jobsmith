@@ -220,7 +220,12 @@ def _build_sidebar_script(backend_url: str) -> str:
   }});
 
   // --- Messages from the iframe (resize on collapse/expand, highlight fields) ---
+  // This listener lives in the *job page*, so without a sender check any script
+  // on that page (or any other frame) could drive it. Pinning e.source to our
+  // own iframe is stricter than an origin check and survives the backend being
+  // reached on any host/port.
   window.addEventListener('message', (e) => {{
+    if (e.source !== iframe.contentWindow) return;
     if (!e.data) return;
     if (e.data.action === 'resize') {{
       sp(iframe, 'width', e.data.width);

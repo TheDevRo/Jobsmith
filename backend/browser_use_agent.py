@@ -8,7 +8,16 @@ Wraps browser-use's Agent class to:
   - Provide structured logging and screenshot-on-failure
 
 This module is only activated when USE_BROWSER_USE=true.
+
+browser-use is an OPTIONAL dependency (requirements-optional.txt) — it is not in
+requirements.lock and not installed in the Docker image. Everything it exports is
+therefore imported lazily by _ensure_browser_use(), so merely importing this
+module (which backend.background_tasks does on the feature-flagged path) never
+requires the package. If it's missing, run_browser_use_apply() returns a normal
+failure result telling the user how to install it.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -20,16 +29,55 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from browser_use import Agent
-from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.session import BrowserSession
-from browser_use.llm.openai.chat import ChatOpenAI
-
 from . import prompt_registry
 from . import session_manager
 from .paths import project_root
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lazy browser-use import
+# ---------------------------------------------------------------------------
+# These stay None until _ensure_browser_use() populates them. They exist as
+# module attributes so callers (and tests) can reference/patch them by name.
+Agent = None
+BrowserProfile = None
+BrowserSession = None
+ChatOpenAI = None
+
+BROWSER_USE_MISSING_MSG = (
+    "browser-use is not installed. It is an optional dependency: "
+    "`pip install -r requirements-optional.txt` (not included in the Docker "
+    "image). Or turn off auto_apply.use_browser_use / USE_BROWSER_USE to use "
+    "the built-in orchestrator apply path."
+)
+
+
+def _ensure_browser_use() -> None:
+    """Import browser-use on first use. Raises RuntimeError if it isn't installed.
+
+    Only fills in symbols that are still None, so a test that patches
+    e.g. ``browser_use_agent.Agent`` keeps its patch.
+    """
+    global Agent, BrowserProfile, BrowserSession, ChatOpenAI
+    if None not in (Agent, BrowserProfile, BrowserSession, ChatOpenAI):
+        return
+    try:
+        from browser_use import Agent as _Agent
+        from browser_use.browser.profile import BrowserProfile as _BrowserProfile
+        from browser_use.browser.session import BrowserSession as _BrowserSession
+        from browser_use.llm.openai.chat import ChatOpenAI as _ChatOpenAI
+    except ImportError as exc:
+        raise RuntimeError(BROWSER_USE_MISSING_MSG) from exc
+
+    if Agent is None:
+        Agent = _Agent
+    if BrowserProfile is None:
+        BrowserProfile = _BrowserProfile
+    if BrowserSession is None:
+        BrowserSession = _BrowserSession
+    if ChatOpenAI is None:
+        ChatOpenAI = _ChatOpenAI
 
 # Global reference to the active BrowserSession so force_stop() can close it.
 _active_browser_session: Optional["BrowserSession"] = None
@@ -108,6 +156,7 @@ def _get_browser_use_llm(config: dict) -> ChatOpenAI:
     Uses the 'fast' tier model by default (same as ai_navigator), falling back
     to the top-level ai.model config.
     """
+    _ensure_browser_use()
     ai_cfg = config.get("ai", {})
     default_url = ai_cfg.get("base_url", "http://localhost:1234/v1")
     default_key = ai_cfg.get("api_key") or "lm-studio"
@@ -148,6 +197,7 @@ def _get_browser_session(
     headless : bool, optional
         Override headless mode. If None, reads from BROWSER_HEADLESS env var.
     """
+    _ensure_browser_use()
     _ensure_dirs()
     _clear_stale_browser_state()
 
@@ -707,6 +757,21 @@ async def run_browser_use_apply(
     job_title = job.get("title", "Unknown")
     company = job.get("company", "Unknown")
     url = job.get("url", "")
+
+    # Optional dependency — fail with a normal result dict (not an ImportError
+    # traceback) so the queue records "manual" and the user sees how to fix it.
+    try:
+        _ensure_browser_use()
+    except RuntimeError as exc:
+        logger.error("Browser-Use apply unavailable: %s", exc)
+        return {
+            "success": False,
+            "message": str(exc),
+            "db_status":      "manual",
+            "screenshot_path": None,
+            "block_reason":   "failed",
+            "manual_url":     url or None,
+        }
 
     logger.info(
         "Browser-Use apply starting: %s at %s (job_id=%s, url=%s)",

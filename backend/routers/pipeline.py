@@ -41,6 +41,8 @@ async def score_batch(
     limit: Optional[int] = Query(None, ge=1, description="Max jobs to score; omit to score all"),
     rescore: bool = Query(False, description="Also re-score jobs that already have a score"),
 ):
+    if state.task_running("score_batch"):
+        raise HTTPException(409, "Batch scoring is already running")
     task = asyncio.create_task(bg._bg_score_batch(limit=limit, rescore=rescore))
     state.running_tasks["score_batch"] = task
     return {"message": "Batch rescoring started" if rescore else "Batch scoring started"}
@@ -60,6 +62,8 @@ async def estimate_salaries_batch(
     limit: Optional[int] = Query(None, ge=1, description="Max jobs to estimate; omit for all"),
 ):
     """Start a background batch to pull market salaries for jobs missing one."""
+    if state.task_running("estimate_salaries"):
+        raise HTTPException(409, "Salary estimation is already running")
     task = asyncio.create_task(bg._bg_estimate_salaries_batch(limit=limit))
     state.running_tasks["estimate_salaries"] = task
     return {"message": "Salary estimation started"}
@@ -81,6 +85,8 @@ async def detect_apply_types():
     Returns 202 immediately; poll ``GET /api/detect-apply-types/status`` for
     progress, or wait for a ``detect_apply_types`` notification event.
     """
+    if state.task_running("detect_apply_types"):
+        raise HTTPException(409, "Apply-type detection is already running")
     task = asyncio.create_task(bg._bg_detect_apply_types())
     state.running_tasks["detect_apply_types"] = task
     return {"message": "Apply type detection started"}
@@ -112,6 +118,8 @@ async def tailor_job(job_id: str):
 
 @router.post("/api/jobs/tailor-batch", status_code=202)
 async def tailor_batch(body: TailorBatchRequest):
+    if state.task_running("tailor_batch"):
+        raise HTTPException(409, "Batch tailoring is already running")
     task = asyncio.create_task(bg._bg_tailor_batch(body.min_score))
     state.running_tasks["tailor_batch"] = task
     return {"message": "Batch tailoring started"}
@@ -149,6 +157,10 @@ async def webhook_jobs_fetched():
 
 @router.post("/api/webhooks/trigger-tailor", status_code=202)
 async def webhook_trigger_tailor():
+    # Shares the "tailor_batch" slot with POST /api/jobs/tailor-batch, so an n8n
+    # retry storm can't stack workers on top of a run already in flight.
+    if state.task_running("tailor_batch"):
+        raise HTTPException(409, "Batch tailoring is already running")
     task = asyncio.create_task(bg._bg_tailor_batch(50.0))
     state.running_tasks["tailor_batch"] = task
     await db.log_activity("webhook", "n8n: trigger-tailor webhook received")

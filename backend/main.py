@@ -11,17 +11,20 @@ Run with: uvicorn backend.main:app --port 8888  (see start_server.sh)
 
 import asyncio
 import logging
+import os
 import shutil
+import socket
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import app_state as state
 from .app_state import load_config, save_config  # re-exported for callers/tests
@@ -30,6 +33,7 @@ from . import ai_engine
 from . import auto_apply
 from . import extension_api
 from . import routers
+from .routers import _auth
 from .routers.sessions import _bg_check_linkedin_session
 from .version import APP_VERSION
 
@@ -44,7 +48,26 @@ logging.basicConfig(
 # Also log to a rotating file: the desktop app's stdout is invisible, and
 # Settings → Logs tails this file (served by /api/logs/tail).
 state.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-_file_handler = RotatingFileHandler(
+
+
+class _OwnerOnlyRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that keeps the log (and its backups) mode 0600.
+
+    The log can carry tokens, session details and PII, and the default 0644
+    makes it readable by every local user. chmod on each open covers both the
+    initial file and every post-rotation file.
+    """
+
+    def _open(self):
+        stream = super()._open()
+        try:
+            os.chmod(self.baseFilename, 0o600)
+        except OSError:  # pragma: no cover - best effort (e.g. odd filesystems)
+            pass
+        return stream
+
+
+_file_handler = _OwnerOnlyRotatingFileHandler(
     state.LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
 )
 _file_handler.setFormatter(
@@ -100,8 +123,12 @@ async def lifespan(app: FastAPI):
     if auto_apply.has_linkedin_session():
         asyncio.create_task(_bg_check_linkedin_session())
 
-    token = extension_api.get_or_create_token()
-    logger.info("Browser extension token: %s  (paste into extension popup)", token)
+    # Ensure the token file exists, but never log the value: this log is tailed
+    # by /api/logs/tail and kept on disk (with backups), so logging the token
+    # would hand over the whole /api/ext/* surface to anyone who can read it.
+    extension_api.get_or_create_token()
+    logger.info("Browser extension token ready (Settings → Integrations, or %s)",
+                extension_api.TOKEN_PATH)
 
     # Folder-sync poller — self-gates on config.sync.enabled + a chosen folder,
     # reloads config each tick, and never raises, so it's safe to always start.
@@ -131,17 +158,70 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(NoCacheStaticMiddleware)
 
-# Browser callers are limited to the local dashboard and the Apply Assist
-# extension (whose pages have chrome-extension:// / moz-extension:// origins;
-# its only content script runs on this server's own origin, so same-origin).
-# The extension API is additionally gated by the X-Jobsmith-Token header.
+
+def _configured_bind() -> tuple[str, int]:
+    """Resolve the host/port uvicorn will actually listen on.
+
+    Mirrors start_server.sh and packaging/desktop_entry.py: JOBSMITH_PORT wins
+    (the desktop shell picks a free port at launch), then config.yaml, then the
+    8888 default. Never raises — a fresh checkout has no config.yaml yet.
+    """
+    host, port = "127.0.0.1", 8888
+    try:
+        server = state.load_config().get("server") or {}
+        host = server.get("host") or host
+        port = int(server.get("port") or port)
+    except Exception:  # missing/corrupt config — fall back to the defaults
+        pass
+    host = os.environ.get("JOBSMITH_HOST") or host
+    try:
+        port = int(os.environ.get("JOBSMITH_PORT") or port)
+    except ValueError:
+        pass
+    return host, port
+
+
+_BIND_HOST, _BIND_PORT = _configured_bind()
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+
+# --- Host-header validation (DNS rebinding) --------------------------------
+# Without this, a page on attacker.com can re-resolve its own domain to
+# 127.0.0.1 and issue *same-origin* requests to attacker.com:8888 — CORS never
+# applies and the client IP looks like loopback, so the "local == trusted"
+# rule below would hand it the whole API.
+#
+# We only pin the Host list when we're actually bound to loopback (the desktop
+# case, which is the one that trusts loopback). When the operator has bound to
+# a LAN address / 0.0.0.0 (Docker), the browser legitimately connects by an IP
+# or hostname we cannot enumerate here — that deployment is protected instead
+# by the token requirement in _auth (a non-loopback caller must authenticate),
+# which is exactly what rebinding cannot satisfy.
+if _BIND_HOST in _LOOPBACK_HOSTS:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        # "testserver" is Starlette's TestClient default Host. Allowing it is
+        # not a rebinding hole: a browser always sends the real hostname it
+        # dialled, so an attacker page cannot forge this value.
+        allowed_hosts=["localhost", "127.0.0.1", "::1", "[::1]", "testserver"],
+    )
+
+# --- CORS ------------------------------------------------------------------
+# Browser callers are limited to the local dashboard (same-origin, so CORS is
+# not even consulted) and the Apply Assist extension pages, whose origins are
+# chrome-extension:// / moz-extension://.
+#
+# allow_credentials is deliberately off: the dashboard's session cookie is
+# same-origin and SameSite=strict, and the extension authenticates with the
+# X-Jobsmith-Token header. Leaving credentials on while matching any localhost
+# port let *any* other app on the machine make credentialed calls to us.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=(
-        r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?"
-        r"|(chrome|moz|safari-web)-extension://.*)$"
-    ),
-    allow_credentials=True,
+    allow_origins=[
+        f"http://localhost:{_BIND_PORT}",
+        f"http://127.0.0.1:{_BIND_PORT}",
+    ],
+    allow_origin_regex=r"^(chrome|moz|safari-web)-extension://.*$",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -149,9 +229,14 @@ app.add_middleware(
 # /api/ext/* — the surface the extension itself talks to (token-gated)
 app.include_router(extension_api.build_router(state.load_config))
 
-# Dashboard API routes
+# /api/auth/* — the token->cookie exchange. Mounted WITHOUT the auth dependency
+# below, or a locked-out browser could never authenticate itself.
+app.include_router(_auth.router)
+
+# Dashboard API routes — every one of these is now gated: loopback callers pass,
+# anyone else must present the token (header or cookie). See routers/_auth.py.
 for _router in routers.ALL_ROUTERS:
-    app.include_router(_router)
+    app.include_router(_router, dependencies=[Depends(_auth.require_local_or_token)])
 
 # ---------------------------------------------------------------------------
 # Serve frontend static files
