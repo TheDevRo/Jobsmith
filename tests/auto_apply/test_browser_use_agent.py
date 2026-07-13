@@ -45,6 +45,15 @@ import pytest
 # Ensure project root is on path so 'backend.*' imports resolve
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+# browser-use is an optional extra (requirements-optional.txt). These tests patch
+# browser_use.Agent, so without the package installed backend.browser_use_agent's
+# lazy import raises "browser-use is not installed" and every assertion here fails
+# on that message instead of on the behaviour under test.
+pytest.importorskip(
+    "browser_use",
+    reason="browser-use is optional: pip install -r requirements-optional.txt",
+)
+
 # ---------------------------------------------------------------------------
 # Check LM Studio reachability once at import time (for integration skip).
 # This avoids per-test network calls.
