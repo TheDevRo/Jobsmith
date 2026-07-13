@@ -119,25 +119,33 @@ final class SmokeTests: XCTestCase {
                       "deleting all postings empties the inbox")
     }
 
-    /// "Sort by job board" must be offered in both the Inbox and the Pipeline
-    /// sort menus (the shared JobSort options drive both).
-    func testSortByJobBoardInInboxAndPipeline() {
+    /// The job-board filter must be offered in both the Inbox and the Pipeline
+    /// overflow menus — `BoardFilterMenu` is shared so the two behave identically.
+    ///
+    /// Note board is a *filter*, not a sort: it narrows the list to chosen boards
+    /// rather than reordering it, so it lives beside the sort options rather than
+    /// among them.
+    func testJobBoardFilterOfferedInInboxAndPipeline() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["2 TO SCOUT"].waitForExistence(timeout: 10))
 
-        // Inbox: the sort/score overflow menu offers Job board; pick it.
-        app.buttons["Sort and score"].tap()
-        let inboxOption = app.buttons["Job board"]
-        XCTAssertTrue(inboxOption.waitForExistence(timeout: 5),
-                      "Inbox sort menu should offer Job board")
-        inboxOption.tap()
+        app.buttons["Sort, filter, score"].tap()
+        XCTAssertTrue(app.buttons["Job board"].waitForExistence(timeout: 5),
+                      "Inbox overflow menu should offer the Job board filter")
+        dismissMenu(in: app)
 
-        // Pipeline: put a job in flight, then confirm its sort menu offers it too.
+        // Put a job in flight, then confirm the Pipeline offers the same filter.
         app.buttons["Shortlist"].tap()
         app.tabBars.buttons["Pipeline"].tap()
-        app.buttons["Sort"].tap()
+        app.buttons["Sort, filter, score"].tap()
         XCTAssertTrue(app.buttons["Job board"].waitForExistence(timeout: 5),
-                      "Pipeline sort menu should offer Job board")
+                      "Pipeline overflow menu should offer the Job board filter")
+        dismissMenu(in: app)
+    }
+
+    /// Close an open Menu by tapping well outside its popover.
+    private func dismissMenu(in app: XCUIApplication) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
     }
 
     /// Background search settings: the Settings row opens the schedule screen,

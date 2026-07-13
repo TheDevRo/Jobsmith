@@ -256,10 +256,13 @@ struct InboxView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
+        // No .accessibilityElement(children: .ignore) here: on a Button that
+        // wraps the whole control in a *second* element, so "Shortlist" was
+        // published twice at the same frame — VoiceOver announced it twice, and
+        // any query for the button matched two identical elements. A Button is
+        // already a single element; it just needs its label and hint.
         .accessibilityLabel(label)
         .accessibilityHint(topJobDescription.map { "\(label) \($0)" } ?? "")
-        .accessibilityAddTraits(.isButton)
     }
 
     /// Names the card the Pass/Shortlist buttons would act on, so VoiceOver
