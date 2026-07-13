@@ -259,9 +259,11 @@ struct ApplyBrowserView: View {
             if let fid = d["field_id"] as? String { descById[fid] = d }
         }
         var statusById: [String: String] = [:]
+        var messageById: [String: String] = [:]
         for r in fillResults {
             if let fid = r["field_id"] as? String {
                 statusById[fid] = r["status"] as? String
+                messageById[fid] = r["message"] as? String
             }
         }
         var out: [ApplyFieldRow] = []
@@ -278,7 +280,8 @@ struct ApplyBrowserView: View {
                 source: v["source"] as? String ?? "",
                 action: v["action"] as? String ?? "fill",
                 fillStatus: statusById[fid],
-                required: d["required"] as? Bool ?? false))
+                required: d["required"] as? Bool ?? false,
+                fillMessage: messageById[fid]))
         }
         // Attention-first ordering: unresolved before resolved.
         return out.sorted { $0.attentionRank < $1.attentionRank }
@@ -302,6 +305,9 @@ struct ApplyFieldRow: Identifiable {
     let action: String
     let fillStatus: String?
     let required: Bool
+    /// fill.js's per-field diagnostic ("attached X → #resume", "this uploader
+    /// rejects scripted files — …"), so a failed fill is explainable on-device.
+    var fillMessage: String? = nil
 
     var isUpload: Bool { action == "upload" }
     var isSkipped: Bool { action == "skip" }
@@ -502,6 +508,14 @@ private struct ApplyFallbackPanel: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                    // Why the fill didn't take, straight from fill.js —
+                    // without this a failed upload is undiagnosable on-device.
+                    if !row.wasFilled, let message = row.fillMessage, !message.isEmpty {
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .lineLimit(3)
+                    }
                 }
                 Spacer(minLength: 8)
                 if copiedId == row.id {
@@ -519,7 +533,13 @@ private struct ApplyFallbackPanel: View {
         // The dot's color is the only visual carrier of field status, so fold
         // it into the row's spoken label rather than leaving it color-only.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.label), \(statusText(row)). \(displayValue)")
+        .accessibilityLabel({
+            var parts = "\(row.label), \(statusText(row)). \(displayValue)"
+            if !row.wasFilled, let message = row.fillMessage, !message.isEmpty {
+                parts += ". \(message)"
+            }
+            return parts
+        }())
         .accessibilityHint(row.copyable
                            ? (copiedId == row.id ? "Copied" : "Copies the answer to the clipboard")
                            : "")

@@ -298,6 +298,24 @@ final class FieldMapperTests: XCTestCase {
         XCTAssertTrue(engine.requests.isEmpty)
     }
 
+    func testFileInputsNeverReachTheLLM() async throws {
+        let fields = [
+            // Workday shape: generated field_id, no label/name — the old
+            // keyword pass missed it, fell to the LLM, and came back "skip".
+            FieldDescriptor(fieldId: "field_23", label: "Select files", fieldType: "file"),
+            // Drop-zone text only reaches us via extra_context.
+            FieldDescriptor(fieldId: "field_9", fieldType: "file",
+                            extraContext: "Upload your Cover Letter here"),
+            // Clearly not a resume slot — deterministic skip, still no LLM.
+            FieldDescriptor(fieldId: "field_4", label: "Profile photo", fieldType: "file"),
+        ]
+        let out = await mapper.map(fields: fields, profile: ApplyFixtures.profile(),
+                                   job: job, config: config)
+        XCTAssertEqual(out.map(\.value), ["resume", "cover_letter", ""])
+        XCTAssertEqual(out.map(\.action), ["upload", "upload", "skip"])
+        XCTAssertTrue(engine.requests.isEmpty, "file inputs must never reach the LLM")
+    }
+
     func testPasswordFieldsNeverReachTheLLM() async throws {
         let fields = [
             FieldDescriptor(fieldId: "pw", label: "Create Password", fieldType: "password"),
