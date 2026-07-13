@@ -128,6 +128,11 @@ public struct Application: Codable, Equatable, Sendable, Identifiable,
     public var appliedAt: String?
     public var createdAt: String
     public var updatedAt: String
+    /// What the employer did after submission — orthogonal to `status`, which
+    /// only tracks getting the application *out*. Derived from the
+    /// `application_events` history; never written directly by sync.
+    public var outcome: String
+    public var outcomeUpdatedAt: String?
 
     public init(jobId: String, resumeContent: String, coverLetterContent: String,
                 honestyLevel: String, stylePreset: String) {
@@ -145,6 +150,63 @@ public struct Application: Codable, Equatable, Sendable, Identifiable,
         self.appliedAt = nil
         self.createdAt = now
         self.updatedAt = now
+        self.outcome = ApplicationOutcome.awaiting.rawValue
+        self.outcomeUpdatedAt = nil
+    }
+}
+
+/// The post-apply funnel. Mirrors the desktop's `database.VALID_OUTCOMES` —
+/// keep the two in step, they travel over the same sync wire.
+public enum ApplicationOutcome: String, CaseIterable, Sendable {
+    case awaiting, noResponse = "no_response", screening, interview, offer,
+         rejected, withdrawn
+
+    public var label: String {
+        switch self {
+        case .awaiting:   return "Awaiting response"
+        case .noResponse: return "No response"
+        case .screening:  return "Screening"
+        case .interview:  return "Interview"
+        case .offer:      return "Offer"
+        case .rejected:   return "Rejected"
+        case .withdrawn:  return "Withdrawn"
+        }
+    }
+
+    /// Stages that mean the employer engaged, in the order they're reached.
+    public static let funnelStages: [ApplicationOutcome] = [.screening, .interview, .offer]
+
+    public var isResponse: Bool { self != .awaiting && self != .noResponse }
+}
+
+/// One immutable outcome transition. Append-only: events are never edited, which
+/// is what lets two devices merge their histories as a plain union instead of
+/// last-writer-wins clobbering each other (see SyncEngine).
+public struct ApplicationEvent: Codable, Equatable, Sendable, Identifiable,
+                                FetchableRecord, MutablePersistableRecord {
+    public static let databaseTableName = "application_events"
+
+    public var id: Int64?
+    public var applicationId: String
+    public var fromOutcome: String?
+    public var toOutcome: String
+    public var occurredAt: String
+    public var note: String?
+    public var source: String
+
+    public init(applicationId: String, fromOutcome: String?, toOutcome: String,
+                occurredAt: String, note: String? = nil, source: String = "user") {
+        self.id = nil
+        self.applicationId = applicationId
+        self.fromOutcome = fromOutcome
+        self.toOutcome = toOutcome
+        self.occurredAt = occurredAt
+        self.note = note
+        self.source = source
+    }
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
     }
 }
 

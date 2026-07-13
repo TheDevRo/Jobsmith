@@ -69,6 +69,152 @@ public struct ApplicationStore: Sendable {
             try app.update(dbc)
         }
     }
+
+    // MARK: outcomes
+
+    /// Record a post-apply outcome. Writes an immutable event and refreshes the
+    /// derived `outcome` column. Re-selecting the current outcome is a no-op, so
+    /// the history never fills with duplicates.
+    ///
+    /// Note this does NOT touch `updatedAt`: that column drives the
+    /// last-writer-wins clock for the `application` sync entity, and an outcome
+    /// must not make this device win — and thereby overwrite — an unrelated
+    /// resume edit made on the desktop. The outcome travels on its own
+    /// append-only entity instead.
+    /// `occurredAt` defaults to now, but is injectable: an outcome parsed from an
+    /// email happened when the email arrived, not when we noticed it.
+    public func recordOutcome(id: String, outcome: ApplicationOutcome,
+                              note: String? = nil, source: String = "user",
+                              occurredAt: String? = nil) throws {
+        try db.writer.write { dbc in
+            guard let app = try Application.fetchOne(dbc, key: id),
+                  app.outcome != outcome.rawValue else { return }
+            let stamp = try occurredAt ?? Self.nextOccurredAt(dbc, applicationId: id)
+            var event = ApplicationEvent(applicationId: id, fromOutcome: app.outcome,
+                                         toOutcome: outcome.rawValue,
+                                         occurredAt: stamp, note: note, source: source)
+            try event.insert(dbc)
+            try Self.recomputeOutcome(dbc, applicationId: id)
+        }
+    }
+
+    /// Now, but never at-or-before this application's latest event.
+    ///
+    /// Timestamps are millisecond-precision, so tapping through
+    /// screening → interview lands both events in the same millisecond. Order
+    /// then falls to the tiebreak, which is alphabetical by outcome — and the
+    /// history would read "interview, screening", inverting what actually
+    /// happened. Stepping past the last event keeps this device's own history
+    /// causally ordered; the tiebreak is then only ever reached by genuinely
+    /// concurrent events from *different* devices, where any consistent choice
+    /// is fine. Same trick as the sync engine's nextTS().
+    private static func nextOccurredAt(_ dbc: Database, applicationId: String) throws -> String {
+        let candidate = isoNow()
+        guard let latest = try ApplicationEvent
+                .filter(Column("applicationId") == applicationId)
+                .order(Column("occurredAt").desc)
+                .fetchOne(dbc)?.occurredAt,
+              candidate <= latest
+        else { return candidate }
+        guard let date = parseEventDate(latest) else { return candidate }
+        return isoMs(date.addingTimeInterval(0.001))
+    }
+
+    /// Oldest first. Ordered by the event's sync identity rather than rowid so
+    /// every device presents the same history (see recomputeOutcome).
+    public func events(id: String) throws -> [ApplicationEvent] {
+        try db.writer.read { dbc in
+            try ApplicationEvent
+                .filter(Column("applicationId") == id)
+                .order(Column("occurredAt"), Column("toOutcome"))
+                .fetchAll(dbc)
+        }
+    }
+
+    /// Rebuild `applications.outcome` from the event history — the events are the
+    /// truth, the column is a cache. Called after a local edit and after a sync
+    /// import merges in another device's events, so both sides converge on the
+    /// same latest event.
+    ///
+    /// The tiebreak is `toOutcome`, NOT the rowid: rowids are local insertion
+    /// order, so two devices holding the same two same-millisecond events would
+    /// order them differently and derive *different* outcomes — the histories
+    /// converge but the answer read off them doesn't. `(occurredAt, toOutcome)` is
+    /// the event's sync identity, so it is a total order every device agrees on.
+    /// Must match the desktop's entities.py::recompute_outcome.
+    static func recomputeOutcome(_ dbc: Database, applicationId: String) throws {
+        guard let latest = try ApplicationEvent
+            .filter(Column("applicationId") == applicationId)
+            .order(Column("occurredAt").desc, Column("toOutcome").desc)
+            .fetchOne(dbc)
+        else { return }  // no history — leave the default 'awaiting' alone
+        try dbc.execute(
+            sql: "UPDATE applications SET outcome = ?, outcomeUpdatedAt = ? WHERE id = ?",
+            arguments: [latest.toOutcome, latest.occurredAt, applicationId])
+    }
+
+    /// Funnel counts over submitted applications, read from event history so an
+    /// application that interviewed and was then rejected still counts toward the
+    /// stages it actually reached.
+    public func funnel() throws -> (applied: Int, stages: [(ApplicationOutcome, Int)]) {
+        try db.writer.read { dbc in
+            let applied = try Application.filter(Column("status") == "applied").fetchCount(dbc)
+            var reached: [ApplicationOutcome: Set<String>] = [:]
+            let stageValues = ApplicationOutcome.funnelStages.map(\.rawValue)
+            for row in try Row.fetchAll(dbc, sql: """
+                SELECT e.applicationId AS appId, e.toOutcome AS stage
+                FROM application_events e
+                JOIN applications a ON a.id = e.applicationId
+                WHERE a.status = 'applied' AND e.toOutcome IN (?, ?, ?)
+                """, arguments: StatementArguments(stageValues)) {
+                guard let stage = ApplicationOutcome(rawValue: row["stage"]),
+                      let idx = ApplicationOutcome.funnelStages.firstIndex(of: stage)
+                else { continue }
+                // Reaching a stage implies the earlier ones were reached too.
+                for earlier in ApplicationOutcome.funnelStages[...idx] {
+                    reached[earlier, default: []].insert(row["appId"])
+                }
+            }
+            return (applied, ApplicationOutcome.funnelStages.map { ($0, reached[$0]?.count ?? 0) })
+        }
+    }
+
+    // MARK: event timestamps
+
+    /// RFC3339 UTC, milliseconds — the same shape the sync engine emits.
+    static func isoMs(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f.string(from: date)
+    }
+
+    static func isoNow() -> String { isoMs(Date()) }
+
+    /// Parse an event stamp from either platform. iOS writes `…060Z`; the desktop
+    /// writes `…060761+00:00` (microseconds, explicit offset), and no single
+    /// ISO8601 formatter accepts both. Both are always UTC, so parse the fixed
+    /// `yyyy-MM-dd'T'HH:mm:ss` prefix they share and add back the fractional
+    /// seconds by hand.
+    static func parseEventDate(_ iso: String) -> Date? {
+        guard let base = secondsParser.date(from: String(iso.prefix(19))) else { return nil }
+        // ".060761+00:00" / ".060Z" -> 0.060
+        var fraction: TimeInterval = 0
+        let tail = iso.dropFirst(19)
+        if tail.hasPrefix(".") {
+            let digits = tail.dropFirst().prefix { $0.isNumber }
+            if let value = Double("0." + digits) { fraction = value }
+        }
+        return base.addingTimeInterval(fraction)
+    }
+
+    private static let secondsParser: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f
+    }()
 }
 
 public struct ActivityStore: Sendable {

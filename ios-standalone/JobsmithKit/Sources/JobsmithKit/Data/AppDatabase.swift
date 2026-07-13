@@ -137,6 +137,29 @@ public struct AppDatabase: Sendable {
             }
         }
 
+        // Post-apply outcome tracking (desktop parity). `outcome` is a derived
+        // cache — the truth is the append-only application_events history, which
+        // is what syncs. See SyncEngine.appEventSnapshot and the desktop's
+        // backend/sync/entities.py::ApplicationEventAdapter.
+        migrator.registerMigration("v3_outcomes") { db in
+            try db.alter(table: "applications") { t in
+                t.add(column: "outcome", .text).notNull().defaults(to: "awaiting")
+                t.add(column: "outcomeUpdatedAt", .text)
+            }
+            try db.create(table: "application_events") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("applicationId", .text).notNull()
+                    .references("applications", onDelete: .cascade)
+                t.column("fromOutcome", .text)
+                t.column("toOutcome", .text).notNull()
+                t.column("occurredAt", .text).notNull()
+                t.column("note", .text)
+                // user: picked in the UI | rule: aged out | email: parsed inbox
+                t.column("source", .text).notNull().defaults(to: "user")
+            }
+            try db.create(indexOn: "application_events", columns: ["applicationId"])
+        }
+
         return migrator
     }
 }

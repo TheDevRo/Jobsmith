@@ -143,6 +143,11 @@ class JobAdapter:
         if not row:
             return
         # Applications can't outlive their job; clear children so the FK holds.
+        await conn.execute(
+            """DELETE FROM application_events WHERE application_id IN
+               (SELECT id FROM applications WHERE job_id = ?)""",
+            (row["id"],),
+        )
         await conn.execute("DELETE FROM applications WHERE job_id = ?", (row["id"],))
         await conn.execute("DELETE FROM activity_log WHERE job_id = ?", (row["id"],))
         await conn.execute("DELETE FROM jobs WHERE id = ?", (row["id"],))
@@ -206,10 +211,17 @@ class ApplicationAdapter:
     # Excludes auto_apply_attempts (local retry counter). The machine-local FS
     # path columns below are NOT synced as paths; their *content* travels as a
     # content-addressed document reference (resume_doc / cover_doc).
+    #
+    # `outcome`/`outcome_updated_at` are deliberately NOT here. Merging is
+    # last-writer-wins over the WHOLE record, so carrying the outcome as a field
+    # on `application` meant any unrelated edit on one device (a resume tweak)
+    # would clobber an outcome the other device had just set. The outcome travels
+    # as the append-only `application_event` entity instead, and this column is
+    # recomputed from that history on import (see ApplicationEventAdapter) — the
+    # same reasoning that split `triage` out of `job`.
     SCALAR = (
         "resume_content", "cover_letter_content", "status", "applied_at",
-        "created_at", "error_message", "outcome", "outcome_updated_at",
-        "honesty_level",
+        "created_at", "error_message", "honesty_level",
     )
     BOOL = ("auto_approved",)
     JSON = ("custom_answers",)
@@ -294,7 +306,116 @@ class ApplicationAdapter:
                     )
 
     async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        await conn.execute(
+            "DELETE FROM application_events WHERE application_id = ?", (sync_id,)
+        )
         await conn.execute("DELETE FROM applications WHERE id = ?", (sync_id,))
+
+
+# ---------------------------------------------------------------------------
+# application_event  (the post-apply outcome history)
+# ---------------------------------------------------------------------------
+
+class ApplicationEventAdapter:
+    """One outcome transition for an application — append-only and immutable.
+
+    Why its own entity rather than a field on `application`: last-writer-wins
+    resolves whole records, so an outcome carried on the application would be
+    silently dropped whenever the other device happened to touch any other field
+    of that application. Events never change once written, so two devices can
+    each record outcomes offline and the merge is simply their union — there is
+    no conflict to lose. `applications.outcome` becomes a derived cache,
+    recomputed from the merged history after every import.
+
+    Identity: "{application_id}:{occurred_at}:{to_outcome}" — content-derived, so
+    the same transition imported twice is the same record. Application ids are
+    UUIDs (no colons), so the id splits cleanly on the first colon.
+    """
+
+    entity = "application_event"
+
+    SCALAR = ("from_outcome", "to_outcome", "occurred_at", "note", "source")
+
+    @staticmethod
+    def sync_id(application_id: str, occurred_at: str, to_outcome: str) -> str:
+        return f"{application_id}:{occurred_at}:{to_outcome}"
+
+    async def snapshot(self, conn: aiosqlite.Connection) -> dict[str, dict]:
+        cols = ", ".join(f"e.{c}" for c in self.SCALAR)
+        cur = await conn.execute(
+            f"""SELECT e.application_id, {cols}
+                FROM application_events e
+                JOIN applications a ON a.id = e.application_id
+                JOIN jobs j ON j.id = a.job_id
+                WHERE j.external_id IS NOT NULL AND j.external_id != ''"""
+        )
+        out: dict[str, dict] = {}
+        for row in await cur.fetchall():
+            r = dict(row)
+            data: dict = {c: r[c] for c in self.SCALAR}
+            data["application_ref"] = r["application_id"]
+            out[self.sync_id(r["application_id"], r["occurred_at"], r["to_outcome"])] = data
+        return out
+
+    async def apply_live(self, conn: aiosqlite.Connection, sync_id: str, data: dict) -> None:
+        app_id = data.get("application_ref") or sync_id.partition(":")[0]
+        cur = await conn.execute("SELECT id FROM applications WHERE id = ?", (app_id,))
+        if not await cur.fetchone():
+            raise DeferRecord(f"application_event {sync_id}: application {app_id} not present yet")
+
+        # Immutable: if this exact transition is already recorded, there is
+        # nothing to update — re-importing it must not duplicate the row.
+        cur = await conn.execute(
+            """SELECT 1 FROM application_events
+               WHERE application_id = ? AND occurred_at = ? AND to_outcome = ?""",
+            (app_id, data.get("occurred_at"), data.get("to_outcome")),
+        )
+        if not await cur.fetchone():
+            await conn.execute(
+                """INSERT INTO application_events
+                   (application_id, from_outcome, to_outcome, occurred_at, note, source)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (app_id, data.get("from_outcome"), data.get("to_outcome"),
+                 data.get("occurred_at"), data.get("note"), data.get("source") or "user"),
+            )
+        await recompute_outcome(conn, app_id)
+
+    async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        app_id, _, rest = sync_id.partition(":")
+        occurred_at, _, to_outcome = rest.rpartition(":")
+        await conn.execute(
+            """DELETE FROM application_events
+               WHERE application_id = ? AND occurred_at = ? AND to_outcome = ?""",
+            (app_id, occurred_at, to_outcome),
+        )
+        await recompute_outcome(conn, app_id)
+
+
+async def recompute_outcome(conn: aiosqlite.Connection, application_id: str) -> None:
+    """Rebuild `applications.outcome` from the merged event history.
+
+    Events are the source of truth; the column is a cache that keeps the existing
+    queries and the funnel fast. The latest event wins.
+
+    The tiebreak is `to_outcome`, NOT the rowid: rowids are local insertion order,
+    so two devices holding the same two same-millisecond events would order them
+    differently and derive *different* outcomes — the histories converge but the
+    answer read off them doesn't. `(occurred_at, to_outcome)` is the event's sync
+    identity, so it is a total order that every device computes identically.
+    """
+    cur = await conn.execute(
+        """SELECT to_outcome, occurred_at FROM application_events
+           WHERE application_id = ?
+           ORDER BY occurred_at DESC, to_outcome DESC LIMIT 1""",
+        (application_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return  # no history — leave the default 'awaiting' alone
+    await conn.execute(
+        "UPDATE applications SET outcome = ?, outcome_updated_at = ? WHERE id = ?",
+        (row["to_outcome"], row["occurred_at"], application_id),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -335,10 +456,16 @@ class AnswerAdapter:
 
 
 # Live-apply order respects dependencies (a job's facts must exist before its
-# triage decision or its application). Tombstones are applied in reverse so
-# children go before parents.
+# triage decision or its application, and an application before its events).
+# Tombstones are applied in reverse so children go before parents.
 def db_adapters(document_store=None):
-    return (JobAdapter(), TriageAdapter(), AnswerAdapter(), ApplicationAdapter(document_store))
+    return (
+        JobAdapter(),
+        TriageAdapter(),
+        AnswerAdapter(),
+        ApplicationAdapter(document_store),
+        ApplicationEventAdapter(),
+    )
 
 
 DB_ADAPTERS = db_adapters()

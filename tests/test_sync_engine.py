@@ -563,3 +563,176 @@ async def test_fresh_import_does_not_trigger_migration(tmp_path, monkeypatch):
 def dbmod_sync_format():
     from backend.sync import engine as _eng
     return _eng.SYNC_FORMAT_VERSION
+
+
+@pytest.mark.asyncio
+async def test_outcome_survives_a_concurrent_edit_on_the_other_device(tmp_path, monkeypatch):
+    """The hazard the `application_event` entity exists to prevent.
+
+    Merging is last-writer-wins over the WHOLE record. When the outcome lived on
+    the `application` entity, this sequence lost it: A records an interview, then
+    B — which hasn't synced yet — edits the resume. B's application record is
+    newer, so it won LWW and overwrote the outcome back to 'awaiting'. Carried as
+    an append-only event instead, the two edits are independent and both survive.
+    """
+    path_a, path_b, folder = tmp_path / "a.db", tmp_path / "b.db", tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+
+    # Both devices start in sync, with the application submitted.
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.update_application_status("app-1", "applied")
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+
+    # A records the outcome...
+    await dbmod.update_application_outcome("app-1", "interview")
+
+    # ...while B, not yet having seen it, edits the resume. B's record is newer.
+    conn = sqlite3.connect(path_b)
+    conn.execute("UPDATE applications SET resume_content = ? WHERE id = ?", ("REVISED", "app-1"))
+    conn.commit()
+    conn.close()
+
+    # Exchange in both directions.
+    await a.export_changes(folder)
+    await b.export_changes(folder)
+    await b.import_changes(folder)
+    await a.import_changes(folder)
+
+    # Both edits landed on both devices — neither clobbered the other.
+    for path in (path_a, path_b):
+        app = _rows(path, "SELECT * FROM applications WHERE id = 'app-1'")[0]
+        assert app["outcome"] == "interview", f"outcome lost on {path.name}"
+        assert app["resume_content"] == "REVISED", f"resume edit lost on {path.name}"
+        events = _rows(path, "SELECT * FROM application_events WHERE application_id = 'app-1'")
+        assert [(e["from_outcome"], e["to_outcome"]) for e in events] == [("awaiting", "interview")]
+
+
+@pytest.mark.asyncio
+async def test_offline_outcome_histories_merge_as_a_union(tmp_path, monkeypatch):
+    """Two devices each record outcomes offline; the merge keeps both, in order,
+    and the derived `outcome` column converges to the latest event."""
+    path_a, path_b, folder = tmp_path / "a.db", tmp_path / "b.db", tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.update_application_status("app-1", "applied")
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+
+    # A (desktop) marks the screener; B (phone) later marks the interview.
+    await dbmod.update_application_outcome("app-1", "screening")
+    monkeypatch.setattr(dbmod, "DB_PATH", path_b)
+    await dbmod.update_application_outcome("app-1", "interview")
+
+    await a.export_changes(folder)
+    await b.export_changes(folder)
+    await a.import_changes(folder)
+    await b.import_changes(folder)
+
+    for path in (path_a, path_b):
+        events = _rows(
+            path,
+            "SELECT to_outcome FROM application_events WHERE application_id = 'app-1' ORDER BY occurred_at",
+        )
+        assert [e["to_outcome"] for e in events] == ["screening", "interview"], path.name
+        # The column is derived from the history, so both devices agree.
+        assert _rows(path, "SELECT outcome FROM applications")[0]["outcome"] == "interview"
+
+
+@pytest.mark.asyncio
+async def test_imports_ios_emitted_event_record(tmp_path, monkeypatch):
+    """Wire-format interop, the other direction from KitTests'
+    testImportsDesktopEmittedEventRecord. The record below is verbatim what the
+    iOS SyncEngine emits — note it stamps `occurred_at` with milliseconds + 'Z'
+    where the desktop writes microseconds + '+00:00'. Both must import, and the
+    event's identity must be derived the same way on both sides.
+    """
+    path, folder = tmp_path / "a.db", tmp_path / "sync"
+    await _init_db(path, monkeypatch)
+    _seed_device_a(path)
+    await dbmod.update_application_status("app-1", "applied")
+
+    occurred_at = "2026-07-13T03:52:57.060Z"
+    sync_id = f"app-1:{occurred_at}:screening"
+    record = {
+        "v": 1, "entity": "application_event", "id": sync_id,
+        "updated_at": "2026-07-13T03:52:57.062Z", "device": "IPHN", "deleted": False,
+        "data": {
+            "application_ref": "app-1", "from_outcome": "awaiting",
+            "to_outcome": "screening", "occurred_at": occurred_at, "source": "user",
+        },
+    }
+    changes = folder / "changes"
+    changes.mkdir(parents=True)
+    (changes / "IPHN.jsonl").write_text(json.dumps(record) + "\n")
+
+    imp = await SyncEngine(path, "A1B2", now_fn=Clock()).import_changes(folder)
+    assert imp.deferred == 0
+
+    events = _rows(path, "SELECT * FROM application_events WHERE application_id = 'app-1'")
+    assert len(events) == 1
+    assert events[0]["to_outcome"] == "screening"
+    assert events[0]["occurred_at"] == occurred_at
+    # ...and the derived column is rebuilt from the imported history.
+    assert _rows(path, "SELECT outcome FROM applications")[0]["outcome"] == "screening"
+
+
+@pytest.mark.asyncio
+async def test_identically_stamped_events_converge(tmp_path, monkeypatch):
+    """Two events stamped at the same instant must derive the same outcome on
+    every device, whatever order each one imported them in.
+
+    This is why the tiebreak in recompute_outcome can't be the rowid: rowids are
+    local insertion order, so each device would rank its own event first and read
+    a different "latest" outcome off an identical history. The tiebreak is the
+    event's sync identity (occurred_at, to_outcome), which every device agrees on.
+    Must stay in step with the Swift twin, KitTests testIdenticallyStampedEventsConverge.
+    """
+    from backend.sync.entities import recompute_outcome
+
+    same_instant = "2026-07-13T10:00:00.000Z"
+    outcomes = []
+
+    # The same two events, inserted in opposite orders — as two devices would.
+    for order in (["screening", "interview"], ["interview", "screening"]):
+        path = tmp_path / f"{order[0]}.db"
+        await _init_db(path, monkeypatch)
+        _seed_device_a(path)
+
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("UPDATE applications SET status = 'applied' WHERE id = 'app-1'")
+        for to_outcome in order:
+            conn.execute(
+                """INSERT INTO application_events
+                   (application_id, from_outcome, to_outcome, occurred_at, source)
+                   VALUES ('app-1', 'awaiting', ?, ?, 'user')""",
+                (to_outcome, same_instant),
+            )
+        conn.commit()
+
+        import aiosqlite
+        async with aiosqlite.connect(path) as adb:
+            adb.row_factory = aiosqlite.Row
+            await recompute_outcome(adb, "app-1")
+            await adb.commit()
+        outcomes.append(_rows(path, "SELECT outcome FROM applications")[0]["outcome"])
+        conn.close()
+
+    assert outcomes[0] == outcomes[1], (
+        f"devices disagree on an identical history: {outcomes}")

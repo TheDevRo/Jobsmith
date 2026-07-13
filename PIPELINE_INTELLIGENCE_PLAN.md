@@ -87,7 +87,49 @@ the user hasn't done data entry.
 
 ---
 
-## Phase 2 — iOS outcome parity + sync (the biggest hole)
+## Phase 2 — iOS outcome parity + sync (the biggest hole) — DONE
+
+Shipped. Notes that differ from the sketch below:
+
+- The desktop was *already* syncing `outcome`/`outcome_updated_at` as mutable
+  fields on the `application` entity, so the whole-entity-LWW hazard was live,
+  not hypothetical — a regression test against the old design confirms the
+  outcome came back as `awaiting`. Those two fields were removed from
+  `ApplicationAdapter.SCALAR`; the outcome now travels only as
+  `application_event`, and the column is recomputed from the merged history on
+  both platforms.
+- Recording an outcome on iOS deliberately does **not** bump `applications.updatedAt`
+  — that column is the LWW clock for the `application` entity, and winning it
+  would overwrite an unrelated desktop edit. Pinned by a test.
+- `tests/test_sync_crosslang.py` only compiles the pure mappers, so it does not
+  cover an entity implemented in the GRDB/aiosqlite engines. The wire format is
+  instead pinned from both sides by a pair of tests that each import a record
+  emitted verbatim by the other platform. Worth knowing: the two stamp
+  `occurred_at` differently (Swift `…060Z`, desktop `…060761+00:00`); identity is
+  content-derived so this is harmless, but a parser that assumes one form breaks.
+
+**Two ordering bugs surfaced while building this. Both are easy to reintroduce:**
+
+1. *The tiebreak for "latest event" must not be the rowid.* Rowids are local
+   insertion order, so two devices holding the same two same-instant events rank
+   them oppositely and derive **different** outcomes — the histories converge but
+   the answer read off them doesn't. The tiebreak is the event's sync identity
+   `(occurred_at, to_outcome)`, which every device computes identically. Pinned on
+   both platforms (`testIdenticallyStampedEventsConverge` /
+   `test_identically_stamped_events_converge`).
+2. *…but a content tiebreak alone inverts causality.* iOS stamps are
+   millisecond-precision, so tapping screening → interview → offer lands all three
+   in the same millisecond, and the alphabetical tiebreak reorders them to
+   "interview, offer, screening" — leaving `outcome` on the wrong stage. Fixed by
+   making `occurred_at` strictly monotonic per application (same trick as the sync
+   engine's `nextTS()`), so the tiebreak is only ever reached by genuinely
+   concurrent events from *different* devices. Pinned by
+   `testRapidTransitionsStayCausallyOrdered`. The desktop is not exposed — its
+   stamps are microsecond-precision — but the two must stay in step.
+
+---
+
+## Phase 2 (original sketch) — iOS outcome parity + sync
 
 iOS models no outcome at all (`ios-standalone/.../Data/Models.swift:113`). This is where
 the user *is* when they learn the outcome.

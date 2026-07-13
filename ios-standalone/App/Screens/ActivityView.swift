@@ -12,6 +12,16 @@ struct ActivityView: View {
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
+                if funnel.applied > 0 {
+                    Section {
+                        OutcomeFunnelView(applied: funnel.applied, stages: funnel.stages)
+                            .padding(.vertical, 6)
+                    } header: {
+                        Eyebrow(text: "Outcomes")
+                    } footer: {
+                        Text("Counts every stage an application reached — a rejection after an interview still counts as an interview.")
+                    }
+                }
                 Section {
                     if model.activity.isEmpty {
                         Text("Activity will appear here as you fetch, scout, and apply.")
@@ -40,6 +50,10 @@ struct ActivityView: View {
             .navigationTitle("Activity")
             .refreshable { model.refresh() }
         }
+    }
+
+    private var funnel: (applied: Int, stages: [(ApplicationOutcome, Int)]) {
+        model.outcomeFunnel
     }
 
     private var statGrid: some View {

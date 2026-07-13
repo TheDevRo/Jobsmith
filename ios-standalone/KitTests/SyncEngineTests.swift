@@ -353,3 +353,287 @@ final class SyncEngineTests: XCTestCase {
         }
     }
 }
+
+// MARK: - outcome history (the `application_event` entity)
+
+extension SyncEngineTests {
+
+    private func seedApplication(_ db: AppDatabase, jobId: String) throws -> Application {
+        let store = ApplicationStore(db)
+        let app = try store.createOrReplace(jobId: jobId, resume: "RESUME", coverLetter: "COVER",
+                                            honestyLevel: "honest", stylePreset: "standard")
+        try store.updateStatus(id: app.id, status: "applied")
+        return app
+    }
+
+    /// The hazard the `application_event` entity exists to prevent: merging is
+    /// last-writer-wins over the WHOLE record, so an outcome carried as a field
+    /// on `application` was silently overwritten whenever the other device
+    /// touched any other field of that application.
+    func testOutcomeSurvivesConcurrentEditOnOtherDevice() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 80)
+        let app = try seedApplication(dbA, jobId: jobId)
+
+        let dbB = try AppDatabase.inMemory()
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+
+        // A (the phone) records the interview...
+        try ApplicationStore(dbA).recordOutcome(id: app.id, outcome: .interview)
+
+        // ...while B (the desktop), not yet having seen it, edits the resume.
+        try ApplicationStore(dbB).updateContent(id: app.id, resume: "REVISED", coverLetter: nil)
+
+        try a.export(to: folder)
+        try b.export(to: folder)
+        try b.importChanges(from: folder)
+        try a.importChanges(from: folder)
+
+        for (name, db) in [("A", dbA), ("B", dbB)] {
+            let merged = try XCTUnwrap(ApplicationStore(db).application(id: app.id))
+            XCTAssertEqual(merged.outcome, "interview", "outcome lost on device \(name)")
+            XCTAssertEqual(merged.resumeContent, "REVISED", "resume edit lost on device \(name)")
+        }
+    }
+
+    /// Two devices each record outcomes offline; the histories merge as a union
+    /// and the derived column converges on the latest event.
+    func testOfflineOutcomeHistoriesMergeAsUnion() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 80)
+        let app = try seedApplication(dbA, jobId: jobId)
+
+        let dbB = try AppDatabase.inMemory()
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+
+        // Explicit stamps: both devices use the real wall clock, so without these
+        // the two events can land in the same millisecond and the assertion below
+        // would be testing the clock rather than the merge.
+        try ApplicationStore(dbA).recordOutcome(id: app.id, outcome: .screening,
+                                                occurredAt: "2026-07-13T10:00:00.000Z")
+        try ApplicationStore(dbB).recordOutcome(id: app.id, outcome: .interview,
+                                                occurredAt: "2026-07-13T11:00:00.000Z")
+
+        try a.export(to: folder)
+        try b.export(to: folder)
+        try a.importChanges(from: folder)
+        try b.importChanges(from: folder)
+
+        for (name, db) in [("A", dbA), ("B", dbB)] {
+            let events = try ApplicationStore(db).events(id: app.id)
+            XCTAssertEqual(events.map(\.toOutcome), ["screening", "interview"],
+                           "history diverged on device \(name)")
+            let merged = try XCTUnwrap(ApplicationStore(db).application(id: app.id))
+            XCTAssertEqual(merged.outcome, "interview", "derived outcome wrong on device \(name)")
+        }
+    }
+
+    /// Two events stamped at the SAME instant on different devices must still
+    /// derive the same outcome everywhere.
+    ///
+    /// This is why the tiebreak can't be the rowid: each device inserts its own
+    /// event first, so rowid order is opposite on the two devices and they would
+    /// read different "latest" outcomes off an identical history. The tiebreak is
+    /// the event's sync identity instead, which every device agrees on.
+    func testIdenticallyStampedEventsConverge() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 80)
+        let app = try seedApplication(dbA, jobId: jobId)
+
+        let dbB = try AppDatabase.inMemory()
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+
+        let sameInstant = "2026-07-13T10:00:00.000Z"
+        try ApplicationStore(dbA).recordOutcome(id: app.id, outcome: .screening,
+                                                occurredAt: sameInstant)
+        try ApplicationStore(dbB).recordOutcome(id: app.id, outcome: .interview,
+                                                occurredAt: sameInstant)
+
+        try a.export(to: folder)
+        try b.export(to: folder)
+        try a.importChanges(from: folder)
+        try b.importChanges(from: folder)
+
+        let outcomeA = try XCTUnwrap(ApplicationStore(dbA).application(id: app.id)).outcome
+        let outcomeB = try XCTUnwrap(ApplicationStore(dbB).application(id: app.id)).outcome
+        XCTAssertEqual(outcomeA, outcomeB, "devices disagree on the outcome of an identical history")
+        XCTAssertEqual(try ApplicationStore(dbA).events(id: app.id).map(\.toOutcome),
+                       try ApplicationStore(dbB).events(id: app.id).map(\.toOutcome),
+                       "devices present the same history in a different order")
+    }
+
+    /// Re-importing the same log must not duplicate immutable events.
+    func testEventImportIsIdempotent() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "111", fitScore: 80)
+        let app = try seedApplication(dbA, jobId: jobId)
+        try ApplicationStore(dbA).recordOutcome(id: app.id, outcome: .screening)
+
+        let dbB = try AppDatabase.inMemory()
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+        try b.importChanges(from: folder)
+        try b.importChanges(from: folder)
+
+        XCTAssertEqual(try ApplicationStore(dbB).events(id: app.id).count, 1)
+        XCTAssertEqual(try XCTUnwrap(ApplicationStore(dbB).application(id: app.id)).outcome, "screening")
+    }
+}
+
+// MARK: - outcome store semantics
+
+final class ApplicationOutcomeTests: XCTestCase {
+
+    private func makeApplied() throws -> (AppDatabase, ApplicationStore, Application) {
+        let db = try AppDatabase.inMemory()
+        let jobId = try db.writer.write { dbc -> String in
+            var job = Job(from: NormalizedJob(source: "greenhouse", externalId: "1",
+                                              title: "Engineer", company: "Acme"))
+            job.status = "applied"
+            try job.insert(dbc)
+            return job.id
+        }
+        let store = ApplicationStore(db)
+        let app = try store.createOrReplace(jobId: jobId, resume: "r", coverLetter: "c",
+                                            honestyLevel: "honest", stylePreset: "standard")
+        try store.updateStatus(id: app.id, status: "applied")
+        return (db, store, app)
+    }
+
+    func testTransitionsRecordedAsEventsAndNoOpOnRepeat() throws {
+        let (_, store, app) = try makeApplied()
+        try store.recordOutcome(id: app.id, outcome: .screening)
+        try store.recordOutcome(id: app.id, outcome: .interview)
+        try store.recordOutcome(id: app.id, outcome: .interview)  // repeat: no-op
+
+        let events = try store.events(id: app.id)
+        XCTAssertEqual(events.map(\.fromOutcome), ["awaiting", "screening"])
+        XCTAssertEqual(events.map(\.toOutcome), ["screening", "interview"])
+        XCTAssertEqual(try XCTUnwrap(store.application(id: app.id)).outcome, "interview")
+    }
+
+    /// The bug the event log fixes: a rejection used to erase the stages the
+    /// application had actually reached.
+    func testFunnelKeepsStagesARejectedApplicationReached() throws {
+        let (_, store, app) = try makeApplied()
+        try store.recordOutcome(id: app.id, outcome: .screening)
+        try store.recordOutcome(id: app.id, outcome: .interview)
+        try store.recordOutcome(id: app.id, outcome: .rejected)
+
+        let funnel = try store.funnel()
+        XCTAssertEqual(funnel.applied, 1)
+        XCTAssertEqual(funnel.stages.map(\.1), [1, 1, 0])  // screening, interview, offer
+        XCTAssertEqual(try XCTUnwrap(store.application(id: app.id)).outcome, "rejected")
+    }
+
+    /// Skipping ahead in the menu still implies the earlier stages.
+    func testFunnelImpliesEarlierStages() throws {
+        let (_, store, app) = try makeApplied()
+        try store.recordOutcome(id: app.id, outcome: .offer)
+
+        XCTAssertEqual(try store.funnel().stages.map(\.1), [1, 1, 1])
+    }
+
+    /// Tapping through the funnel faster than the clock ticks must still record a
+    /// causally-ordered history.
+    ///
+    /// Stamps are millisecond-precision, so screening → interview → offer in quick
+    /// succession all land in the same millisecond. Order then falls to the
+    /// alphabetical tiebreak and the history reads "interview, offer, screening" —
+    /// inverting what happened, and leaving `outcome` on the wrong stage.
+    func testRapidTransitionsStayCausallyOrdered() throws {
+        let (_, store, app) = try makeApplied()
+        try store.recordOutcome(id: app.id, outcome: .screening)
+        try store.recordOutcome(id: app.id, outcome: .interview)
+        try store.recordOutcome(id: app.id, outcome: .offer)
+
+        let events = try store.events(id: app.id)
+        XCTAssertEqual(events.map(\.toOutcome), ["screening", "interview", "offer"])
+        XCTAssertEqual(Set(events.map(\.occurredAt)).count, 3, "stamps collided")
+        XCTAssertEqual(try XCTUnwrap(store.application(id: app.id)).outcome, "offer")
+    }
+
+    /// Recording an outcome must not bump `updatedAt` — that column is the LWW
+    /// clock for the `application` entity, and winning it would overwrite an
+    /// unrelated edit made on the other device.
+    func testRecordingAnOutcomeDoesNotTouchTheLWWClock() throws {
+        let (_, store, app) = try makeApplied()
+        let before = try XCTUnwrap(store.application(id: app.id)).updatedAt
+        try store.recordOutcome(id: app.id, outcome: .screening)
+        XCTAssertEqual(try XCTUnwrap(store.application(id: app.id)).updatedAt, before)
+    }
+}
+
+// MARK: - wire-format interop with the desktop
+
+extension SyncEngineTests {
+
+    /// The cross-language conformance harness (tests/test_sync_crosslang.py) only
+    /// compiles the pure mappers, so the `application_event` wire format — which
+    /// lives in the GRDB-dependent engine — is not covered there. This pins it:
+    /// the record below is verbatim what backend/sync/entities.py emits, including
+    /// the desktop's timestamp shape (microseconds + "+00:00", where Swift writes
+    /// milliseconds + "Z"). Both must import.
+    func testImportsDesktopEmittedEventRecord() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let db = try AppDatabase.inMemory()
+        let jobId = try seedJob(db, externalId: "111", fitScore: 80)
+        let app = try seedApplication(db, jobId: jobId)
+
+        let occurredAt = "2026-07-13T03:52:57.060761+00:00"
+        let syncId = "\(app.id):\(occurredAt):screening"
+        let record = """
+        {"v":1,"entity":"application_event","id":"\(syncId)",\
+        "updated_at":"2026-07-13T03:52:57.062Z","device":"DESK","deleted":false,\
+        "data":{"application_ref":"\(app.id)","from_outcome":"awaiting",\
+        "to_outcome":"screening","occurred_at":"\(occurredAt)","note":null,"source":"user"}}
+        """
+        let changes = folder.appendingPathComponent("changes")
+        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+        try (record + "\n").write(to: changes.appendingPathComponent("DESK.jsonl"),
+                                  atomically: true, encoding: .utf8)
+
+        let engine = SyncEngine(db: db, deviceId: "A1B2", now: Clock().now)
+        try engine.importChanges(from: folder)
+
+        let events = try ApplicationStore(db).events(id: app.id)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.toOutcome, "screening")
+        XCTAssertEqual(events.first?.occurredAt, occurredAt)
+        // ...and the derived column is rebuilt from the imported history.
+        XCTAssertEqual(try XCTUnwrap(ApplicationStore(db).application(id: app.id)).outcome, "screening")
+    }
+}
