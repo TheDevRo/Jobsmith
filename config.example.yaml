@@ -167,6 +167,13 @@ salary_estimator:
     # Adzuna credentials live under api_keys: above; this section just sets
     # which country market to query.
     country: us
+pipeline:
+  # Post-apply outcome tracking. An application you submitted sits at
+  # outcome='awaiting' until you say otherwise; after this many days of employer
+  # silence it's automatically retired to 'no_response' so the outcome funnel and
+  # response rates reflect reality instead of un-entered data.
+  # Set to 0 to disable the sweep and track outcomes entirely by hand.
+  ghost_after_days: 21
 application_honesty:
   # Controls how much latitude the AI takes when tailoring applications.
   # honest: only real profile data | tailored: rephrase/reorder, no fabrication

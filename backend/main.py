@@ -85,6 +85,36 @@ FRONTEND_DIR = state.FRONTEND_DIR
 RESUMES_DIR = state.RESUMES_DIR
 
 
+GHOST_SWEEP_INTERVAL_SECONDS = 6 * 3600
+
+
+async def _bg_ghost_sweep() -> None:
+    """Periodically retire applications the employer never answered.
+
+    Applications default to outcome='awaiting' and stay there unless the user
+    hand-edits them, so the outcome funnel reported a 0% response rate for anyone
+    who skipped the data entry. This ages silent applications out to
+    'no_response' automatically. Re-reads config each tick so a Settings change
+    takes effect without a restart; 0 disables the sweep.
+    """
+    while True:
+        try:
+            days = int(state.load_config().get("pipeline", {}).get("ghost_after_days", 21))
+            if days > 0 and (ghosted := await db.mark_ghosted_applications(days)):
+                logger.info(
+                    "Ghost sweep: %d application(s) marked no_response after %d days",
+                    len(ghosted), days,
+                )
+                state.push_notification(
+                    "outcome",
+                    "Applications aged out",
+                    f"{len(ghosted)} application(s) had no response after {days} days",
+                )
+        except Exception:  # a bad config value must not kill the loop
+            logger.exception("ghost sweep tick failed")
+        await asyncio.sleep(GHOST_SWEEP_INTERVAL_SECONDS)
+
+
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
@@ -134,6 +164,8 @@ async def lifespan(app: FastAPI):
     # reloads config each tick, and never raises, so it's safe to always start.
     from .sync.service import default_service as _sync_service
     asyncio.create_task(_sync_service().run_periodic())
+
+    asyncio.create_task(_bg_ghost_sweep())
 
     await db.log_activity("system_start", "Jobsmith server started")
     yield
