@@ -1,0 +1,74 @@
+name: CI
+
+# Before this existed, nothing gated a push: the node tests were never run in CI
+# at all (docker-publish.yml was the only workflow), so the extension/frontend
+# suites could rot silently. This is the gate.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Run tests
+        # tests/ only: the repo root contains standalone scripts (e.g.
+        # scripts/test_indeed_session.py) that sys.exit() at import time and
+        # would break collection.
+        run: pytest tests/ -q -m "not integration"
+
+  web:
+    name: Extension + frontend (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  js-sync:
+    name: Injected Apply JS is in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # snapshot.js/fill.js are hand-copied from the extension into the iOS app.
+      # This is the check that they haven't drifted apart.
+      - run: python3 scripts/check_apply_js_sync.py
+
+  ios:
+    name: iOS (xcodebuild)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios-standalone
+        run: xcodegen generate
+      - name: Test JobsmithKit
+        working-directory: ios-standalone
+        run: |
+          DEST=$(xcrun simctl list devices available \
+            | grep -m1 -o 'iPhone [0-9]\+' || echo 'iPhone 16')
+          xcodebuild -scheme JobsmithKit \
+            -destination "platform=iOS Simulator,name=$DEST" \
+            test CODE_SIGNING_ALLOWED=NO | xcpretty || exit 1

@@ -432,10 +432,56 @@ Single-page app with hash routing. No build step.
 - `#fit-breakdown` — score distribution charts
 
 **Key patterns:**
-- Polls `/api/notifications?since_id=N` every 3 seconds for live updates
+- Polls `/api/notifications?since_id=N` for live updates, with exponential
+  backoff (3→6→12→24→30s) and a "Reconnecting…" banner after repeated failures
 - Background ops (fetch, score, tailor, apply) show progress bars
 - Job cards have inline action buttons (Score, Tailor, Apply, Assist, Delete)
 - `window._currentJobs` caches the current page of job dicts
+- All rendered `href`s go through `safeHref()` — scraped job URLs are
+  attacker-controlled, so a `javascript:` URL must never reach the DOM
+
+---
+
+## 7b. Desktop Shell (`src-tauri/`, `packaging/`)
+
+The macOS DMG is a **Tauri (Rust) shell wrapping the same FastAPI backend and the
+same `frontend/` SPA** — there is no second UI. The shell's only jobs are to boot
+the backend, wait for it, and point a WebView at it.
+
+**The three files that matter:**
+
+| File | Role |
+|------|------|
+| `src-tauri/src/lib.rs` | Rust shell. Picks a free port, spawns the backend sidecar with `JOBSMITH_PORT`/`JOBSMITH_SHELL_PID`, polls `GET /api/health/live` until ready, then loads the SPA. Owns the app menu, window state, and the failure screen. |
+| `packaging/desktop_entry.py` | The sidecar's entrypoint (PyInstaller-bundled). Resolves `JOBSMITH_HOME`, kicks off the bundled-Chromium install **on a background thread**, and runs uvicorn. |
+| `backend/paths.py` | The `JOBSMITH_HOME` indirection: in the packaged app, user state lives in `~/Library/Application Support/Jobsmith/`, not next to the code. |
+
+**Boot sequence:**
+
+```
+Tauri shell starts
+  → pick_port()                      free port (8888 if available)
+  → spawn sidecar (desktop_entry)    env: JOBSMITH_PORT, JOBSMITH_SHELL_PID
+      → ensure_chromium() on a daemon thread   ← does NOT block startup
+      │     publishes state.browser_install_status: installing|ready|failed
+      │     surfaced by GET /api/system/browser-status, retried via
+      │     POST /api/system/browser-install; the SPA shows a banner
+      └─→ uvicorn starts immediately
+  → poll GET /api/health/live until {"status":"ok"}   (60s deadline)
+  → WebView loads http://127.0.0.1:<port>
+```
+
+**Two lifetime gotchas this design exists to solve:**
+- *Chromium download blocking boot.* It is ~150 MB on first launch. Running it
+  inline meant a slow link looked like "backend failed to start" behind a static
+  splash. Hence the thread + status endpoint + banner.
+- *Orphaned backends.* `watch_parent` polls **both** the PyInstaller bootloader
+  and `JOBSMITH_SHELL_PID`, because force-quitting the app never fires Tauri's
+  `RunEvent::Exit` — without the shell-PID check, uvicorn survives and squats on
+  the port, and the next launch silently moves to a random one.
+
+Sidecar stdout/stderr is appended to `data/logs/shell.log` (the packaged app has
+no visible stdout).
 
 ---
 
