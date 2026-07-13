@@ -55,7 +55,8 @@ async function loadJobs() {
         const data = await api(`/api/jobs${params}`);
         renderJobs(data.jobs, data.total);
     } catch (e) {
-        document.getElementById('jobs-list').innerHTML = '<p class="placeholder">Failed to load jobs</p>';
+        renderError('jobs-list', 'Failed to load jobs.', loadJobs);
+        document.getElementById('jobs-pagination').innerHTML = '';
     }
 }
 
@@ -107,7 +108,7 @@ function renderJobs(jobs, total) {
         const isSelected = job.id === selectedJobId;
 
         return `
-            <div class="job-card ${isSelected ? 'selected' : ''}" onclick="selectJob('${job.id}')" data-job-id="${job.id}">
+            <div class="job-card ${isSelected ? 'selected' : ''}" onclick="selectJob('${job.id}')" onkeydown="jobCardKeydown(event, '${job.id}')" data-job-id="${job.id}" role="button" tabindex="0" aria-selected="${isSelected ? 'true' : 'false'}" aria-label="${escapeHtml(`${job.title || 'Untitled'} at ${job.company || 'Unknown'}`)}">
                 <div class="job-card-header">
                     <div class="job-card-select" onclick="event.stopPropagation()">
                         <input type="checkbox" class="job-checkbox" value="${job.id}" onchange="updateSelectedCount()">
@@ -152,12 +153,26 @@ function renderJobs(jobs, total) {
     pag.innerHTML = buttons;
 }
 
+// UX-04: job cards are <div role="button" tabindex="0">, so they must respond
+// to Enter/Space the way a real button does. Space is preventDefault'd so it
+// selects the card instead of scrolling the list.
+function jobCardKeydown(ev, jobId) {
+    if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+    // Don't hijack keys aimed at the checkbox/buttons nested inside the card.
+    const t = ev.target;
+    if (t && t !== ev.currentTarget && t.closest && t.closest('input, button, a')) return;
+    ev.preventDefault();
+    selectJob(jobId);
+}
+
 function selectJob(jobId) {
     selectedJobId = jobId;
 
     // Highlight selected card
     document.querySelectorAll('.job-card').forEach(c => {
-        c.classList.toggle('selected', c.dataset.jobId === jobId);
+        const isSel = c.dataset.jobId === jobId;
+        c.classList.toggle('selected', isSel);
+        c.setAttribute('aria-selected', isSel ? 'true' : 'false');
     });
 
     const job = window._currentJobs[jobId];
@@ -208,7 +223,7 @@ function selectJob(jobId) {
             <button class="btn btn-primary btn-sm" onclick="tailorJob('${job.id}')">Tailor Resume</button>
             ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${job.id}')">Assist Me</button>` : ''}
             ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="location.hash='review'">View Application</button>` : ''}
-            ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(job.url)}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
+            ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
             ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${job.id}')">Mark Applied</button>` : ''}
             <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${job.id}')">Embellishments</button>
             <button class="btn btn-danger btn-sm" onclick="deleteSingleJob('${job.id}')">Delete</button>

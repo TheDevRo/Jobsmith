@@ -32,7 +32,7 @@ async function loadShortlisted() {
         const data = await api('/api/jobs?status=shortlisted&limit=50&sort_by=fit_score&sort_dir=desc');
         renderShortlisted(data);
     } catch (e) {
-        document.getElementById('shortlisted-list').innerHTML = '<p class="placeholder">Failed to load shortlisted jobs</p>';
+        renderError('shortlisted-list', 'Failed to load shortlisted jobs.', loadShortlisted);
     }
 }
 
@@ -85,7 +85,7 @@ async function loadReviewQueue() {
         const apps = await api('/api/applications/pending?limit=50');
         renderReviewQueue(apps);
     } catch (e) {
-        document.getElementById('review-list').innerHTML = '<p class="placeholder">Failed to load review queue</p>';
+        renderError('review-list', 'Failed to load the review queue.', loadReviewQueue);
     }
 }
 
@@ -94,7 +94,7 @@ async function loadSubmittedApplications() {
         const apps = await api('/api/applications/submitted?limit=50');
         renderSubmittedApplications(apps);
     } catch (e) {
-        document.getElementById('submitted-list').innerHTML = '<p class="placeholder">Failed to load submitted applications</p>';
+        renderError('submitted-list', 'Failed to load submitted applications.', loadSubmittedApplications);
     }
 }
 
@@ -103,7 +103,7 @@ async function loadFailedApplications() {
         const apps = await api('/api/applications/failed?limit=50');
         renderFailedApplications(apps);
     } catch (e) {
-        document.getElementById('failed-list').innerHTML = '<p class="placeholder">Failed to load failed applications</p>';
+        renderError('failed-list', 'Failed to load failed applications.', loadFailedApplications);
     }
 }
 
@@ -112,7 +112,7 @@ async function loadInProgress() {
         const data = await api('/api/applications/in-progress');
         renderInProgress(data);
     } catch (e) {
-        document.getElementById('in-progress-list').innerHTML = '<p class="placeholder">Failed to load in-progress applications</p>';
+        renderError('in-progress-list', 'Failed to load in-progress applications.', loadInProgress);
     }
 }
 
@@ -387,7 +387,7 @@ function renderFailedApplications(apps) {
                 </div>
                 ${displayMessage ? `<div class="failed-reason ${isReset ? 'failed-reason-reset' : ''}">${escapeHtml(displayMessage)}</div>` : ''}
                 <div class="review-card-actions">
-                    <a class="btn btn-secondary btn-sm" href="${escapeHtml(app.url)}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
+                    <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     ${app.resume_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/resume" download>Download Resume</a>` : ''}
                     ${app.cover_letter_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/cover-letter" download>Download Cover Letter</a>` : ''}
                     <a class="btn btn-secondary btn-sm" href="/api/jobs/${escapeHtml(app.job_id)}/screenshots" target="_blank" rel="noopener">View Screenshots</a>
@@ -488,7 +488,7 @@ function renderSubmittedApplications(apps) {
                 <div class="review-content" id="submitted-content-${app.id}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
                 <div class="review-card-actions">
                     ${isApplying ? `<button class="btn btn-danger btn-sm" onclick="forceStopApply()" title="Stop automation and close browser">Force Stop</button><button class="btn btn-warning btn-sm" onclick="pauseApply()" title="Freeze automation — browser stays open for manual interaction">Pause</button>` : ''}
-                    <a class="btn btn-secondary btn-sm" href="${escapeHtml(app.url)}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
+                    <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/resume" download>Download Resume</a>
                     <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/cover-letter" download>Download Cover Letter</a>
                     <button class="btn btn-secondary btn-sm" onclick="viewScreenshots('${app.job_id}')">Screenshots</button>
@@ -614,7 +614,7 @@ function renderReviewQueue(apps) {
                         <button class="btn btn-primary btn-sm" onclick="resumeApply('${app.id}')">Resume</button>
                         <button class="btn btn-danger btn-sm" onclick="forceStopApply()">Force Stop</button>
                         <button class="btn btn-danger btn-sm" onclick="rejectApp('${app.id}')">Reject</button>
-                        <a class="btn btn-secondary btn-sm" href="${escapeHtml(app.url)}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
+                        <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     ` : `
                         <button class="btn btn-green btn-sm" onclick="approveApp('${app.id}')">Approve</button>
                         ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="approveAndApply('${app.id}')">Auto Apply</button>` : ''}

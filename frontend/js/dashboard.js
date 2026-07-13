@@ -56,8 +56,7 @@ async function loadDashboard() {
     try {
         renderOutcomesPanel(await api('/api/analytics/outcomes'));
     } catch (e) {
-        const panel = document.getElementById('outcomes-panel');
-        if (panel) panel.innerHTML = '<p class="placeholder">Failed to load outcome analytics</p>';
+        renderError('outcomes-panel', 'Failed to load outcome analytics.', loadDashboard);
     }
 }
 

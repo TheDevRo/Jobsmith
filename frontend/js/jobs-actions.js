@@ -149,6 +149,47 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+// SEC-03: escapeHtml neutralizes <>&"' but NOT the URL scheme. Job URLs are
+// scraped from external boards (attacker-controlled), so a job whose `url` is
+// `javascript:...` would execute in the dashboard's own origin when clicked.
+// Every interpolation into an href="" MUST go through safeHref first:
+//     href="${escapeHtml(safeHref(job.url))}"
+// Anything that isn't a plain http(s) URL collapses to '#'.
+function safeHref(u) {
+    u = String(u == null ? '' : u).trim();
+    return /^https?:\/\//i.test(u) ? u : '#';
+}
+
+// UX-04: standard error state for list loaders. Previously these either only
+// console.error'd (leaving a stale/blank pane) or hardcoded a dead-end
+// "Failed to load X" string with no way back.
+//   renderError('jobs-list', 'Failed to load jobs', loadJobs)
+// Retry callbacks are held in a registry because the rendered markup uses an
+// inline onclick (consistent with the rest of this codebase's classic scripts).
+const _retryHandlers = {};
+let _retrySeq = 0;
+
+function renderError(container, msg, retryFn) {
+    const el = typeof container === 'string' ? document.getElementById(container) : container;
+    if (!el) return;
+    let retryBtn = '';
+    if (typeof retryFn === 'function') {
+        const key = `retry${++_retrySeq}`;
+        _retryHandlers[key] = retryFn;
+        retryBtn = `<button class="btn btn-secondary btn-sm error-retry" onclick="runRetry('${key}')">Retry</button>`;
+    }
+    el.innerHTML = `
+        <div class="load-error" role="alert">
+            <span class="load-error-msg">${escapeHtml(msg)}</span>
+            ${retryBtn}
+        </div>`;
+}
+
+function runRetry(key) {
+    const fn = _retryHandlers[key];
+    if (typeof fn === 'function') fn();
+}
+
 function safeParseJSON(str, fallback) {
     if (Array.isArray(str)) return str;
     try { return JSON.parse(str); } catch { return fallback; }
@@ -392,11 +433,17 @@ function closeScreenshotModal() {
 
 // ---- Fit Score Breakdown ----
 async function loadFitBreakdown() {
+    const errSlot = document.getElementById('fit-breakdown-error');
     try {
         const data = await api('/api/fit-breakdown');
+        if (errSlot) errSlot.innerHTML = '';
         renderFitBreakdown(data);
     } catch (e) {
+        // Renders into a dedicated slot rather than the page container: the
+        // breakdown's canvas/legend markup is static and must survive an error
+        // so the next successful load has something to draw into.
         console.error('Failed to load fit breakdown', e);
+        renderError(errSlot, 'Failed to load the fit-score breakdown.', loadFitBreakdown);
     }
 }
 

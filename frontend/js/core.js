@@ -33,8 +33,20 @@ function applyAutoApplyVisibility(enabled) {
 // the system browser.
 const IS_DESKTOP_SHELL = navigator.userAgent.includes('JobsmithDesktop');
 
+// SEC-03: only ever hand off plain http(s) URLs. Job URLs are scraped from
+// external boards, so `url` can be `javascript:`/`data:`/`file:` — none of
+// which should reach window.open() or the backend's open-url handler.
+function isSafeUrl(url) {
+    return /^https?:\/\//i.test(String(url == null ? '' : url).trim());
+}
+
 async function openExternal(url) {
     if (!url) return;
+    if (!isSafeUrl(url)) {
+        console.warn('Refusing to open a non-http(s) URL', url);
+        toast('This job has an unsafe or malformed link', 'warning');
+        return;
+    }
     if (IS_DESKTOP_SHELL) {
         try {
             await api('/api/system/open-url', {
@@ -49,6 +61,28 @@ async function openExternal(url) {
     }
     window.open(url, '_blank', 'noopener');
 }
+
+// SEC-03 (defense in depth): in BOTH shells, block navigation to any anchor
+// whose scheme isn't safe. Render paths route job URLs through safeHref(), so
+// this should never fire — it's the backstop for any href we missed, and it
+// runs in the capture phase so it wins over the handlers below.
+// NOTE: this is deliberately a *separate* listener from the desktop-shell
+// interceptor below. That one is link *routing* (WKWebView ignores
+// target="_blank"), not a security guard, and its `!IS_DESKTOP_SHELL`
+// early-return must stay — removing it would make the browser-served SPA
+// funnel every external link through the backend's open-url endpoint.
+const UNSAFE_SCHEME_RE = /^\s*(javascript|data|vbscript|file):/i;
+document.addEventListener('click', (ev) => {
+    const a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+    if (!a) return;
+    const raw = a.getAttribute('href') || '';
+    if (UNSAFE_SCHEME_RE.test(raw)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        console.warn('Blocked navigation to an unsafe URL scheme', raw);
+        toast('This link was blocked: unsafe URL scheme', 'warning');
+    }
+}, true);
 
 // In the desktop shell, intercept every target="_blank" anchor (including ones
 // rendered later) and open via the backend instead of the dead default.
@@ -81,6 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', handleHash);
     requestNotificationPermission();
     startNotificationPoll();
+    checkBackendPort();        // EOU-03
+    startBrowserStatusPoll();  // REL-04
 
     // Live view refresh: reflect the saved preference in the toggle and start
     // the loop unless the user turned it off.
@@ -269,6 +305,176 @@ function goToStatusFilter(status) {
     location.hash = 'jobs';
 }
 
+// ==========================================================================
+// Banners — persistent, page-level status messages (as opposed to toasts,
+// which are transient). Rendered into #app-banners at the top of <main>.
+//
+//   showBanner('id', { message, tone: 'info'|'warn'|'error', dismissible,
+//                      actions: [{ label, onClick }] })
+//   hideBanner('id')
+// ==========================================================================
+const _bannerActions = {};
+let _bannerActionSeq = 0;
+
+function bannerContainer() {
+    return document.getElementById('app-banners');
+}
+
+function showBanner(id, opts) {
+    const host = bannerContainer();
+    if (!host) return;
+    const { message = '', tone = 'info', dismissible = true, actions = [] } = opts || {};
+
+    let el = document.getElementById(`banner-${id}`);
+    if (!el) {
+        el = document.createElement('div');
+        el.id = `banner-${id}`;
+        host.appendChild(el);
+    }
+    el.className = `app-banner app-banner-${tone}`;
+    el.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+
+    const actionHtml = actions.map((a) => {
+        const key = `ba${++_bannerActionSeq}`;
+        _bannerActions[key] = a.onClick;
+        return `<button class="btn btn-secondary btn-sm" onclick="runBannerAction('${key}')">${escapeHtml(a.label)}</button>`;
+    }).join('');
+    const dismissHtml = dismissible
+        ? `<button class="app-banner-close" aria-label="Dismiss" onclick="dismissBanner('${escapeHtml(id)}')">&times;</button>`
+        : '';
+
+    el.innerHTML = `
+        <span class="app-banner-msg">${escapeHtml(message)}</span>
+        <span class="app-banner-actions">${actionHtml}${dismissHtml}</span>`;
+}
+
+function hideBanner(id) {
+    const el = document.getElementById(`banner-${id}`);
+    if (el) el.remove();
+}
+
+// Dismissal is remembered for the session so a dismissed banner doesn't pop
+// back on the next poll tick.
+const _dismissedBanners = new Set();
+
+function dismissBanner(id) {
+    _dismissedBanners.add(id);
+    hideBanner(id);
+}
+
+function runBannerAction(key) {
+    const fn = _bannerActions[key];
+    if (typeof fn === 'function') fn();
+}
+
+// ---- EOU-03: non-default port breaks the extension ----
+// The extension hardcodes http://localhost:8888. When the desktop shell's
+// pick_port falls back to a random port (8888 already taken), the extension
+// silently talks to nothing. The frontend is the one place that knows the real
+// port, so surface it. One-time per port: dismissing sticks across reloads.
+function checkBackendPort() {
+    const port = location.port;
+    if (!port || port === '8888') return;
+    const key = `jobsmith_port_banner_dismissed_${port}`;
+    if (localStorage.getItem(key) === '1') return;
+    showBanner('port-mismatch', {
+        tone: 'warn',
+        message: `Running on port ${port} — update the extension's backend URL (Settings → Integrations in the extension) to http://localhost:${port}.`,
+        actions: [{
+            label: 'Got it',
+            onClick: () => { localStorage.setItem(key, '1'); dismissBanner('port-mismatch'); },
+        }],
+        dismissible: false,
+    });
+}
+
+// ---- REL-04: Chromium install progress / failure ----
+// The desktop shell downloads ~150 MB of Chromium on first launch. It used to
+// do that behind a static splash spinner with no progress, no error and no
+// retry. The backend now records the state and exposes it here.
+// The endpoint may not exist (older backend, or the backend half of REL-04 not
+// deployed): a 404 means "nothing to report" — stop polling and stay silent.
+let _browserStatusTimer = null;
+const BROWSER_STATUS_POLL_MS = 4000;
+
+function stopBrowserStatusPoll() {
+    if (_browserStatusTimer) clearTimeout(_browserStatusTimer);
+    _browserStatusTimer = null;
+}
+
+async function pollBrowserStatus() {
+    try {
+        const resp = await fetch(`${API}/api/system/browser-status`);
+        if (resp.status === 404) {
+            // Endpoint not present — fail gracefully, never show the banner.
+            hideBanner('browser-install');
+            stopBrowserStatusPoll();
+            return;
+        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        renderBrowserStatusBanner(data);
+        if (data.status === 'ready') {
+            hideBanner('browser-install');
+            stopBrowserStatusPoll();
+            return;
+        }
+    } catch (e) {
+        // Network/parse error: the reconnecting banner already covers a dead
+        // backend. Keep polling but don't invent a browser-install failure.
+        console.warn('browser-status poll failed', e);
+    }
+    _browserStatusTimer = setTimeout(pollBrowserStatus, BROWSER_STATUS_POLL_MS);
+}
+
+function renderBrowserStatusBanner(data) {
+    if (!data || !data.status || data.status === 'ready') return;
+    if (_dismissedBanners.has('browser-install')) return;
+
+    if (data.status === 'installing') {
+        showBanner('browser-install', {
+            tone: 'info',
+            message: 'Setting up the automation browser (one-time ~150 MB download). Auto-apply and Assist stay unavailable until this finishes.',
+            dismissible: true,
+        });
+        return;
+    }
+    if (data.status === 'failed') {
+        const detail = data.error ? ` ${data.error}` : '';
+        showBanner('browser-install', {
+            tone: 'error',
+            message: `The automation browser failed to install.${detail} Auto-apply and Assist won't work until it succeeds.`,
+            dismissible: true,
+            actions: [{ label: 'Retry', onClick: retryBrowserInstall }],
+        });
+    }
+}
+
+async function retryBrowserInstall() {
+    try {
+        const resp = await fetch(`${API}/api/system/browser-install`, { method: 'POST' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        toast('Reinstalling the automation browser…', 'info');
+        // A retry re-arms the banner even if it was dismissed, and restarts the
+        // poll so the user sees the outcome.
+        _dismissedBanners.delete('browser-install');
+        showBanner('browser-install', {
+            tone: 'info',
+            message: 'Setting up the automation browser (one-time ~150 MB download). Auto-apply and Assist stay unavailable until this finishes.',
+            dismissible: true,
+        });
+        stopBrowserStatusPoll();
+        _browserStatusTimer = setTimeout(pollBrowserStatus, BROWSER_STATUS_POLL_MS);
+    } catch (e) {
+        toast('Failed to start the browser install', 'error');
+    }
+}
+
+function startBrowserStatusPoll() {
+    stopBrowserStatusPoll();
+    pollBrowserStatus();
+}
+
 // ---- Sidebar Toggle (mobile) ----
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
@@ -276,27 +482,47 @@ function toggleSidebar() {
 }
 
 // ---- Theme Toggle (dark / light) ----
+// UX-04: three states, not two. `data-theme` absent means "follow the OS"
+// (style.css has a `prefers-color-scheme: light` block gated on
+// `body:not([data-theme])`); an explicit choice pins `data-theme` to
+// "light"/"dark" and always wins. Previously "dark" was represented by
+// *removing* the attribute, which made "explicitly dark" indistinguishable
+// from "no preference" and left no way to honour the OS setting.
+function systemPrefersLight() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+}
+
+function currentTheme() {
+    const explicit = document.body.getAttribute('data-theme');
+    if (explicit === 'light' || explicit === 'dark') return explicit;
+    return systemPrefersLight() ? 'light' : 'dark';
+}
+
+function updateThemeToggleIcon() {
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = currentTheme() === 'light' ? '☀' : '☾';
+}
+
 (function initTheme() {
-    const saved = localStorage.getItem('jobsmith_theme') || 'dark';
-    if (saved === 'light') {
-        document.body.setAttribute('data-theme', 'light');
-        const btn = document.getElementById('theme-toggle');
-        if (btn) btn.textContent = '☀';
+    const saved = localStorage.getItem('jobsmith_theme');
+    if (saved === 'light' || saved === 'dark') {
+        document.body.setAttribute('data-theme', saved);
+    }
+    updateThemeToggleIcon();
+    // Track OS changes while the user has no explicit preference.
+    if (window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: light)');
+        const onChange = () => { if (!document.body.hasAttribute('data-theme')) updateThemeToggleIcon(); };
+        if (mq.addEventListener) mq.addEventListener('change', onChange);
+        else if (mq.addListener) mq.addListener(onChange);
     }
 })();
 
 function toggleTheme() {
-    const isLight = document.body.getAttribute('data-theme') === 'light';
-    const btn = document.getElementById('theme-toggle');
-    if (isLight) {
-        document.body.removeAttribute('data-theme');
-        localStorage.setItem('jobsmith_theme', 'dark');
-        if (btn) btn.textContent = '☾';
-    } else {
-        document.body.setAttribute('data-theme', 'light');
-        localStorage.setItem('jobsmith_theme', 'light');
-        if (btn) btn.textContent = '☀';
-    }
+    const next = currentTheme() === 'light' ? 'dark' : 'light';
+    document.body.setAttribute('data-theme', next);
+    localStorage.setItem('jobsmith_theme', next);
+    updateThemeToggleIcon();
 }
 
 // ---- Forge/heat identity helpers (ported from ios-standalone Theme.swift) ----
@@ -422,16 +648,69 @@ function sendBrowserNotification(title, body, tag) {
     }
 }
 
+// REL-14: the poll used to be a fixed 3s setInterval whose body did
+// `.then(r => r.json())` with no `resp.ok` check and a bare `catch {}`. A dead
+// or erroring backend was invisible: an HTML error page threw on json(), the
+// catch swallowed it, and the loop kept hammering every 3s forever.
+// Now: check resp.ok, back off exponentially (3 → 6 → 12 → 24 → 30s cap) on
+// consecutive failures, and surface a "Reconnecting…" banner once we've failed
+// enough times to be sure it isn't a blip. Any success resets both.
+const NOTIF_POLL_BASE_MS = 3000;
+const NOTIF_POLL_MAX_MS = 30000;
+const NOTIF_FAILURES_BEFORE_BANNER = 2;
+let _notifFailures = 0;
+let _notifBannerShown = false;
+
+function notifPollDelay() {
+    if (_notifFailures === 0) return NOTIF_POLL_BASE_MS;
+    // 3 → 6 → 12 → 24 → 30 (cap)
+    return Math.min(NOTIF_POLL_BASE_MS * Math.pow(2, _notifFailures), NOTIF_POLL_MAX_MS);
+}
+
 function startNotificationPoll() {
     if (notificationPollInterval) return;
-    notificationPollInterval = setInterval(pollNotifications, 3000);
+    // setTimeout chain (not setInterval) so the delay can change per tick.
+    const tick = async () => {
+        await pollNotifications();
+        notificationPollInterval = setTimeout(tick, notifPollDelay());
+    };
+    notificationPollInterval = setTimeout(tick, NOTIF_POLL_BASE_MS);
+}
+
+function stopNotificationPoll() {
+    if (notificationPollInterval) clearTimeout(notificationPollInterval);
+    notificationPollInterval = null;
+}
+
+function onNotifPollFailure(err) {
+    _notifFailures++;
+    if (_notifFailures >= NOTIF_FAILURES_BEFORE_BANNER && !_notifBannerShown) {
+        _notifBannerShown = true;
+        showBanner('reconnecting', {
+            tone: 'warn',
+            message: 'Reconnecting… Jobsmith can’t reach the backend. Live updates are paused.',
+            dismissible: false,
+        });
+    }
+    console.warn(`Notification poll failed (${_notifFailures}x), retrying in ${notifPollDelay() / 1000}s`, err);
+}
+
+function onNotifPollSuccess() {
+    if (_notifFailures > 0 || _notifBannerShown) {
+        _notifFailures = 0;
+        _notifBannerShown = false;
+        hideBanner('reconnecting');
+    }
 }
 
 async function pollNotifications() {
     if (_notifPollActive) return;
     _notifPollActive = true;
     try {
-        const data = await fetch(`${API}/api/notifications?since_id=${lastNotificationId}`).then(r => r.json());
+        const resp = await fetch(`${API}/api/notifications?since_id=${lastNotificationId}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        onNotifPollSuccess();
         if (!data.notifications || data.notifications.length === 0) return;
 
         for (const n of data.notifications) {
@@ -487,7 +766,7 @@ async function pollNotifications() {
             loadInProgress();
         }
     } catch (e) {
-        // Silently ignore poll errors
+        onNotifPollFailure(e);
     } finally {
         _notifPollActive = false;
     }
@@ -548,6 +827,13 @@ async function api(path, options = {}) {
             headers: { 'Content-Type': 'application/json', ...options.headers },
             ...options,
         });
+        if (resp.status === 401) {
+            // The backend only challenges callers that aren't on its own machine
+            // (LAN / Docker — where the container sees us as the bridge gateway,
+            // not 127.0.0.1). Trade the token for a session cookie, then retry.
+            await promptForToken();
+            return api(path, options);
+        }
         if (!resp.ok) {
             const err = await resp.text();
             throw new Error(err || `HTTP ${resp.status}`);
@@ -557,6 +843,63 @@ async function api(path, options = {}) {
         console.error('API error:', e);
         throw e;
     }
+}
+
+// ---- Token gate (only ever shown to off-machine callers) ----
+let _tokenPromptOpen = null;
+
+function promptForToken() {
+    // Collapse concurrent 401s (the dashboard fires several calls on load) into
+    // one prompt, so the user isn't asked N times.
+    if (_tokenPromptOpen) return _tokenPromptOpen;
+
+    _tokenPromptOpen = new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'token-gate';
+        overlay.innerHTML = `
+            <div class="token-gate-card">
+                <h2>Enter your Jobsmith token</h2>
+                <p>
+                    You're reaching Jobsmith from another machine, so it needs the
+                    access token. Find it in <code>data/.extension_token</code>
+                    (or run <code>docker compose exec jobsmith cat data/.extension_token</code>).
+                </p>
+                <input type="password" id="token-gate-input" placeholder="Paste token" autocomplete="off">
+                <div class="token-gate-error" id="token-gate-error"></div>
+                <button id="token-gate-submit">Unlock</button>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const input = overlay.querySelector('#token-gate-input');
+        const errorEl = overlay.querySelector('#token-gate-error');
+        input.focus();
+
+        async function submit() {
+            const token = input.value.trim();
+            if (!token) return;
+            try {
+                const resp = await fetch(`${API}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token }),
+                });
+                if (!resp.ok) {
+                    errorEl.textContent = 'That token was rejected. Try again.';
+                    input.select();
+                    return;
+                }
+                overlay.remove();
+                _tokenPromptOpen = null;
+                resolve();
+            } catch (e) {
+                errorEl.textContent = 'Could not reach the backend.';
+            }
+        }
+
+        overlay.querySelector('#token-gate-submit').addEventListener('click', submit);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    });
+    return _tokenPromptOpen;
 }
 
 // ---- Sources ----
@@ -588,7 +931,13 @@ async function loadSources() {
         const data = await api('/api/sources');
         if (data.sources) renderSources(data.sources);
     } catch (e) {
-        console.error('Failed to load sources from API, using defaults', e);
+        // The fallback list is already rendered and is usable, so this is a
+        // warning, not a dead end — but say so instead of only console.error'ing.
+        console.warn('Failed to load sources from API, using defaults', e);
+        const note = document.createElement('p');
+        note.className = 'hint source-fallback-note';
+        note.textContent = 'Showing the default source list — the backend didn’t respond.';
+        container.appendChild(note);
     }
 }
 

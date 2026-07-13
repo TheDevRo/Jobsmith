@@ -58,6 +58,108 @@ body[data-theme="light"] {
     --shadow-lg: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+/* UX-04: honour the OS setting when the user hasn't made an explicit choice.
+   `body:not([data-theme])` is the "no preference stored" state — core.js only
+   sets data-theme once the user actually clicks the toggle, so a manual choice
+   (either direction) always wins over this block. Values must stay in sync with
+   body[data-theme="light"] above. */
+@media (prefers-color-scheme: light) {
+    body:not([data-theme]) {
+        --bg-primary: #f5f4f6;
+        --bg-secondary: #ffffff;
+        --bg-card: #ffffff;
+        --bg-hover: #ececee;
+        --bg-active: #e2e0e5;
+        --text-primary: #1b1a1e;
+        --text-secondary: #55535c;
+        --text-muted: #86838d;
+        --border: #dad8de;
+        --border-light: #c8c6cf;
+        --shadow: 0 1px 3px rgba(0,0,0,0.12);
+        --shadow-lg: 0 4px 12px rgba(0,0,0,0.15);
+    }
+}
+
+/* ==========================================================================
+   Page-level banners (#app-banners) — persistent status, unlike toasts.
+   ========================================================================== */
+#app-banners {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#app-banners:not(:empty) {
+    margin-bottom: 14px;
+}
+
+.app-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-light);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.app-banner-msg { flex: 1; min-width: 0; }
+
+.app-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.app-banner-info  { border-color: var(--steel); background: rgba(94, 124, 160, 0.10); }
+.app-banner-warn  { border-color: var(--accent-ember); background: var(--accent-tint); }
+.app-banner-error { border-color: var(--accent-red); background: rgba(231, 76, 60, 0.10); }
+
+.app-banner-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+}
+.app-banner-close:hover { color: var(--text-primary); }
+
+/* ==========================================================================
+   Load-error state (renderError) — replaces the old dead-end "Failed to
+   load X" placeholders, which offered no way to retry.
+   ========================================================================== */
+.load-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 24px 16px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    text-align: center;
+}
+.load-error-msg { color: var(--text-secondary); }
+
+/* ==========================================================================
+   Focus visibility (UX-04) — job cards and other synthetic buttons are
+   divs, so they get no default focus ring.
+   ========================================================================== */
+:focus-visible {
+    outline: 2px solid var(--accent-ember);
+    outline-offset: 2px;
+}
+.job-card:focus-visible {
+    outline: 2px solid var(--accent-ember);
+    outline-offset: -2px;
+    border-color: var(--accent-ember);
+}
+
 /* Theme toggle button */
 .theme-toggle {
     background: none;
@@ -2095,6 +2197,47 @@ main {
     .fit-breakdown-grid { grid-template-columns: 1fr; }
 }
 
+/* Tablet / narrow desktop: the split pane still fits side-by-side, but the
+   420px fixed list pane starves the detail pane. Let it flex down instead. */
+@media (max-width: 1180px) and (min-width: 901px) {
+    .jobs-list-pane { width: 360px; min-width: 280px; }
+}
+
+/* Phone. The 900px block above already stacks the split pane and collapses the
+   sidebar; this handles the chrome that's still overflowing at phone widths. */
+@media (max-width: 600px) {
+    .topbar { padding-left: 12px; padding-right: 12px; gap: 8px; }
+    .topbar h2 { font-size: 17px; }
+
+    main { padding: 14px 12px; }
+
+    /* One stat per row reads better than two squeezed cards. */
+    .stats-row { grid-template-columns: 1fr; }
+
+    /* Filters: full-width controls, no horizontal overflow. */
+    .filter-bar { flex-direction: column; align-items: stretch; }
+    .filter-bar input[type="date"] { width: 100%; }
+    .filter-bar select,
+    .filter-bar input[type="text"],
+    .filter-bar input[type="number"] { width: 100%; min-width: 0; }
+    .salary-filter input[type="range"] { width: 100%; }
+
+    /* The job list shouldn't eat the whole viewport before the detail pane. */
+    .jobs-list-pane { max-height: 60vh; }
+
+    /* Action rows wrap instead of overflowing. */
+    .detail-actions { flex-wrap: wrap; }
+    .detail-actions .btn { flex: 1 1 auto; }
+    .app-banner { flex-direction: column; align-items: flex-start; }
+
+    /* Wide content (tables, autofill reports) scrolls in place rather than
+       forcing the whole page to scroll sideways. */
+    table { display: block; overflow-x: auto; }
+}
+
+/* Never let the page itself scroll horizontally. */
+body { overflow-x: hidden; }
+
 /* ==========================================================================
    Fit Score Breakdown Page
    ========================================================================== */
@@ -2573,6 +2716,12 @@ main {
 body[data-theme="light"] .tour-overlay .tour-dim {
     fill: rgba(15, 23, 42, 0.45);
 }
+/* Same softened dim when light mode comes from the OS rather than the toggle. */
+@media (prefers-color-scheme: light) {
+    body:not([data-theme]) .tour-overlay .tour-dim {
+        fill: rgba(15, 23, 42, 0.45);
+    }
+}
 .tour-popover {
     position: fixed;
     z-index: 9999;
@@ -2825,3 +2974,33 @@ body[data-theme="light"] .tour-overlay .tour-dim {
     background: var(--accent);
     color: #fff;
 }
+
+/* ---- Token gate ----
+   Shown only when the backend challenges us (i.e. we're reaching it from off
+   its machine — LAN or Docker). Loopback/desktop users never see this. */
+.token-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(3px);
+}
+.token-gate-card {
+    width: min(440px, calc(100vw - 32px));
+    padding: 24px;
+    border-radius: 12px;
+    background: var(--bg-panel, #1e1e2e);
+    border: 1px solid var(--border, #45475a);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.token-gate-card h2 { margin: 0 0 8px; font-size: 18px; }
+.token-gate-card p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--text-muted, #a6adc8); }
+.token-gate-card code { padding: 1px 5px; border-radius: 4px; background: var(--bg-input, #313244); font-size: 12px; }
+.token-gate-card input { width: 100%; padding: 10px 12px; margin-bottom: 10px; border-radius: 6px;
+    border: 1px solid var(--border, #45475a); background: var(--bg-input, #313244); color: inherit; }
+.token-gate-card button { width: 100%; padding: 10px; border: 0; border-radius: 6px; cursor: pointer;
+    background: var(--accent, #89b4fa); color: #11111b; font-weight: 600; }
+.token-gate-error { min-height: 18px; margin-bottom: 6px; font-size: 12px; color: var(--danger, #f38ba8); }
