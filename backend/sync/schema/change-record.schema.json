@@ -7,7 +7,10 @@
   "required": ["v", "entity", "id", "updated_at", "device", "deleted"],
   "properties": {
     "v": { "type": "integer", "minimum": 1 },
-    "entity": { "enum": ["job", "triage", "application", "answer", "profile"] },
+    "entity": {
+      "enum": ["job", "triage", "application", "application_event", "answer", "profile"],
+      "description": "application_event is append-only and immutable: one post-apply outcome transition, id '{application_id}:{occurred_at}:{to_outcome}'. The outcome is NOT a field on `application` — LWW resolves whole records, so an unrelated edit on one device would clobber an outcome set on the other. Same reasoning that split `triage` out of `job`."
+    },
     "id": { "type": "string", "minLength": 1 },
     "updated_at": {
       "type": "string",

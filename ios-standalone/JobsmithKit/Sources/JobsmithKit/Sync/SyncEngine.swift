@@ -224,6 +224,70 @@ public final class SyncEngine {
         return out
     }
 
+    /// The `application_event` entity — one immutable outcome transition each.
+    ///
+    /// The outcome is NOT a field on `application` on purpose. Merging is
+    /// last-writer-wins over the whole record, so an outcome recorded here would
+    /// be silently dropped the moment the desktop touched any other field of the
+    /// same application. Events never change once written, so two devices that
+    /// each record outcomes offline merge as a plain union — nothing to lose.
+    /// `applications.outcome` is recomputed from the merged history on import.
+    ///
+    /// Identity is content-derived — "{applicationId}:{occurredAt}:{toOutcome}" —
+    /// so the same transition seen twice is the same record. Must match the
+    /// desktop's ApplicationEventAdapter.sync_id.
+    private func appEventSnapshot(_ dbc: Database) throws -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for row in try Row.fetchAll(dbc, sql: """
+            SELECT e.applicationId, e.fromOutcome, e.toOutcome, e.occurredAt, e.note, e.source
+            FROM application_events e
+            JOIN applications a ON a.id = e.applicationId
+            JOIN jobs j ON j.id = a.jobId
+            WHERE j.externalId IS NOT NULL AND j.externalId != ''
+            """) {
+            let appId = (row["applicationId"] as String?) ?? ""
+            let occurredAt = (row["occurredAt"] as String?) ?? ""
+            let toOutcome = (row["toOutcome"] as String?) ?? ""
+            var data: [String: JSONValue] = [
+                "application_ref": .string(appId),
+                "to_outcome": .string(toOutcome),
+                "occurred_at": .string(occurredAt),
+                "source": .string((row["source"] as String?) ?? "user"),
+            ]
+            if let from = row["fromOutcome"] as String? { data["from_outcome"] = .string(from) }
+            if let note = row["note"] as String? { data["note"] = .string(note) }
+            out["\(appId):\(occurredAt):\(toOutcome)"] = data
+        }
+        return out
+    }
+
+    /// Insert a synced outcome event, then refresh the derived column. Defers if
+    /// the application hasn't been imported yet. Re-importing the same event is a
+    /// no-op — events are immutable and identified by their content.
+    private func applyAppEvent(_ dbc: Database, _ syncId: String, _ canonData: [String: JSONValue]) throws {
+        let appId = canonData["application_ref"]?.stringValue
+            ?? String(syncId.prefix(while: { $0 != ":" }))
+        guard try Row.fetchOne(dbc, sql: "SELECT id FROM applications WHERE id = ?",
+                               arguments: [appId]) != nil else { throw DeferError() }
+
+        let occurredAt = canonData["occurred_at"]?.stringValue ?? ""
+        let toOutcome = canonData["to_outcome"]?.stringValue ?? ""
+        let existing = try Row.fetchOne(dbc, sql: """
+            SELECT id FROM application_events
+            WHERE applicationId = ? AND occurredAt = ? AND toOutcome = ?
+            """, arguments: [appId, occurredAt, toOutcome])
+        if existing == nil {
+            try dbc.execute(sql: """
+                INSERT INTO application_events
+                    (applicationId, fromOutcome, toOutcome, occurredAt, note, source)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, arguments: [appId, canonData["from_outcome"]?.stringValue, toOutcome,
+                                 occurredAt, canonData["note"]?.stringValue,
+                                 canonData["source"]?.stringValue ?? "user"])
+        }
+        try ApplicationStore.recomputeOutcome(dbc, applicationId: appId)
+    }
+
     private func appSnapshot(_ dbc: Database, _ store: DocumentStore?) throws -> [String: [String: JSONValue]] {
         var out: [String: [String: JSONValue]] = [:]
         let cols = (["id"] + SyncEngine.appKinds.map { "a.\($0.0)" } + SyncEngine.appDocs.map { "a.\($0.1)" }).joined(separator: ", ")
@@ -299,6 +363,7 @@ public final class SyncEngine {
             try diff(entity: "job", current: try jobSnapshot(dbc))
             try diff(entity: "triage", current: try triageSnapshot(dbc))
             try diff(entity: "application", current: try appSnapshot(dbc, store))
+            try diff(entity: "application_event", current: try appEventSnapshot(dbc))
 
             if let iosProfile = loadProfile() {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
@@ -357,9 +422,17 @@ public final class SyncEngine {
                 do { try applyApplication(dbc, key.id, rec.data ?? [:], store); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application:\(key.id)"); stats.deferred += 1 }
             }
+            // Outcome history last — an event needs its application to exist.
+            for (key, rec) in winners where key.entity == "application_event" && !rec.deleted {
+                do { try applyAppEvent(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
+                catch is DeferError { deferred.insert("application_event:\(key.id)"); stats.deferred += 1 }
+            }
             // Tombstones, children before parents. `triage` never tombstones
             // (a delete is a live 'deleted' status). Job tombstones are the
             // generic safety net for a physically-removed row.
+            for (key, rec) in winners where key.entity == "application_event" && rec.deleted {
+                try deleteAppEvent(dbc, key.id); stats.deletes += 1
+            }
             for (key, rec) in winners where key.entity == "application" && rec.deleted {
                 try dbc.execute(sql: "DELETE FROM applications WHERE id = ?", arguments: [key.id]); stats.deletes += 1
             }
@@ -468,6 +541,22 @@ public final class SyncEngine {
         }
     }
 
+    /// An event is only tombstoned when its application went away; the id is
+    /// content-derived, so split it back into its parts. The toOutcome has no
+    /// colons, so the last one separates it from the timestamp.
+    private func deleteAppEvent(_ dbc: Database, _ syncId: String) throws {
+        guard let firstColon = syncId.firstIndex(of: ":"),
+              let lastColon = syncId.lastIndex(of: ":"), firstColon < lastColon else { return }
+        let appId = String(syncId[syncId.startIndex..<firstColon])
+        let occurredAt = String(syncId[syncId.index(after: firstColon)..<lastColon])
+        let toOutcome = String(syncId[syncId.index(after: lastColon)...])
+        try dbc.execute(sql: """
+            DELETE FROM application_events
+            WHERE applicationId = ? AND occurredAt = ? AND toOutcome = ?
+            """, arguments: [appId, occurredAt, toOutcome])
+        try ApplicationStore.recomputeOutcome(dbc, applicationId: appId)
+    }
+
     private func deleteJob(_ dbc: Database, _ syncId: String) throws {
         let parts = syncId.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2,
@@ -483,6 +572,7 @@ public final class SyncEngine {
         let jobs = try jobSnapshot(dbc)
         let triage = try triageSnapshot(dbc)
         let apps = try appSnapshot(dbc, store)
+        let appEvents = try appEventSnapshot(dbc)
         for (key, rec) in winners {
             if rec.deleted {
                 try putSnapshot(dbc, key.entity, key.id, rec.updatedAt, true, nil); continue
@@ -500,6 +590,9 @@ public final class SyncEngine {
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             case "application":
                 guard let known = apps[key.id] else { continue }
+                dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
+            case "application_event":
+                guard let known = appEvents[key.id] else { continue }
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             default: continue
             }

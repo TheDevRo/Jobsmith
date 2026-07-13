@@ -20,6 +20,10 @@ final class AppModel {
     var pipeline: [Job] = []
     var stats = JobStore.Stats()
     var activity: [ActivityEntry] = []
+    /// The application for each job that has one, keyed by job id — lets the
+    /// pipeline and detail screens show a submitted job's outcome without a
+    /// per-row query.
+    var applicationsByJob: [String: Application] = [:]
     var isFetching = false
     /// Live per-source progress for the in-flight fetch, or nil when idle.
     /// Drives the Inbox "Searching…" banner; cleared when the fetch ends.
@@ -93,6 +97,20 @@ final class AppModel {
                           isRemote: true),
         ]
         _ = try? jobStore.upsert(jobs)
+
+        // -SeedApplied additionally puts demo-1 in the submitted state with an
+        // application, so the outcome UI (which only exists once you've applied)
+        // is reachable without driving a real apply through a live posting.
+        if CommandLine.arguments.contains("-SeedApplied"),
+           let applied = try? jobStore.jobs(triage: "new").first(where: { $0.externalId == "demo-1" }) {
+            try? jobStore.setTriage("shortlisted", jobId: applied.id)
+            try? jobStore.setStatus("applied", jobId: applied.id)
+            if let application = try? applicationStore.createOrReplace(
+                jobId: applied.id, resume: "RESUME", coverLetter: "COVER",
+                honestyLevel: "honest", stylePreset: "standard") {
+                try? applicationStore.updateStatus(id: application.id, status: "applied")
+            }
+        }
     }
 
     func refresh() {
@@ -100,6 +118,34 @@ final class AppModel {
         pipeline = (try? jobStore.jobs(triage: "shortlisted")) ?? []
         stats = (try? jobStore.stats()) ?? JobStore.Stats()
         activity = (try? activityStore.recent()) ?? []
+        applicationsByJob = Dictionary(
+            ((try? applicationStore.applications()) ?? []).map { ($0.jobId, $0) },
+            uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
+    }
+
+    // MARK: outcomes
+
+    /// Record what the employer did after you applied. This is the whole point of
+    /// having the pipeline on the phone: the rejection email and the "can you do
+    /// Tuesday?" arrive here, not at the desk.
+    func setOutcome(jobId: String, _ outcome: ApplicationOutcome) {
+        guard let application = applicationsByJob[jobId],
+              application.outcome != outcome.rawValue else { return }
+        do {
+            try applicationStore.recordOutcome(id: application.id, outcome: outcome)
+        } catch {
+            lastError = "Could not save the outcome: \(error.localizedDescription)"
+            return
+        }
+        let title = pipeline.first { $0.id == jobId }?.title ?? "application"
+        activityStore.log("outcome", "\(outcome.label) — \(title)", jobId: jobId)
+        refresh()
+        Task { await syncNow() }
+    }
+
+    /// Funnel counts over submitted applications, for the Activity screen.
+    var outcomeFunnel: (applied: Int, stages: [(ApplicationOutcome, Int)]) {
+        (try? applicationStore.funnel()) ?? (0, [])
     }
 
     // MARK: foreground auto-sync

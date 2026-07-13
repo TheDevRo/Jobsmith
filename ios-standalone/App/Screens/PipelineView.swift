@@ -129,38 +129,53 @@ struct PipelineView: View {
         }
     }
 
+    /// The outcome chip for a submitted job, if it has an application.
+    private func outcome(_ job: Job) -> ApplicationOutcome? {
+        guard job.status == "applied", let app = model.applicationsByJob[job.id] else { return nil }
+        return ApplicationOutcome(rawValue: app.outcome)
+    }
+
     private func row(_ job: Job) -> some View {
         let isChecked = selection.contains(job.id)
-        return HStack(spacing: 12) {
-            if isSelecting {
-                // Decorative: selection is announced via the `.isSelected` trait
-                // on the row, so the checkmark itself stays out of the a11y tree.
-                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isChecked ? Theme.ember : .secondary)
-                    .transition(.scale.combined(with: .opacity))
-                    .accessibilityHidden(true)
-            }
-            JobRowView(job: job)
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelecting && isChecked ? [.isButton, .isSelected] : .isButton)
-        .accessibilityHint(isSelecting ? (isChecked ? "Deselect" : "Select") : "Opens the full posting")
-        .onTapGesture {
-            if isSelecting { toggle(job.id) } else { path.append(job.id) }
-        }
-        // simultaneousGesture (not onLongPressGesture) so the enclosing List
-        // doesn't swallow the press before it's recognized.
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                guard !isSelecting else { return }
-                withAnimation(.snappy) {
-                    isSelecting = true
-                    selection = [job.id]
+        // The chip sits outside the combined a11y element and the tap gestures —
+        // it is its own control, and folding it in would make the menu
+        // unreachable to VoiceOver and swallow its taps.
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                if isSelecting {
+                    // Decorative: selection is announced via the `.isSelected` trait
+                    // on the row, so the checkmark itself stays out of the a11y tree.
+                    Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isChecked ? Theme.ember : .secondary)
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityHidden(true)
                 }
+                JobRowView(job: job)
             }
-        )
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isSelecting && isChecked ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHint(isSelecting ? (isChecked ? "Deselect" : "Select") : "Opens the full posting")
+            .onTapGesture {
+                if isSelecting { toggle(job.id) } else { path.append(job.id) }
+            }
+            // simultaneousGesture (not onLongPressGesture) so the enclosing List
+            // doesn't swallow the press before it's recognized.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                    guard !isSelecting else { return }
+                    withAnimation(.snappy) {
+                        isSelecting = true
+                        selection = [job.id]
+                    }
+                }
+            )
+
+            if !isSelecting, let current = outcome(job) {
+                OutcomeChip(outcome: current) { model.setOutcome(jobId: job.id, $0) }
+            }
+        }
     }
 
     @ToolbarContentBuilder

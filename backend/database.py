@@ -1131,11 +1131,17 @@ async def update_application_outcome(
 
 
 async def get_application_events(app_id: str) -> list[dict]:
-    """Full outcome history for one application, oldest first."""
+    """Full outcome history for one application, oldest first.
+
+    Ordered by the event's sync identity (occurred_at, to_outcome) rather than
+    rowid, so every device presents the same history regardless of the order it
+    happened to import them in.
+    """
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM application_events WHERE application_id = ? ORDER BY occurred_at",
+            """SELECT * FROM application_events WHERE application_id = ?
+               ORDER BY occurred_at, to_outcome""",
             (app_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
