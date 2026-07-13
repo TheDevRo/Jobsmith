@@ -3,8 +3,11 @@ import Foundation
 /// The 4-phase form-field mapping pipeline, ported from
 /// `backend/auto_apply/llm_client.py` map_fields_to_values:
 ///
-///   0.   File inputs matched by keyword → action "upload" with a kind token
-///        ("resume"/"cover_letter") the extension swaps for file bytes.
+///   0.   File inputs resolved deterministically (never sent to the LLM):
+///        keyword match → action "upload" with a kind token
+///        ("resume"/"cover_letter") the extension swaps for file bytes;
+///        unmatched inputs default to resume unless clearly another document
+///        kind (photo, portfolio, transcript, …), which is skipped.
 ///   0.5  Deterministic profile matching (ProfileFieldMatcher); password
 ///        fields never reach the LLM.
 ///   1.   Answer bank via findBestMatch on label+extra_context.
@@ -22,6 +25,15 @@ public struct FieldMapper: Sendable {
         self.chunkSize = chunkSize
     }
 
+    /// Upload fields that clearly want something other than a resume/cover
+    /// letter — defaulting the resume into these would be wrong.
+    /// Mirror of _NON_RESUME_UPLOAD_TOKENS in backend/auto_apply/llm_client.py.
+    static let nonResumeUploadTokens = [
+        "photo", "picture", "image", "avatar", "headshot",
+        "portfolio", "transcript", "certific", "license",
+        "passport", "visa", "sample",
+    ]
+
     // ------------------------------------------------------------------
     // Pipeline
     // ------------------------------------------------------------------
@@ -31,6 +43,9 @@ public struct FieldMapper: Sendable {
         guard !fields.isEmpty else { return [] }
 
         // --- Phase 0: deterministic mapping for file inputs ---
+        // File inputs never reach the LLM — it can't attach files, so a
+        // fall-through would come back "skip" and the upload silently
+        // degrades to manual.
         var fileResolved: [String: FieldValue] = [:]
         var remaining: [FieldDescriptor] = []
         for f in fields {
@@ -38,23 +53,30 @@ public struct FieldMapper: Sendable {
                 // Greenhouse-style file inputs label themselves "Attach" and
                 // carry no `name` attribute — the only meaningful signal is
                 // `id="resume"` / `id="cover_letter"`, sent as field_id.
-                // Include it in the haystack so the deterministic match wins
-                // before we fall through to the LLM.
-                let hay = "\(f.label) \(f.name) \(f.placeholder) \(f.fieldId)".lowercased()
-                var kind: String?
+                // Workday-style inputs have no signal at all (a generated
+                // field_id and a "Select files" button); the drop zone's
+                // group text, when present, arrives as extraContext.
+                let hay = "\(f.label) \(f.name) \(f.placeholder) \(f.fieldId) \(f.extraContext)"
+                    .lowercased()
+                let kind: String
                 if hay.contains("cover") {
                     kind = "cover_letter"
                 } else if ["resume", "cv", "curriculum"].contains(where: { hay.contains($0) }) {
                     kind = "resume"
-                } else if hay.trimmingCharacters(in: .whitespaces).isEmpty {
-                    kind = "resume"  // bare file input — default to resume
-                }
-                if let kind {
+                } else if Self.nonResumeUploadTokens.contains(where: { hay.contains($0) }) {
+                    // A different kind of document — nothing sensible to
+                    // attach, and the LLM can't help; leave it manual.
                     fileResolved[f.fieldId] = FieldValue(
-                        fieldId: f.fieldId, value: kind, action: "upload",
-                        confidence: 0.95, source: "profile")
+                        fieldId: f.fieldId, value: "", action: "skip",
+                        confidence: 0.0, source: "skip")
                     continue
+                } else {
+                    kind = "resume"  // unlabeled uploader — default to resume
                 }
+                fileResolved[f.fieldId] = FieldValue(
+                    fieldId: f.fieldId, value: kind, action: "upload",
+                    confidence: 0.95, source: "profile")
+                continue
             }
             remaining.append(f)
         }

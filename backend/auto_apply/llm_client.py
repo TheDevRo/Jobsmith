@@ -31,6 +31,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Upload fields that clearly want something other than a resume/cover letter —
+# defaulting the resume into these would be wrong. Mirror of
+# FieldMapper.nonResumeUploadTokens in the iOS JobsmithKit port.
+_NON_RESUME_UPLOAD_TOKENS = (
+    "photo", "picture", "image", "avatar", "headshot",
+    "portfolio", "transcript", "certific", "license",
+    "passport", "visa", "sample",
+)
+
 
 class LLMClient:
     """
@@ -181,6 +190,9 @@ class LLMClient:
         # File fields are matched by keyword (resume/cv vs cover letter) and
         # emitted as action="upload" with a kind token in `value`. The browser
         # extension swaps the token for the actual file bytes at fill time.
+        # File inputs never reach the LLM — it can't attach files, so a
+        # fall-through would come back "skip" and the upload silently
+        # degrades to manual.
         file_resolved: dict[str, FieldValue] = {}
         remaining_fields: list["FieldDescriptor"] = []
         for f in fields:
@@ -188,25 +200,38 @@ class LLMClient:
                 # Greenhouse-style file inputs label themselves "Attach" and
                 # carry no `name` attribute — the only meaningful signal is
                 # `id="resume"` / `id="cover_letter"`, which we send as
-                # field_id. Include it in the haystack so the deterministic
-                # match wins before we fall through to the LLM.
-                hay = f"{f.label or ''} {f.name or ''} {f.placeholder or ''} {f.field_id or ''}".lower()
-                kind = None
+                # field_id. Workday-style inputs have no signal at all (a
+                # generated field_id and a "Select files" button); the drop
+                # zone's group text, when present, arrives as extra_context.
+                hay = (
+                    f"{f.label or ''} {f.name or ''} {f.placeholder or ''} "
+                    f"{f.field_id or ''} {f.extra_context or ''}"
+                ).lower()
                 if "cover" in hay:
                     kind = "cover_letter"
                 elif any(tok in hay for tok in ("resume", "cv", "curriculum")):
                     kind = "resume"
-                elif not hay.strip():
-                    kind = "resume"  # bare file input — default to resume
-                if kind:
+                elif any(tok in hay for tok in _NON_RESUME_UPLOAD_TOKENS):
+                    # A different kind of document — nothing sensible to
+                    # attach, and the LLM can't help; leave it manual.
                     file_resolved[f.field_id] = FieldValue(
                         field_id=f.field_id,
-                        value=kind,
-                        action="upload",
-                        confidence=0.95,
-                        source="profile",
+                        value="",
+                        action="skip",
+                        confidence=0.0,
+                        source="skip",
                     )
                     continue
+                else:
+                    kind = "resume"  # unlabeled uploader — default to resume
+                file_resolved[f.field_id] = FieldValue(
+                    field_id=f.field_id,
+                    value=kind,
+                    action="upload",
+                    confidence=0.95,
+                    source="profile",
+                )
+                continue
             remaining_fields.append(f)
 
         # --- Phase 0.5: deterministic profile matching ---

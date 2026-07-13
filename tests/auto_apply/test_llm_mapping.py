@@ -144,6 +144,30 @@ async def test_map_fields_correct_values(llm, profile, job, fields):
     assert mapping["field-6"].value == "No"
 
 
+@pytest.mark.asyncio
+async def test_file_inputs_never_reach_the_llm(llm, profile, job):
+    """Phase 0 resolves every file input deterministically — Workday-style
+    anonymous inputs default to resume, drop-zone context is honored, and
+    clearly-other uploads (photo, portfolio, …) are skipped, all without an
+    LLM call."""
+    fields = [
+        # Workday shape: generated field_id, no label/name keyword match.
+        FieldDescriptor(field_id="field_23", label="Select files", field_type="file"),
+        # The drop zone's text arrives only as extra_context.
+        FieldDescriptor(field_id="field_9", field_type="file",
+                        extra_context="Upload your Cover Letter here"),
+        # Not a resume slot — deterministic skip.
+        FieldDescriptor(field_id="field_4", label="Profile photo", field_type="file"),
+    ]
+    with patch.object(llm, "complete", new=AsyncMock(side_effect=AssertionError("LLM must not be called"))):
+        results = await llm.map_fields_to_values(profile, job, fields, answer_bank={})
+
+    mapping = {r.field_id: r for r in results}
+    assert (mapping["field_23"].action, mapping["field_23"].value) == ("upload", "resume")
+    assert (mapping["field_9"].action, mapping["field_9"].value) == ("upload", "cover_letter")
+    assert mapping["field_4"].action == "skip"
+
+
 # Fixture fields that can't be resolved deterministically from the profile and
 # therefore reach the LLM: field-4 is skill-specific ("years of experience with
 # Python") and field-7 is an open-ended textarea.
