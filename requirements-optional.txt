@@ -1,0 +1,19 @@
+# Optional Jobsmith extras (PKG-07).
+#
+# browser-use is the feature-flagged autonomous-apply engine (USE_BROWSER_USE=true
+# / auto_apply.use_browser_use in config.yaml). It drags in a large dependency
+# tree (anthropic, google-genai, groq, ollama, mcp, rich, cryptography, …) that
+# the default orchestrator apply path never touches, so it is NOT installed in
+# the Docker runtime image and NOT part of requirements.lock.
+#
+# backend/browser_use_agent.py imports it lazily: without this file installed the
+# app runs normally and only the browser-use apply path returns a clear
+# "browser-use is not installed" failure.
+#
+# Install (version matches the known-good local venv):
+#   pip install -r requirements-optional.txt
+#
+# Docker: add `RUN pip install -r requirements-optional.txt` to a derived image,
+# or `pip install -r requirements-optional.txt` inside the running container.
+
+browser-use==0.13.3

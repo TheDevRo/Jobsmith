@@ -10,7 +10,6 @@
 # Set the env vars below to match your LM Studio setup before starting.
 #
 # Once running, Skyvern is reachable at http://localhost:8000
-# The stagehand-service .env SKYVERN_BASE_URL should point here.
 
 services:
   skyvern-db:
@@ -52,7 +51,7 @@ services:
       CUSTOM_OPENAI_MODEL_NAME: "qwen2.5-7b-instruct-1m"
 
       # ── Skyvern API key ────────────────────────────────────────────────────
-      # Must match SKYVERN_API_KEY in stagehand-service/.env
+      # Must match the SKYVERN_API_KEY used by whatever client calls Skyvern.
       SKYVERN_API_KEY: "skyvern-key"
 
       # ── Browser ────────────────────────────────────────────────────────────

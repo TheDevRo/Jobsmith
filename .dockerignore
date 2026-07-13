@@ -15,8 +15,15 @@ data
 resumes
 failed_screenshots
 *.log
-stagehand-service
 n8n
+
+# Dev-only — never shipped in the runtime image (PKG-07)
+tests
+pytest.ini
+debug_apply.py
+linkedin_login.py
+test_navigator.py
+
 .env
 .env.local
 config.yaml

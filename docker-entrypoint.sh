@@ -31,6 +31,29 @@ ln -sf /app/config/config.yaml /app/config.yaml
 # work inside the container.
 if [ "$BROWSER_HEADLESS" = "false" ]; then
     echo "[entrypoint] Headed mode: starting Xvfb + x11vnc + noVNC on :6080."
+
+    # A VNC session on this container is a live remote desktop into a browser
+    # that is logged into LinkedIn/Indeed. Password-less x11vnc is only
+    # acceptable while the published 6080 port is loopback-only. NOVNC_BIND is
+    # passed in by docker-compose and mirrors the host-side port binding; if it
+    # is anything other than loopback and no VNC_PASSWORD was set, generate one
+    # rather than serving an open desktop to the LAN.
+    case "${NOVNC_BIND:-127.0.0.1}" in
+        ""|127.0.0.1|localhost|::1|"[::1]") NOVNC_LOOPBACK=1 ;;
+        *)                                  NOVNC_LOOPBACK=0 ;;
+    esac
+
+    if [ "$NOVNC_LOOPBACK" = "0" ] && [ -z "$VNC_PASSWORD" ]; then
+        VNC_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(12))')
+        echo "[entrypoint] ==============================================================="
+        echo "[entrypoint] NOVNC_BIND=${NOVNC_BIND} exposes noVNC beyond loopback but"
+        echo "[entrypoint] VNC_PASSWORD is empty. Refusing to run x11vnc with -nopw."
+        echo "[entrypoint] Generated a one-time VNC password (shown only now):"
+        echo "[entrypoint]     ${VNC_PASSWORD}"
+        echo "[entrypoint] Set VNC_PASSWORD in .env to pick your own and keep it stable."
+        echo "[entrypoint] ==============================================================="
+    fi
+
     Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp &
 
     # Give the display a moment before clients attach.
@@ -40,6 +63,7 @@ if [ "$BROWSER_HEADLESS" = "false" ]; then
     if [ -n "$VNC_PASSWORD" ]; then
         x11vnc -display :99 -forever -shared -bg -passwd "$VNC_PASSWORD" -o /tmp/x11vnc.log
     else
+        # Loopback-only publish: no password, matching the desktop-app UX.
         x11vnc -display :99 -forever -shared -bg -nopw -o /tmp/x11vnc.log
     fi
 

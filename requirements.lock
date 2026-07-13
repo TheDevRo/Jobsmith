@@ -1,0 +1,66 @@
+# Jobsmith backend — pinned dependency lock (PKG-01).
+#
+# Generated from the known-good local venv (.venv) by resolving the dependency
+# closure of requirements.txt against the installed distributions — every
+# version below is a version that actually runs, not a guess.
+#
+# requirements.txt stays the human-edited floor (">=" minimums). This file is
+# what the Docker image installs, so image builds are reproducible.
+#
+# The optional browser-use extra is NOT here — see requirements-optional.txt.
+#
+# To regenerate after changing requirements.txt:
+#   .venv/bin/pip install -r requirements.txt
+#   .venv/bin/pip freeze   # then re-pin the closure below
+#
+# Keep playwright's pin in sync with the Dockerfile base-image tag
+# (mcr.microsoft.com/playwright/python:v<PLAYWRIGHT_VERSION>-noble) and with
+# requirements.txt.
+
+aiohappyeyeballs==2.7.1
+aiohttp==3.13.4
+aiosignal==1.4.0
+aiosqlite==0.22.1
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.1
+attrs==26.1.0
+beautifulsoup4==4.15.0
+certifi==2026.6.17
+charset-normalizer==3.4.9
+click==8.3.1
+distro==1.9.0
+fastapi==0.139.0
+feedparser==6.0.12
+frozenlist==1.8.0
+greenlet==3.5.3
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+jiter==0.16.0
+lxml==6.1.1
+multidict==6.7.1
+openai==2.16.0
+pillow==12.2.0
+playwright==1.58.0
+playwright-stealth==2.0.3
+propcache==0.5.2
+pydantic==2.12.5
+pydantic_core==2.41.5
+pyee==13.0.1
+pypdf==6.10.2
+python-docx==1.2.0
+python-dotenv==1.2.2
+python-multipart==0.0.32
+PyYAML==6.0.3
+reportlab==4.4.9
+sgmllib3k==1.0.0
+sniffio==1.3.1
+soupsieve==2.8.4
+starlette==1.3.1
+tqdm==4.68.4
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+uvicorn==0.51.0
+yarl==1.24.2
