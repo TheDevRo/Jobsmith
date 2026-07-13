@@ -21,12 +21,92 @@ DB_PATH = project_root() / "data" / "jobsmith.db"
 
 
 async def _get_db() -> aiosqlite.Connection:
-    """Open a connection with row_factory enabled."""
+    """Open a connection with row_factory enabled.
+
+    Deliberately one connection per call. Sharing a single long-lived connection
+    would be faster, but aiosqlite only serializes *statement execution* on its
+    worker thread — it does not isolate *transactions*. Concurrent coroutines on
+    one connection share one implicit transaction, so whichever calls commit()
+    first also commits everyone else's half-finished writes. Not worth the risk
+    in an app whose background workers write while requests are being served.
+
+    journal_mode=WAL is set once in init_db(): it is a persistent property of the
+    database file, so re-issuing it on every open was pure overhead.
+    foreign_keys, by contrast, IS per-connection and must be set every time.
+    """
     db = await aiosqlite.connect(str(DB_PATH))
     db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
     await db.execute("PRAGMA foreign_keys=ON")
     return db
+
+
+# Forward-only, numbered schema migrations. Each runs at most once, recorded in
+# the schema_version table.
+#
+# Before this existed, ~19 ALTER TABLEs ran on every single boot inside bare
+# `except Exception: pass` — which meant "column already exists" (expected) and
+# "the database is locked/corrupt" (a real problem) were indistinguishable, and
+# both were silently ignored.
+SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
+    (1,  "ALTER TABLE jobs ADD COLUMN is_easy_apply BOOLEAN DEFAULT 0"),
+    (2,  "ALTER TABLE jobs ADD COLUMN apply_type TEXT DEFAULT 'unknown'"),
+    (3,  "ALTER TABLE jobs ADD COLUMN embellishment_log TEXT"),
+    (4,  "ALTER TABLE jobs ADD COLUMN salary_period TEXT DEFAULT 'unknown'"),
+    (5,  "ALTER TABLE jobs ADD COLUMN match_report TEXT"),
+    (6,  "ALTER TABLE jobs ADD COLUMN estimated_salary_min INTEGER"),
+    (7,  "ALTER TABLE jobs ADD COLUMN estimated_salary_max INTEGER"),
+    (8,  "ALTER TABLE jobs ADD COLUMN estimated_salary_period TEXT DEFAULT 'annual'"),
+    (9,  "ALTER TABLE jobs ADD COLUMN estimated_salary_source TEXT"),
+    (10, "ALTER TABLE jobs ADD COLUMN estimated_salary_confidence TEXT"),
+    (11, "ALTER TABLE jobs ADD COLUMN estimated_salary_metadata TEXT"),
+    (12, "ALTER TABLE jobs ADD COLUMN estimated_salary_generated_at TIMESTAMP"),
+    (13, "ALTER TABLE jobs ADD COLUMN last_seen TIMESTAMP"),
+    (14, "ALTER TABLE jobs ADD COLUMN times_seen INTEGER DEFAULT 1"),
+    (15, "ALTER TABLE jobs ADD COLUMN quality_report TEXT"),
+    (16, "ALTER TABLE jobs ADD COLUMN quality_score REAL"),
+    (17, "ALTER TABLE applications ADD COLUMN auto_apply_attempts INTEGER DEFAULT 0"),
+    (18, "ALTER TABLE applications ADD COLUMN outcome TEXT DEFAULT 'awaiting'"),
+    (19, "ALTER TABLE applications ADD COLUMN outcome_updated_at TIMESTAMP"),
+    (20, "ALTER TABLE applications ADD COLUMN honesty_level TEXT"),
+]
+
+
+async def _run_migrations(db: aiosqlite.Connection) -> None:
+    """Apply every migration newer than the recorded schema version."""
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS schema_version ("
+        "  version    INTEGER PRIMARY KEY,"
+        "  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    await db.commit()
+
+    cursor = await db.execute("SELECT COALESCE(MAX(version), 0) AS v FROM schema_version")
+    row = await cursor.fetchone()
+    current = row["v"] or 0
+
+    for version, ddl in SCHEMA_MIGRATIONS:
+        if version <= current:
+            continue
+        try:
+            await db.execute(ddl)
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                # A database created before schema_version existed: the old
+                # try/except-pass block already added this column. Record the
+                # version and move on — this is the one benign failure.
+                logger.debug("Migration %d was already applied: %s", version, ddl)
+            else:
+                # Locked, corrupt, out of disk — anything else is real. Be loud,
+                # and stop rather than limp on with a half-migrated schema.
+                logger.exception("Schema migration %d failed: %s", version, ddl)
+                raise
+        await db.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+        await db.commit()
+
+    if (applied := len(SCHEMA_MIGRATIONS) - current) > 0:
+        logger.info("Applied %d schema migration(s); now at version %d",
+                    applied, len(SCHEMA_MIGRATIONS))
 
 
 async def init_db() -> None:
@@ -34,6 +114,9 @@ async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = await _get_db()
     try:
+        # WAL is a persistent property of the database file, so it only needs
+        # setting once, here — not on every _get_db() open as it used to be.
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id              TEXT PRIMARY KEY,
@@ -100,51 +183,8 @@ async def init_db() -> None:
         """)
         await db.commit()
 
-        # Migrations for existing databases
-        try:
-            await db.execute("ALTER TABLE jobs ADD COLUMN is_easy_apply BOOLEAN DEFAULT 0")
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
-
-        try:
-            await db.execute("ALTER TABLE jobs ADD COLUMN apply_type TEXT DEFAULT 'unknown'")
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
-
-        try:
-            await db.execute("ALTER TABLE jobs ADD COLUMN embellishment_log TEXT")
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
-
-        try:
-            await db.execute("ALTER TABLE jobs ADD COLUMN salary_period TEXT DEFAULT 'unknown'")
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
-
-        for col, ddl in (
-            ("match_report",                  "TEXT"),
-            ("estimated_salary_min",          "INTEGER"),
-            ("estimated_salary_max",          "INTEGER"),
-            ("estimated_salary_period",       "TEXT DEFAULT 'annual'"),
-            ("estimated_salary_source",       "TEXT"),
-            ("estimated_salary_confidence",   "TEXT"),
-            ("estimated_salary_metadata",     "TEXT"),
-            ("estimated_salary_generated_at", "TIMESTAMP"),
-            # Ghost-job / posting-quality tracking
-            ("last_seen",                     "TIMESTAMP"),
-            ("times_seen",                    "INTEGER DEFAULT 1"),
-            ("quality_report",                "TEXT"),
-            ("quality_score",                 "REAL"),
-        ):
-            try:
-                await db.execute(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
-                await db.commit()
-            except Exception:
-                pass  # Column already exists
+        # Schema migrations for existing databases (see SCHEMA_MIGRATIONS).
+        await _run_migrations(db)
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS salary_lookup_cache (
@@ -171,35 +211,12 @@ async def init_db() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_qa_cache_question ON qa_cache(question_normalized)"
         )
+        # NOTE: idx_jobs_status is created in the executescript() schema above —
+        # it used to be created a second time here, which was a no-op.
+        #
         # Deletion is a soft, syncable state: a deleted job stays in `jobs` with
         # status='deleted' (hidden from every listing) and propagates through the
         # normal `triage` last-writer-wins path. No separate tombstone table.
-        # Speeds up the "exclude deleted / re-discovery" checks on the hot paths.
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)"
-        )
-        await db.commit()
-
-        try:
-            await db.execute(
-                "ALTER TABLE applications ADD COLUMN auto_apply_attempts INTEGER DEFAULT 0"
-            )
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
-
-        # Post-apply lifecycle tracking (orthogonal to status — status drives
-        # the apply orchestrator, outcome tracks what happened after submission).
-        for col, ddl in (
-            ("outcome", "TEXT DEFAULT 'awaiting'"),
-            ("outcome_updated_at", "TIMESTAMP"),
-            ("honesty_level", "TEXT"),
-        ):
-            try:
-                await db.execute(f"ALTER TABLE applications ADD COLUMN {col} {ddl}")
-                await db.commit()
-            except Exception:
-                pass  # Column already exists
 
         # Reset any applications stuck in 'applying' — these were interrupted by a server restart
         await db.execute(

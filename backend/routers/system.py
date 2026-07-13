@@ -16,6 +16,7 @@ from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
 from ..paths import reveal_in_file_manager
+from ..version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,13 @@ _TAIL_READ_CAP = 2_000_000  # trailing bytes to scan; plenty for 5000 lines
 
 @router.get("/api/logs/tail")
 async def tail_logs(request: Request, lines: int = Query(500, ge=10, le=5000)):
-    """Return the last N lines of the backend log. Loopback only — the log
-    can contain sensitive values (the extension token is logged at startup)."""
+    """Return the last N lines of the backend log. Loopback only.
+
+    The extension token is no longer logged (see main.lifespan), and the log
+    file is now mode 0600, but the log still carries session details, applied-job
+    history and other PII — so this stays loopback-only on top of the API-wide
+    auth gate.
+    """
     if not state.is_loopback_request(request):
         raise HTTPException(403, "Only served to localhost")
     path = state.LOG_FILE
@@ -82,6 +88,18 @@ async def get_notifications(since_id: int = Query(0, ge=0)):
     return {"notifications": events}
 
 
+@router.get("/api/health/live")
+async def health_live():
+    """Liveness only: is this process up and serving?
+
+    Deliberately does NOT probe the AI engine — the Docker HEALTHCHECK and the
+    desktop shell's readiness probe both poll this, and they must not report the
+    container as unhealthy just because LM Studio happens to be down. Unauthenticated
+    (see routers/_auth._EXEMPT_PREFIXES); it exposes nothing.
+    """
+    return {"status": "ok", "version": APP_VERSION}
+
+
 @router.get("/api/health")
 async def health_check():
     cfg = state.load_config()
@@ -91,6 +109,39 @@ async def health_check():
         "database": str(db.DB_PATH),
         "ai": ai_status,
     }
+
+
+# ---- Bundled-browser install status (desktop first launch) ----
+# packaging/desktop_entry.py now downloads Chromium on a background thread so it
+# can't block startup behind a static splash (REL-04); it publishes progress into
+# state.browser_install_status, and the dashboard surfaces it via these routes.
+
+@router.get("/api/system/browser-status")
+async def browser_status():
+    return state.browser_install_status
+
+
+@router.post("/api/system/browser-install")
+async def browser_install():
+    """Retry a failed/never-run bundled-Chromium install.
+
+    The installer itself lives in packaging/desktop_entry.py, which registers
+    itself here as state.browser_install_runner at desktop startup. We must NOT
+    import it by name: under PyInstaller that module is __main__, and `packaging`
+    is also a real PyPI distribution that would shadow the repo directory — so
+    the import would resolve to the wrong thing in exactly the environment this
+    endpoint exists to serve. Only the desktop app sets the hook; everything else
+    (docker, source checkout) brings its own browser and gets a 501.
+    """
+    runner = getattr(state, "browser_install_runner", None)
+    if runner is None:
+        raise HTTPException(
+            501, "Bundled-browser install is only available in the desktop app"
+        )
+    if state.browser_install_status.get("status") == "installing":
+        raise HTTPException(409, "Browser install already running")
+    asyncio.get_running_loop().run_in_executor(None, runner)
+    return {"status": "installing"}
 
 
 @router.get("/api/ai/models")
@@ -327,8 +378,16 @@ async def reload_context_window(body: ReloadContextRequest):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/debug/diag")
-async def get_diag_files():
-    """Read the last UI apply diagnostic files from /tmp and return their contents."""
+async def get_diag_files(request: Request):
+    """Read the last UI apply diagnostic files and return their contents.
+
+    These used to be read from world-writable /tmp, which meant any other local
+    user could plant a UI_ljc_diag_*.json and have the backend serve it straight
+    back to the dashboard. They now live under data/logs/ alongside the rest of
+    our diagnostics.
+    """
+    if not state.is_loopback_request(request):
+        raise HTTPException(403, "Only served to localhost")
     import json as _json
     keys = [
         "entry", "after_indeed", "after_linkedin", "before_ctrl", "before_launch",
@@ -336,7 +395,7 @@ async def get_diag_files():
     ]
     result = {}
     for key in keys:
-        path = Path(f"/tmp/UI_ljc_diag_{key}.json")
+        path = state.LOGS_DIR / f"UI_ljc_diag_{key}.json"
         if path.exists():
             try:
                 result[key] = _json.loads(path.read_text())

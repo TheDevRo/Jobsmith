@@ -399,6 +399,11 @@ def _build_field_map_user(
 # JSON extraction helper
 # ---------------------------------------------------------------------------
 
+# A real answer-bank/field-map payload is a few KB; anything past this is either
+# a runaway generation or an attempt to blow the literal parser's stack.
+_MAX_LITERAL_EVAL_CHARS = 200_000
+
+
 def _extract_json(text: str) -> list | dict:
     """
     Strip markdown fences and parse JSON from LLM output.
@@ -444,12 +449,19 @@ def _extract_json(text: str) -> list | dict:
         pass
 
     # Attempt 2: Python-style dict/list (single quotes, trailing commas, etc.)
-    try:
-        result = ast.literal_eval(text)
-        if isinstance(result, (list, dict)):
-            return result
-    except Exception:
-        pass
+    #
+    # ast.literal_eval is NOT eval: it walks a parsed AST and accepts only
+    # literals — no calls, no attribute access, no name lookups — so malformed or
+    # hostile model output cannot execute code here. The one way it does bite is
+    # resource exhaustion: CPython's parser recurses, so a deeply nested literal
+    # can exhaust the C stack. Cap the input rather than reach for a JSON5 dep.
+    if len(text) <= _MAX_LITERAL_EVAL_CHARS:
+        try:
+            result = ast.literal_eval(text)
+            if isinstance(result, (list, dict)):
+                return result
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            pass
 
     # Give up — caller will retry with a stricter prompt
     raise json.JSONDecodeError("Cannot parse LLM output as JSON or Python literal", text, 0)

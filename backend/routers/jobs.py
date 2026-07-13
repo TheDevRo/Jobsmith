@@ -219,6 +219,8 @@ class FetchJobsRequest(BaseModel):
 
 @router.post("/api/jobs/fetch", status_code=202)
 async def fetch_jobs(body: Optional[FetchJobsRequest] = None):
+    if state.task_running("fetch"):
+        raise HTTPException(409, "A job fetch is already running")
     sources = body.sources if body and body.sources else None
     task = asyncio.create_task(bg._bg_fetch_jobs(sources))
     state.running_tasks["fetch"] = task

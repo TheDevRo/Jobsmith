@@ -152,8 +152,14 @@ def build_router(load_config_fn) -> APIRouter:
     ):
         """Content script on /assist/launch/{id} calls this once it's read
         (and stored, if needed) the setup token from the page DOM.
+
         Accepts either the persistent extension token or the per-session
-        setup_token (same value today, but checked explicitly for clarity).
+        setup_token. These are now *different* values: the setup token is
+        ephemeral and disposable precisely because it gets embedded in the launch
+        page's DOM, where anything running on that page can read it. The
+        long-lived token — the one that unlocks all of /api/ext/* — is never put
+        in the page; it is handed back here, in the response body, only after the
+        caller has proven it holds a valid token for this session.
         """
         from . import applicant_assist
 
@@ -173,7 +179,13 @@ def build_router(load_config_fn) -> APIRouter:
             raise HTTPException(401, "Invalid X-Jobsmith-Token for assist checkin")
 
         applicant_assist.mark_handoff_extension_ready(session_id)
-        return {"ok": True, "apply_url": rec["apply_url"]}
+        # Hand back the persistent token so the extension can store *that* rather
+        # than the ephemeral setup token it just used.
+        return {
+            "ok": True,
+            "apply_url": rec["apply_url"],
+            "token": expected_persistent,
+        }
 
     # ---- Profile ---------------------------------------------------------
     @router.get("/profile", dependencies=[])

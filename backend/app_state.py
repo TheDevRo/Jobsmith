@@ -13,12 +13,16 @@ notification queue, the cancel events) can be imported directly.
 
 import asyncio
 import collections
+import copy
+import logging
 import os
 import time as _time
 from pathlib import Path
 from typing import Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Paths & config
@@ -76,9 +80,43 @@ def _apply_env_overrides(cfg: dict) -> dict:
     return cfg
 
 
+# load_config() is called on every request and on every background-task tick, and
+# it used to re-parse config.yaml each time. Cache on mtime instead: stat() is
+# cheap, and save_config() goes through os.replace(), which bumps mtime — so a
+# hot-edit of the file (by us or by hand) is still picked up on the next call.
+_config_cache: tuple[float, int, dict] | None = None  # (mtime, size, parsed)
+
+
 def load_config() -> dict:
+    global _config_cache
+    try:
+        st = CONFIG_PATH.stat()
+        stamp = (st.st_mtime, st.st_size)
+    except OSError:
+        stamp = None
+
+    if _config_cache is not None and stamp is not None:
+        cached_mtime, cached_size, cached_cfg = _config_cache
+        if (cached_mtime, cached_size) == stamp:
+            # Copy so a caller mutating the result can't poison the cache.
+            return _apply_env_overrides(copy.deepcopy(cached_cfg))
+
     with open(CONFIG_PATH, "r") as f:
-        return _apply_env_overrides(yaml.safe_load(f) or {})
+        raw = f.read()
+    try:
+        cfg = yaml.safe_load(raw) or {}
+    except yaml.YAMLError:
+        # A hand-edited, malformed config.yaml used to silently become {} — i.e.
+        # the app would quietly run on defaults with the user's real settings
+        # ignored. Prefer the last-known-good parse and make the failure loud.
+        logger.exception("config.yaml is not valid YAML — keeping the last good config")
+        if _config_cache is not None:
+            return _apply_env_overrides(copy.deepcopy(_config_cache[2]))
+        raise
+
+    if stamp is not None:
+        _config_cache = (stamp[0], stamp[1], copy.deepcopy(cfg))
+    return _apply_env_overrides(cfg)
 
 
 def save_config(cfg: dict) -> None:
@@ -90,6 +128,13 @@ def save_config(cfg: dict) -> None:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         f.flush()
         os.fsync(f.fileno())
+    # config.yaml holds the Workday/ATS passwords and every API key, so it must
+    # not be world-readable. chmod the temp file *before* the rename, so there is
+    # never a moment where a 0644 config.yaml exists on disk.
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:  # best effort (e.g. a filesystem without POSIX modes)
+        pass
     os.replace(tmp, CONFIG_PATH)
 
 
@@ -136,6 +181,25 @@ cancel_refetch = asyncio.Event()
 
 # Track running asyncio.Tasks so we can cancel them
 running_tasks: dict[str, asyncio.Task] = {}
+
+
+def task_running(key: str) -> bool:
+    """True when a background worker under `key` is still in flight.
+
+    Endpoints that kick off work used to overwrite running_tasks[key]
+    unconditionally, so a double-POST spawned a second racing worker and orphaned
+    the first handle (it could then never be cancelled). Callers check this and
+    return 409 instead.
+    """
+    task = running_tasks.get(key)
+    return bool(task and not task.done())
+
+
+# Bundled-Chromium install progress, published by packaging/desktop_entry.py's
+# background installer thread and read by /api/system/browser-status. Starts as
+# "ready" because every non-desktop deployment (docker, source checkout) brings
+# its own browser — only the desktop app has an install step to report on.
+browser_install_status: dict = {"status": "ready", "error": None}
 
 # Soft-stop flag: when True, a cancelled fetch falls through to the save phase
 # with whatever partial results have been collected (vs. discarding them).
