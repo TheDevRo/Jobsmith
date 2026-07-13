@@ -11,9 +11,9 @@ struct OnboardingFlow: View {
 
     enum Step { case welcome, ai, resume, profile, companies, sources }
     @State private var step: Step = .welcome
-    /// The welcome hero glyph. A fixed 52pt symbol ignored Dynamic Type, so it
-    /// scales against the title it sits above.
-    @ScaledMetric(relativeTo: .largeTitle) private var heroGlyphSize: CGFloat = 52
+    /// The welcome hero logo. A fixed size ignored Dynamic Type, so it
+    /// scales against the title it sits below.
+    @ScaledMetric(relativeTo: .largeTitle) private var heroLogoSize: CGFloat = 96
 
     var body: some View {
         NavigationStack {
@@ -70,9 +70,10 @@ struct OnboardingFlow: View {
     private var welcome: some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "hammer.fill")
-                .font(.system(size: heroGlyphSize))
-                .foregroundStyle(Theme.ember)
+            Image("Logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: heroLogoSize, height: heroLogoSize)
                 .accessibilityHidden(true)
             Text("Jobsmith")
                 .font(.largeTitle.weight(.bold))
