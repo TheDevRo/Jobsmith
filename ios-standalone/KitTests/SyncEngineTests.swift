@@ -216,8 +216,11 @@ final class SyncEngineTests: XCTestCase {
         let aexp = try a.export(to: folder)
         XCTAssertEqual(aexp.tombstones, 3)  // job facts + triage + application
 
+        // Only two of those three are *applied* as deletes: `triage` never
+        // tombstones on import (a delete is a live 'deleted' status), so the
+        // deletes are the application row and the job row.
         let imp = try b.importChanges(from: folder)
-        XCTAssertEqual(imp.deletes, 3)
+        XCTAssertEqual(imp.deletes, 2)
         try dbB.writer.read { dbc in
             XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs"), 0)
             XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM applications"), 0)
@@ -278,8 +281,10 @@ final class SyncEngineTests: XCTestCase {
         try b.importChanges(from: folder)
         try dbB.writer.read { dbc in
             XCTAssertEqual(try String.fetchOne(dbc, sql: "SELECT triage FROM jobs WHERE externalId='111'"), "deleted")
-            XCTAssertEqual(try JobStore(dbB).jobs().filter { $0.externalId == "111" }.count, 0)
         }
+        // Outside the read block: JobStore.jobs() opens its own read, and GRDB
+        // database methods are not reentrant.
+        XCTAssertEqual(try JobStore(dbB).jobs().filter { $0.externalId == "111" }.count, 0)
     }
 
     /// Permanent delete: once triage='deleted', a later fetch of the same posting

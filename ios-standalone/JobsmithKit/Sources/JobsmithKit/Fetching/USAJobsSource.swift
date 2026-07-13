@@ -30,15 +30,17 @@ public struct USAJobsSource: JobSource {
 
         let combos = keywords.flatMap { kw in locations.map { (kw, $0) } }
         var collected: [NormalizedJob] = []
-        await withTaskGroup(of: [NormalizedJob].self) { group in
+        // Throwing group: a wrong email/key pair fails every combo the same way,
+        // so the first SourceAuthError aborts rather than reading as "no jobs".
+        try await withThrowingTaskGroup(of: [NormalizedJob].self) { group in
             for (keyword, location) in combos {
                 group.addTask {
-                    await Self.fetchCombo(keyword: keyword, location: location,
-                                          maxAge: maxAge, headers: headers,
-                                          excludePatterns: excludePatterns, limiter: limiter)
+                    try await Self.fetchCombo(keyword: keyword, location: location,
+                                              maxAge: maxAge, headers: headers,
+                                              excludePatterns: excludePatterns, limiter: limiter)
                 }
             }
-            for await jobs in group { collected += jobs }
+            for try await jobs in group { collected += jobs }
         }
 
         var seenIDs = Set<String>()
@@ -48,7 +50,7 @@ public struct USAJobsSource: JobSource {
     private static func fetchCombo(keyword: String, location: String, maxAge: Int,
                                    headers: [String: String],
                                    excludePatterns: [NSRegularExpression],
-                                   limiter: AsyncLimiter) async -> [NormalizedJob] {
+                                   limiter: AsyncLimiter) async throws -> [NormalizedJob] {
         let isRemoteQuery = location.lowercased() == "remote"
         var query: [(String, String)] = [
             ("Keyword", keyword),
@@ -68,9 +70,14 @@ public struct USAJobsSource: JobSource {
                 await limiter.release()
                 throw error
             }
+            if SourceAuthError.isAuthFailure(response.status) {
+                throw SourceAuthError(source: id, status: response.status)
+            }
             guard response.status == 200 else { return [] }
             var seen = Set<String>()
             return try parse(data: response.data, excludePatterns: excludePatterns, seenIDs: &seen)
+        } catch let authError as SourceAuthError {
+            throw authError
         } catch {
             return []
         }

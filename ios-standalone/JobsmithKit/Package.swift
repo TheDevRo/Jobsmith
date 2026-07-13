@@ -21,9 +21,9 @@ let package = Package(
                 "ZIPFoundation",
             ]
         ),
-        .testTarget(
-            name: "JobsmithKitTests",
-            dependencies: ["JobsmithKit"]
-        ),
+        // No SPM test target on purpose: the Kit links UIKit-dependent code, so
+        // `swift test` on macOS can't build it. Every test lives in
+        // ios-standalone/KitTests and runs on the simulator via
+        //   xcodebuild -scheme JobsmithKit -destination 'platform=iOS Simulator,…' test
     ]
 )

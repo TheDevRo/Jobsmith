@@ -1,8 +1,8 @@
 import Foundation
 
-/// Shared container for the app, the Safari extension, and the share
-/// extension. Everything cross-process (database, config, generated
-/// documents, the active-job handoff) lives under this container.
+/// Shared container for the app and the share extension. Everything
+/// cross-process (database, config, generated documents, the active-job
+/// handoff) lives under this container.
 public enum AppGroup {
     public static let identifier = "group.com.thedevro.jobsmith.standalone"
 
@@ -13,8 +13,8 @@ public enum AppGroup {
         // No App Group container — typically an unsigned build (the entitlement
         // gets stripped when code signing is disabled) or a provisioning gap.
         // Fall back to the process's own sandbox so the app still launches
-        // rather than trapping. Cross-process sharing with the Safari/Share
-        // extensions is disabled in this mode; a properly signed build carries
+        // rather than trapping. Cross-process sharing with the Share
+        // extension is disabled in this mode; a properly signed build carries
         // the entitlement and never reaches this path.
         _ = warnedAboutFallback
         return localFallbackURL
@@ -55,9 +55,22 @@ public enum AppGroup {
         containerURL.appendingPathComponent("active_job.json")
     }
 
+    /// Everything under the container holds personal data (résumés, the job DB,
+    /// API keys), so directories are created with data protection on. It is
+    /// `completeUntilFirstUserAuthentication` rather than `complete` because
+    /// background fetch/scoring tasks run while the phone is locked and must
+    /// still be able to open the database.
+    private static let protection: [FileAttributeKey: Any] = [
+        .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication
+    ]
+
     private static func subdirectory(_ name: String) -> URL {
         let url = containerURL.appendingPathComponent(name, isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
+                                                 attributes: protection)
+        // Directories created by an earlier build predate the attribute, so set
+        // it on every access rather than only at creation.
+        try? FileManager.default.setAttributes(protection, ofItemAtPath: url.path)
         return url
     }
 }

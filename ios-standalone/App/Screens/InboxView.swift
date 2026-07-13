@@ -20,6 +20,8 @@ struct InboxView: View {
     /// Shown once, the first time the user kicks off a fetch.
     @AppStorage(AppStorageKey.hasSeenSearchTip) private var hasSeenSearchTip = false
     @State private var showSearchTip = false
+    /// Tap targets grow with the user's text size (44pt HIG minimum at default).
+    @ScaledMetric(relativeTo: .title2) private var triageButtonSize: CGFloat = 58
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
     private var filteredInbox: [Job] {
@@ -244,7 +246,7 @@ struct InboxView: View {
             VStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.title2.weight(.semibold))
-                    .frame(width: 58, height: 58)
+                    .frame(width: triageButtonSize, height: triageButtonSize)
                     .background(Circle().fill(.thickMaterial))
                     .overlay(Circle().strokeBorder(tint.opacity(0.4), lineWidth: 1.5))
                     .foregroundStyle(tint)
@@ -254,6 +256,16 @@ struct InboxView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityHint(topJobDescription.map { "\(label) \($0)" } ?? "")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Names the card the Pass/Shortlist buttons would act on, so VoiceOver
+    /// says *which* job it is about to triage.
+    private var topJobDescription: String? {
+        sortedInbox.first.map { "\($0.title) at \($0.company.isEmpty ? SourceCatalog.displayName(for: $0.source) : $0.company)" }
     }
 
     private func addByURL() {
@@ -378,6 +390,15 @@ struct SwipeCard: View {
                     fling(cmd.direction)
                 }
             }
+            // Only the front card is reachable; the two behind it are decorative
+            // stack depth and would otherwise be read out as phantom jobs.
+            .accessibilityHidden(!isTop)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens the full posting")
+            // The drag gesture is unusable under VoiceOver, so surface the two
+            // triage decisions as rotor actions instead.
+            .accessibilityAction(named: Text("Shortlist")) { onSwipe(.shortlist) }
+            .accessibilityAction(named: Text("Pass")) { onSwipe(.dismiss) }
     }
 
     @ViewBuilder private var stamp: some View {
@@ -427,6 +448,26 @@ struct SwipeCard: View {
 
 struct JobCardView: View {
     let job: Job
+    /// The card must be able to grow with Dynamic Type or the title, chips, and
+    /// description clip against each other at AX sizes.
+    @ScaledMetric(relativeTo: .body) private var minCardHeight: CGFloat = 340
+    @ScaledMetric(relativeTo: .body) private var maxCardHeight: CGFloat = 420
+
+    /// One spoken sentence for the whole card. The fit score is included as a
+    /// number, so VoiceOver users get what the heat color conveys visually.
+    private var accessibilityDescription: String {
+        let employer = job.company.isEmpty ? SourceCatalog.displayName(for: job.source) : job.company
+        var parts = ["\(job.title) at \(employer)"]
+        if let score = job.fitScore {
+            parts.append("fit \(Int(score)) of 100")
+        } else {
+            parts.append("not scored yet")
+        }
+        if job.isRemote { parts.append("remote") }
+        if !job.location.isEmpty { parts.append(job.location) }
+        if let salary = salaryText { parts.append(salary) }
+        return parts.joined(separator: ", ")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -475,7 +516,8 @@ struct JobCardView: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 340, maxHeight: 420, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: minCardHeight, maxHeight: maxCardHeight,
+               alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 22)
                 .fill(.background)
@@ -483,6 +525,8 @@ struct JobCardView: View {
         )
         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.quaternary))
         .contentShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
     }
 
     private var salaryText: String? {
@@ -492,7 +536,10 @@ struct JobCardView: View {
 
     private func chip(_ text: String, system: String) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: system).font(.system(size: 10))
+            // Decorative: the adjacent text already says what the glyph means.
+            Image(systemName: system)
+                .font(.caption2)
+                .accessibilityHidden(true)
             Text(text).lineLimit(1)
         }
         .font(.caption.weight(.medium))

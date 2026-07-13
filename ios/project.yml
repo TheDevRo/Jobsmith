@@ -18,7 +18,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: 0.2.2
+    # Tracks package.json, the version source of truth for the whole repo.
+    MARKETING_VERSION: 0.2.4
     CURRENT_PROJECT_VERSION: 1
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: NO

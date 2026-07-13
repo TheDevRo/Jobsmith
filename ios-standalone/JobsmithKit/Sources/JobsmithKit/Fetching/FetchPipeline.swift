@@ -10,6 +10,9 @@ public struct FetchProgress: Sendable, Equatable {
     public var timedOut: [String] = []
     public var failed: [String] = []
     public var suspect: [String] = []
+    /// Sources that rejected our credentials (401/403) — a wrong API key, not
+    /// an empty board.
+    public var authFailed: [String] = []
     /// Raw jobs each finished source returned (pre-dedup, pre-filter). Populated
     /// incrementally so the UI can show "Greenhouse — 104 found" live.
     public var perSourceFound: [String: Int] = [:]
@@ -25,6 +28,10 @@ public struct FetchSummary: Sendable, Equatable {
     public var blocked: [String] = []
     public var timedOut: [String] = []
     public var failed: [String] = []
+    /// Sources that rejected our credentials (401/403). Kept apart from `failed`
+    /// so the UI can say "check the API key" instead of "had trouble" — and so a
+    /// bad key can never masquerade as "no jobs today".
+    public var authFailed: [String] = []
     /// Sources that have returned jobs before but now hit 3+ consecutive
     /// zero-job runs — their parser or API may have silently broken.
     public var suspect: [String] = []
@@ -72,8 +79,14 @@ public actor FetchPipeline {
 
     /// Fetch from `sources` (empty = all registered), apply global filters
     /// and dedup, and upsert into `jobStore`.
+    ///
+    /// `timeoutBudget` caps every source's own timeout — a `BGAppRefreshTask`
+    /// gets roughly 30 seconds total, far less than the 60–300s some sources
+    /// allow themselves, so the background tiers pass a budget rather than
+    /// letting iOS kill the task mid-write.
     public func run(config: AppConfig, sources: [String] = [],
-                    jobStore: JobStore) async -> FetchSummary {
+                    jobStore: JobStore,
+                    timeoutBudget: Duration? = nil) async -> FetchSummary {
         let requested = Set(sources.map { $0.lowercased() })
         let ids = SourceRegistry.allIDs.filter { requested.isEmpty || requested.contains($0) }
 
@@ -99,7 +112,8 @@ public actor FetchPipeline {
                 } else {
                     knownIDs = []
                 }
-                let timeout = type(of: source).timeout
+                let declared = type(of: source).timeout
+                let timeout = timeoutBudget.map { min(declared, $0) } ?? declared
                 group.addTask {
                     do {
                         let jobs = try await Self.withTimeout(timeout) {
@@ -131,6 +145,7 @@ public actor FetchPipeline {
                     summary.perSource[name] = 0
                     if error is SourceTimeoutError { summary.timedOut.append(name) }
                     else if error is SourceBlockedError { summary.blocked.append(name) }
+                    else if error is SourceAuthError { summary.authFailed.append(name) }
                     else { summary.failed.append(name) }
                 }
                 emit(FetchProgress(sourcesTotal: ids.count, sourcesDone: doneCount,
@@ -140,6 +155,7 @@ public actor FetchPipeline {
                                        : "\(doneCount)/\(ids.count) sources done",
                                    blocked: summary.blocked, timedOut: summary.timedOut,
                                    failed: summary.failed, suspect: summary.suspect,
+                                   authFailed: summary.authFailed,
                                    perSourceFound: perSourceFound,
                                    perSourceFiltered: perSourceFiltered))
             }
@@ -157,6 +173,7 @@ public actor FetchPipeline {
                            detail: "Saved \(summary.inserted) new jobs",
                            blocked: summary.blocked, timedOut: summary.timedOut,
                            failed: summary.failed, suspect: summary.suspect,
+                           authFailed: summary.authFailed,
                            perSourceFound: perSourceFound,
                            perSourceFiltered: perSourceFiltered))
         finishStreams()

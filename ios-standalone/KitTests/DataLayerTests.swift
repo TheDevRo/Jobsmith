@@ -144,6 +144,159 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(ai.model(for: .utility), "tiny")
         XCTAssertEqual(ai.model(for: .strong), "mistral-7b")
     }
+
+    // MARK: - Tolerant decode + corruption handling (REL-10)
+
+    private func tempConfigURL() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("config-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("config.json")
+    }
+
+    /// An unknown extra key (written by a newer build) plus missing optional
+    /// sections must not cost the user the values that *are* there.
+    func testUnknownKeysAndMissingSectionsSurvive() async throws {
+        let url = try tempConfigURL()
+        let json = """
+        {
+          "profile": {"fullName": "Jane Doe", "skills": ["Swift"], "quantumField": 42},
+          "search": {"keywords": ["ios"], "somethingNew": true},
+          "ai": {"baseURL": "http://10.0.0.2:1234/v1"},
+          "retiredSection": {"a": 1}
+        }
+        """
+        try Data(json.utf8).write(to: url)
+
+        let config = await ConfigStore(fileURL: url).load()
+        XCTAssertEqual(config.profile.fullName, "Jane Doe")
+        XCTAssertEqual(config.profile.skills, ["Swift"])
+        XCTAssertEqual(config.search.keywords, ["ios"])
+        XCTAssertEqual(config.ai.baseURL, "http://10.0.0.2:1234/v1")
+        // Absent sections fall back to their defaults rather than failing.
+        XCTAssertEqual(config.honesty.level, .honest)
+        XCTAssertEqual(config.apiKeys.adzunaAppID, "")
+    }
+
+    /// One malformed section must not take the rest of the config with it.
+    func testMalformedSectionFallsBackWithoutLosingOthers() async throws {
+        let url = try tempConfigURL()
+        let json = """
+        {
+          "profile": {"fullName": "Jane Doe"},
+          "search": "this should be an object",
+          "honesty": {"level": "tailored"}
+        }
+        """
+        try Data(json.utf8).write(to: url)
+
+        let config = await ConfigStore(fileURL: url).load()
+        XCTAssertEqual(config.profile.fullName, "Jane Doe")
+        XCTAssertEqual(config.honesty.level, .tailored)
+        XCTAssertEqual(config.search.keywords, [])  // defaulted, not fatal
+    }
+
+    /// A config file that is not JSON at all must be preserved, not overwritten
+    /// with defaults — the old behaviour silently wiped profile, keys and all.
+    func testCorruptFileIsPreservedAndReported() async throws {
+        let url = try tempConfigURL()
+        let garbage = Data("}{ not json at all".utf8)
+        try garbage.write(to: url)
+
+        let store = ConfigStore(fileURL: url)
+        let config = await store.load()
+        XCTAssertTrue(config.profile.isEmpty)
+
+        let warning = await store.loadWarning
+        XCTAssertNotNil(warning)
+        // The original is untouched and a copy is kept for post-mortem.
+        XCTAssertEqual(try Data(contentsOf: url), garbage)
+        let corruptURL = url.deletingLastPathComponent()
+            .appendingPathComponent("config.corrupt.json")
+        XCTAssertEqual(try Data(contentsOf: corruptURL), garbage)
+    }
+
+    /// SEC-08: the LinkedIn session cookie is a live credential — it round-trips
+    /// through the secret store and must not be left in the plaintext JSON.
+    func testLinkedInCookieDoesNotLandInPlaintextJSON() async throws {
+        let url = try tempConfigURL()
+        let secrets = FakeSecretStore()
+        let store = ConfigStore(fileURL: url, secrets: secrets)
+
+        var config = await store.load()
+        config.apiKeys.linkedInCookie = "AQEDATest_li_at_value"
+        config.apiKeys.adzunaAppID = "public-id"
+        try await store.save(config)
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("AQEDATest_li_at_value"))
+        XCTAssertTrue(onDisk.contains("public-id"))
+        XCTAssertEqual(secrets.get(.linkedInCookie), "AQEDATest_li_at_value")
+
+        // ...but a fresh store still reads it back, out of the secret store.
+        let reloaded = await ConfigStore(fileURL: url, secrets: secrets).load()
+        XCTAssertEqual(reloaded.apiKeys.linkedInCookie, "AQEDATest_li_at_value")
+        XCTAssertEqual(reloaded.apiKeys.adzunaAppID, "public-id")
+    }
+
+    /// A cookie written in plaintext by an older build migrates into the secret
+    /// store on first load, and is stripped from the file.
+    func testLegacyPlaintextCookieMigrates() async throws {
+        let url = try tempConfigURL()
+        try Data(#"{"apiKeys": {"linkedInCookie": "legacy_cookie_value"}}"#.utf8).write(to: url)
+
+        let secrets = FakeSecretStore()
+        let loaded = await ConfigStore(fileURL: url, secrets: secrets).load()
+        XCTAssertEqual(loaded.apiKeys.linkedInCookie, "legacy_cookie_value")
+        XCTAssertEqual(secrets.get(.linkedInCookie), "legacy_cookie_value")
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("legacy_cookie_value"))
+    }
+
+    /// The documented fallback: when the Keychain is unavailable (an unsigned
+    /// sideload with no App Group), the cookie stays in the JSON rather than
+    /// being dropped — the feature keeps working, just less privately.
+    func testCookieFallsBackToPlaintextWhenSecretStoreUnavailable() async throws {
+        let url = try tempConfigURL()
+        let secrets = FakeSecretStore(available: false)
+        let store = ConfigStore(fileURL: url, secrets: secrets)
+
+        var config = await store.load()
+        config.apiKeys.linkedInCookie = "fallback_cookie"
+        try await store.save(config)
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(onDisk.contains("fallback_cookie"))
+
+        let reloaded = await ConfigStore(fileURL: url, secrets: secrets).load()
+        XCTAssertEqual(reloaded.apiKeys.linkedInCookie, "fallback_cookie")
+    }
+}
+
+/// In-memory `SecretStore`. The real Keychain can't be exercised from a hostless
+/// test bundle: those load into the shared `xctest` process, which has no
+/// application-identifier entitlement, so `SecItemAdd` returns
+/// errSecMissingEntitlement. `available: false` reproduces exactly that.
+final class FakeSecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [SecretKey: String] = [:]
+    private let available: Bool
+
+    init(available: Bool = true) { self.available = available }
+
+    func get(_ key: SecretKey) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return available ? storage[key] : nil
+    }
+
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        guard available else { return false }
+        lock.lock(); defer { lock.unlock() }
+        if value.isEmpty { storage[key] = nil } else { storage[key] = value }
+        return true
+    }
 }
 
 final class AnswerBankStoreTests: XCTestCase {

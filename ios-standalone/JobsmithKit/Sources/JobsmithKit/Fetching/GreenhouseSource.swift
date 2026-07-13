@@ -30,56 +30,68 @@ public struct GreenhouseSource: JobSource {
         let limiter = AsyncLimiter(Self.boardConcurrency)
         var results: [NormalizedJob] = []
 
-        await withTaskGroup(of: [NormalizedJob].self) { group in
+        // Throwing group: a 401/403 means the board is gated, not empty — that
+        // must reach the user rather than looking like "no jobs" (see REL-02).
+        try await withThrowingTaskGroup(of: [NormalizedJob].self) { group in
             for slug in ghBoards {
                 group.addTask {
-                    await Self.runBoard(limiter: limiter, deadline: deadline) {
-                        await Self.fetchGreenhouseBoard(slug: slug, keywords: keywords,
-                                                        excludePatterns: excludePatterns,
-                                                        knownIDs: knownExternalIDs)
+                    try await Self.runBoard(limiter: limiter, deadline: deadline) {
+                        try await Self.fetchGreenhouseBoard(slug: slug, keywords: keywords,
+                                                            excludePatterns: excludePatterns,
+                                                            knownIDs: knownExternalIDs)
                     }
                 }
             }
             for slug in lvCompanies {
                 group.addTask {
-                    await Self.runBoard(limiter: limiter, deadline: deadline) {
-                        await Self.fetchLeverBoard(slug: slug, keywords: keywords,
-                                                   excludePatterns: excludePatterns,
-                                                   knownIDs: knownExternalIDs)
+                    try await Self.runBoard(limiter: limiter, deadline: deadline) {
+                        try await Self.fetchLeverBoard(slug: slug, keywords: keywords,
+                                                       excludePatterns: excludePatterns,
+                                                       knownIDs: knownExternalIDs)
                     }
                 }
             }
-            for await jobs in group { results += jobs }
+            for try await jobs in group { results += jobs }
         }
         return results
     }
 
     private static func runBoard(limiter: AsyncLimiter, deadline: ContinuousClock.Instant,
-                                 _ fetch: () async -> [NormalizedJob]) async -> [NormalizedJob] {
+                                 _ fetch: () async throws -> [NormalizedJob]) async throws -> [NormalizedJob] {
         await limiter.acquire()
         if ContinuousClock.now >= deadline {
             await limiter.release()
             return []
         }
-        let jobs = await fetch()
-        await limiter.release()
-        return jobs
+        do {
+            let jobs = try await fetch()
+            await limiter.release()
+            return jobs
+        } catch {
+            await limiter.release()
+            throw error
+        }
     }
 
     // MARK: - Greenhouse
 
     private static func fetchGreenhouseBoard(slug: String, keywords: [String],
                                              excludePatterns: [NSRegularExpression],
-                                             knownIDs: Set<String>) async -> [NormalizedJob] {
+                                             knownIDs: Set<String>) async throws -> [NormalizedJob] {
         guard let url = URL(string: "https://boards-api.greenhouse.io/v1/boards/\(slug)/jobs?content=true")
         else { return [] }
         do {
             // content=true payloads for large boards run to several MB —
             // allow more than the usual 30s.
             let response = try await HTTPClient.fetchWithRetries(url, headers: headers, timeout: 45)
+            if SourceAuthError.isAuthFailure(response.status) {
+                throw SourceAuthError(source: id, status: response.status)
+            }
             guard response.status == 200 else { return [] }
             return try parseBoard(data: response.data, slug: slug, keywords: keywords,
                                   excludePatterns: excludePatterns, knownIDs: knownIDs)
+        } catch let authError as SourceAuthError {
+            throw authError
         } catch {
             return []
         }
@@ -129,13 +141,18 @@ public struct GreenhouseSource: JobSource {
 
     private static func fetchLeverBoard(slug: String, keywords: [String],
                                         excludePatterns: [NSRegularExpression],
-                                        knownIDs: Set<String>) async -> [NormalizedJob] {
+                                        knownIDs: Set<String>) async throws -> [NormalizedJob] {
         guard let url = URL(string: "https://api.lever.co/v0/postings/\(slug)") else { return [] }
         do {
             let response = try await HTTPClient.fetchWithRetries(url, headers: headers, timeout: 30)
+            if SourceAuthError.isAuthFailure(response.status) {
+                throw SourceAuthError(source: id, status: response.status)
+            }
             guard response.status == 200 else { return [] }
             return try parseLeverBoard(data: response.data, slug: slug, keywords: keywords,
                                        excludePatterns: excludePatterns, knownIDs: knownIDs)
+        } catch let authError as SourceAuthError {
+            throw authError
         } catch {
             return []
         }

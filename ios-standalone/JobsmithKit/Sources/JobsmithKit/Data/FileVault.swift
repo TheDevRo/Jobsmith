@@ -2,7 +2,7 @@ import Foundation
 
 /// Generated document storage in the App Group container:
 /// documents/{jobId}/resume.docx, cover_letter.docx, resume.pdf, …
-/// Both the app and the Safari extension read from here.
+/// Both the app and the Share extension read from here.
 public enum FileVault {
     public enum Kind: String, Sendable {
         case resume = "resume"

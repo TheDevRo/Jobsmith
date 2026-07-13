@@ -14,14 +14,36 @@ public struct FitResult: Equatable, Sendable {
     }
 }
 
+/// Why a job could not be scored. Distinct from a low score: callers must not
+/// persist a fit score when one of these is thrown, or a dead endpoint would
+/// permanently brand every unscored job as a `0` (indistinguishable from a real
+/// bad fit).
+public enum ScoringError: Error, LocalizedError {
+    /// Both the initial call and the low-temperature retry failed.
+    case engineUnavailable(String)
+    /// The model answered, but no score could be salvaged from its output.
+    case unparseableResponse(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .engineUnavailable(let detail):
+            return "The AI endpoint could not be reached: \(detail)"
+        case .unparseableResponse(let raw):
+            return "The AI response contained no score. Raw: \(raw)"
+        }
+    }
+}
+
 /// Port of `ai_engine.score_job_fit` including its full fallback chain:
 /// JSON parse → embedded-object salvage → "score": N regex → any 0-100
-/// number → 0.0, with one retry at temperature 0.3 when the call fails.
+/// number, with one retry at temperature 0.3 when the call fails. Unlike the
+/// Python original it never invents a `0` — an unreachable engine or an
+/// unsalvageable response throws `ScoringError`.
 public enum ScoringService {
     static let titleAlignments: Set<String> = ["strong", "partial", "weak"]
 
     public static func score(job: Job, profile: Profile, config: AppConfig,
-                             engine: AIEngine) async -> FitResult {
+                             engine: AIEngine) async throws -> FitResult {
         let prompt = PromptRegistry.render("score_job_fit", [
             "job_title": job.title,
             "job_company": job.company,
@@ -53,7 +75,7 @@ public enum ScoringService {
                                  reasoning: data["reasoning"] as? String ?? "",
                                  matchReportJSON: sanitizedMatchReportJSON(data))
             }
-            return FitResult(score: 0.0, reasoning: "AI error: \(String(describing: error))")
+            throw ScoringError.engineUnavailable(String(describing: error))
         }
 
         // Try parsing as JSON first
@@ -83,8 +105,7 @@ public enum ScoringService {
             return FitResult(score: score,
                              reasoning: "(Score parsed from raw response) \(String(text.prefix(300)))")
         }
-        return FitResult(score: 0.0,
-                         reasoning: "ERROR: Could not parse score from LLM response. Raw: \(String(text.prefix(200)))")
+        throw ScoringError.unparseableResponse(String(text.prefix(200)))
     }
 
     /// Coerce the LLM's structured match output into a clean report; nil when

@@ -30,15 +30,18 @@ public struct AdzunaSource: JobSource {
 
         let combos = keywords.flatMap { kw in locations.map { (kw, $0) } }
         var collected: [NormalizedJob] = []
-        await withTaskGroup(of: [NormalizedJob].self) { group in
+        // Throwing group: a bad app id/key fails identically for every combo, so
+        // the first SourceAuthError aborts the run and surfaces to the user
+        // instead of masquerading as "Adzuna had no jobs today".
+        try await withThrowingTaskGroup(of: [NormalizedJob].self) { group in
             for (keyword, location) in combos {
                 group.addTask {
-                    await Self.fetchCombo(keyword: keyword, location: location,
-                                          appID: appID, appKey: appKey, maxAge: maxAge,
-                                          excludePatterns: excludePatterns, limiter: limiter)
+                    try await Self.fetchCombo(keyword: keyword, location: location,
+                                              appID: appID, appKey: appKey, maxAge: maxAge,
+                                              excludePatterns: excludePatterns, limiter: limiter)
                 }
             }
-            for await jobs in group { collected += jobs }
+            for try await jobs in group { collected += jobs }
         }
 
         // Combos deduplicate on Adzuna's numeric id (shared seen-set in Python).
@@ -49,7 +52,7 @@ public struct AdzunaSource: JobSource {
     private static func fetchCombo(keyword: String, location: String,
                                    appID: String, appKey: String, maxAge: Int,
                                    excludePatterns: [NSRegularExpression],
-                                   limiter: AsyncLimiter) async -> [NormalizedJob] {
+                                   limiter: AsyncLimiter) async throws -> [NormalizedJob] {
         var jobs: [NormalizedJob] = []
         var seenIDs = Set<String>()
         // Adzuna's `where` is a geographic filter — "Remote" isn't a place, so
@@ -78,11 +81,16 @@ public struct AdzunaSource: JobSource {
                     await limiter.release()
                     throw error
                 }
+                if SourceAuthError.isAuthFailure(response.status) {
+                    throw SourceAuthError(source: id, status: response.status)
+                }
                 guard response.status == 200 else { break }
                 let page = try parsePage(data: response.data, excludePatterns: excludePatterns,
                                          seenIDs: &seenIDs)
                 jobs += page.jobs
                 if page.rawCount == 0 { break }
+            } catch let authError as SourceAuthError {
+                throw authError
             } catch {
                 break
             }

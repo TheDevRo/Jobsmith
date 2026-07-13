@@ -130,16 +130,23 @@ struct PipelineView: View {
     }
 
     private func row(_ job: Job) -> some View {
-        HStack(spacing: 12) {
+        let isChecked = selection.contains(job.id)
+        return HStack(spacing: 12) {
             if isSelecting {
-                Image(systemName: selection.contains(job.id) ? "checkmark.circle.fill" : "circle")
+                // Decorative: selection is announced via the `.isSelected` trait
+                // on the row, so the checkmark itself stays out of the a11y tree.
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(selection.contains(job.id) ? Theme.ember : .secondary)
+                    .foregroundStyle(isChecked ? Theme.ember : .secondary)
                     .transition(.scale.combined(with: .opacity))
+                    .accessibilityHidden(true)
             }
             JobRowView(job: job)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelecting && isChecked ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(isSelecting ? (isChecked ? "Deselect" : "Select") : "Opens the full posting")
         .onTapGesture {
             if isSelecting { toggle(job.id) } else { path.append(job.id) }
         }
@@ -238,6 +245,17 @@ struct PipelineView: View {
 struct JobRowView: View {
     let job: Job
 
+    /// Spoken as one phrase, with the fit score as a number — the heat color
+    /// alone can't carry it.
+    private var accessibilityDescription: String {
+        let source = SourceCatalog.displayName(for: job.source)
+        var parts = ["\(job.title) at \(job.company.isEmpty ? source : job.company)"]
+        parts.append(job.fitScore.map { "fit \(Int($0)) of 100" } ?? "not scored yet")
+        if job.isRemote { parts.append("remote") }
+        if !job.company.isEmpty { parts.append("from \(source)") }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -258,5 +276,7 @@ struct JobRowView: View {
             HeatChip(score: job.fitScore)
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
     }
 }

@@ -1,4 +1,11 @@
-# Jobsmith iOS
+# Jobsmith iOS (server-connector app)
+
+> **Maintenance only.** This app is the thin server-connector: it needs a
+> Jobsmith backend running somewhere to talk to. Active development happens in
+> **[`ios-standalone/`](README-IOS-STANDALONE.md)**, which runs the entire
+> pipeline on the phone with no server at all — that's the one to install.
+> This one is kept building and gets security/compatibility fixes, but no new
+> features. The two share no code and can be installed side by side.
 
 The iOS app is the mobile counterpart of the Tauri desktop shell: a native
 SwiftUI shell around the same web frontend. The desktop app bundles the

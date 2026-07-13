@@ -27,7 +27,8 @@ Apple's on-device foundation model for the lighter tasks.
 
 ```
 ios-standalone/
-├── project.yml                  # xcodegen spec (app + Safari ext + share ext + tests)
+├── project.yml                  # xcodegen spec (app + share ext + tests); also the
+│                                #   source of truth for App/Info.plist (generated)
 ├── JobsmithKit/                 # Swift package — the whole engine
 │   └── Sources/JobsmithKit/
 │       ├── Core/                # AppConfig, ConfigStore, Profile models, App Group
@@ -46,15 +47,21 @@ ios-standalone/
 │   └── Apply/JS/                # snapshot.js/fill.js (copied from extension/src/common)
 │                                #   injected into the Apply browser's WKWebView
 ├── ShareExt/                    # Share-sheet ingestion
-├── KitTests/                    # Unit tests (parsers, filters, prompts, OOXML, mapping)
+├── KitTests/                    # Unit tests (parsers, filters, prompts, OOXML,
+│                                #   mapping, sync merge/conflict) — the whole suite
 └── UITests/                     # XCUITest smoke suite (-UseMockAI)
 ```
 
-The extension JS stays single-source in `extension/src/`: the iOS-standalone
-build installs `manifest.ios-standalone.json` as the manifest and swaps
-`common/api.js` for `common/api.native.js`, which reimplements the same
-`Jobsmith.*` API over `browser.runtime.sendNativeMessage`. Everything else
-(snapshot/fill/overlay/dropcatch) is untouched.
+**There is no Safari Web Extension.** Apply Assist runs entirely in-process: the
+Apply browser injects `snapshot.js`/`fill.js` (copied from `extension/src/common`)
+into its own WKWebView and calls `NativeMessageRouter` directly. That type keeps
+its name — and the `{name, body}` message shapes of `backend/extension_api.py` —
+because it is the same contract the desktop browser extension speaks, but nothing
+crosses a process boundary.
+
+`JobsmithKit` has no SPM test target: the Kit links UIKit-dependent code, so
+`swift test` on macOS can't build it. Every test lives in `KitTests/` and runs
+on the simulator via the `JobsmithKit` scheme.
 
 ## Build
 
@@ -65,9 +72,12 @@ xcodegen generate
 open JobsmithStandalone.xcodeproj
 ```
 
-Simulator builds need no signing. For a device, select your team on all
-three targets (app, Assist extension, Share extension) — App Group
-entitlements require the targets to share a team.
+Simulator builds need no signing. For a device, select your team on both
+targets (app + Share extension) — App Group entitlements require the targets
+to share a team. The app is iPhone-only (`TARGETED_DEVICE_FAMILY: "1"`).
+
+`App/Info.plist` and `ShareExt/Info.plist` are **generated** from the
+`info.properties` blocks in `project.yml` and are git-ignored; edit `project.yml`.
 
 Tests:
 
@@ -77,6 +87,52 @@ xcodebuild -project JobsmithStandalone.xcodeproj -scheme JobsmithKit \
 xcodebuild -project JobsmithStandalone.xcodeproj -scheme JobsmithStandalone \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test    # UI smoke
 ```
+
+## TestFlight
+
+`scripts/testflight-upload.sh` archives and uploads a build. It is **git-ignored**
+and carries no credentials — copy the committed template and supply the App Store
+Connect identifiers through the environment:
+
+```bash
+cp ios-standalone/scripts/testflight-upload.sh.example \
+   ios-standalone/scripts/testflight-upload.sh
+chmod +x ios-standalone/scripts/testflight-upload.sh
+```
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `ASC_KEY_ID` | yes | App Store Connect API key id (Users and Access → Integrations) |
+| `ASC_ISSUER_ID` | yes | Issuer id from the same page |
+| `TEAM_ID` | yes | Apple Developer team id |
+| `ASC_KEY_PATH` | no | Defaults to `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8` |
+
+The key must have the **Admin** role — App Manager cannot mint the distribution
+certificate ("Cloud signing permission error"). The private `.p8` lives outside
+the repo and is never committed.
+
+```bash
+export ASC_KEY_ID=... ASC_ISSUER_ID=... TEAM_ID=...
+cd ios-standalone && ./scripts/testflight-upload.sh
+```
+
+## Where secrets live
+
+| Secret | Storage | Why |
+|---|---|---|
+| LinkedIn `li_at` session cookie | **Keychain**, `AfterFirstUnlockThisDeviceOnly` | A live session token — account takeover if it leaks. `ThisDeviceOnly` keeps it out of backups; first-unlock (not `complete`) so background fetches can still read it. |
+| LLM API key, Adzuna/USAJobs/BLS keys, profile | `config.json` in the App Group container, file protection `completeUntilFirstUserAuthentication` | Encrypted at rest inside an app-sandboxed container, and readable by the background tasks that need them. |
+| Job database, generated résumés | App Group container, same protection class | Same trade-off. |
+
+The trade-off worth knowing: the container is **not** excluded from iCloud/iTunes
+backups, so the job DB and résumés survive a device restore — and so does
+`config.json` with the LLM key in it. The one credential that would be genuinely
+dangerous in a backup (the LinkedIn cookie) is the one held in the Keychain as
+`ThisDeviceOnly`, which never leaves the device.
+
+`ConfigStore` falls back to plaintext JSON for the cookie if the Keychain is
+unavailable (an unsigned sideload), so the feature still works — it just loses
+that protection.
 
 ## First run
 
