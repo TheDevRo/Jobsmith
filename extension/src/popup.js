@@ -16,6 +16,93 @@ async function loadCurrent() {
   $("deepScan").checked = !!cfg.deepScan;
 }
 
+function currentTab() {
+  return new Promise((r) => ext.tabs.query({ active: true, currentWindow: true }, (tabs) => r(tabs && tabs[0])));
+}
+
+// ---------------------------------------------------------------------------
+// Token onboarding — the backend hands its token to any loopback caller, so
+// the popup can fetch it instead of making the user hunt for the file.
+// ---------------------------------------------------------------------------
+
+async function probeBackend(url) {
+  const base = url.replace(/\/+$/, "");
+  const health = await fetch(base + "/api/ext/health");
+  if (!health.ok) throw new Error(`HTTP ${health.status}`);
+  const resp = await fetch(base + "/api/extension/token");
+  if (!resp.ok) throw new Error(`token: HTTP ${resp.status}`);
+  const data = await resp.json();
+  if (!data || !data.token) throw new Error("backend returned no token");
+  return { base, token: data.token };
+}
+
+$("detect").addEventListener("click", async () => {
+  setStatus("Looking for Jobsmith…");
+  const candidates = [];
+  const typed = $("backendUrl").value.trim();
+  if (typed) candidates.push(typed);
+  for (const u of [Jobsmith.DEFAULT_BACKEND, "http://127.0.0.1:8888"]) {
+    if (!candidates.includes(u)) candidates.push(u);
+  }
+  for (const url of candidates) {
+    try {
+      const { base, token } = await probeBackend(url);
+      $("backendUrl").value = base;
+      $("token").value = token;
+      await Jobsmith.jobsmithSetConfig({ backendUrl: base, token });
+      setStatus(`Connected to ${base}. Token saved.`, "ok");
+      return;
+    } catch (_) { /* try the next candidate */ }
+  }
+  setStatus(
+    "No Jobsmith backend found on localhost:8888. Start the app (or set the " +
+    "URL above if it's on another port), then try again.",
+    "err",
+  );
+});
+
+$("openSettings").addEventListener("click", () => {
+  const base = ($("backendUrl").value.trim() || Jobsmith.DEFAULT_BACKEND).replace(/\/+$/, "");
+  ext.tabs.create({ url: base + "/#settings" });
+});
+
+// ---------------------------------------------------------------------------
+// Site access — the manifest only carries localhost + LinkedIn + Indeed; every
+// other ATS domain is an optional host permission the user grants here (the
+// only place we have the user gesture Chrome/Firefox require).
+// ---------------------------------------------------------------------------
+
+let accessTab = null;
+
+async function refreshSiteAccess() {
+  const box = $("siteAccess");
+  const tab = await currentTab();
+  accessTab = tab || null;
+  const url = (tab && tab.url) || "";
+  if (!/^https?:/.test(url) || await JobsmithPermissions.hasSiteAccess(url)) {
+    box.hidden = true;
+    return;
+  }
+  try { $("siteHost").textContent = new URL(url).hostname; } catch (_) {}
+  box.hidden = false;
+}
+
+$("grantSite").addEventListener("click", async () => {
+  const url = (accessTab && accessTab.url) || "";
+  const granted = await JobsmithPermissions.requestSiteAccess(url);
+  if (!granted) {
+    setStatus("Access not granted.", "warn");
+    return;
+  }
+  $("siteAccess").hidden = true;
+  setStatus("Access granted for this site.", "ok");
+  // Let the background clear the toolbar flag and mount the panel it couldn't
+  // mount during the Assist handoff.
+  try {
+    ext.runtime.sendMessage({ type: "jobsmith-site-access-granted", tabId: accessTab.id, url });
+  } catch (_) { /* non-fatal */ }
+});
+
 $("save").addEventListener("click", async () => {
   await Jobsmith.jobsmithSetConfig({
     backendUrl: $("backendUrl").value.trim() || Jobsmith.DEFAULT_BACKEND,
@@ -45,11 +132,19 @@ $("test").addEventListener("click", async () => {
 $("open").addEventListener("click", async () => {
   // Mount the in-page docked panel on the active tab — the single panel
   // implementation for both browsers (see background.js).
-  const [tab] = await new Promise(r => ext.tabs.query({ active: true, currentWindow: true }, r));
+  //
+  // The toolbar click itself grants activeTab, so the injection below works
+  // even without a host permission for this domain — but only until the page
+  // navigates. Ask for the persistent permission first (this handler is the
+  // user gesture Chrome/Firefox require); carry on either way.
+  const tab = accessTab || await currentTab();
   if (!tab || !tab.id) { setStatus("No active tab.", "err"); return; }
   if (!/^https?:/.test(tab.url || "")) {
     setStatus("Open a job page first — the panel attaches to the page.", "err");
     return;
+  }
+  if (!(await JobsmithPermissions.hasSiteAccess(tab.url))) {
+    await JobsmithPermissions.requestSiteAccess(tab.url);
   }
   try {
     const panelUrl = ext.runtime.getURL("sidepanel.html") + "?tabId=" + tab.id + "&overlay=1";
@@ -113,3 +208,4 @@ $("syncIndeed").addEventListener("click",
   () => syncSession("Indeed", "indeed", ".indeed.com"));
 
 loadCurrent();
+refreshSiteAccess();

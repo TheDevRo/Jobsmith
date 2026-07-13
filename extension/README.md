@@ -12,6 +12,23 @@ using the native-setter trick (works on React/Vue/Angular), outlines each
 field by outcome, and exposes the tailored resume + cover-letter DOCX as
 draggable tiles that drop into native `<input type=file>` controls.
 
+## Permissions
+
+The extension asks for as little as it can up front:
+
+| Permission | Why | When |
+|---|---|---|
+| `http://localhost/*`, `http://127.0.0.1/*` | talk to your Jobsmith backend | always (required) |
+| `https://*.linkedin.com/*`, `https://*.indeed.com/*` | "Sync LinkedIn / Indeed" in the popup reads those sites' cookies so the backend's apply pipeline can act as you | always (required) |
+| `cookies` | same as above — **only** LinkedIn and Indeed cookies are ever read, and they are POSTed **only** to your own `localhost` backend, never anywhere else | always (required) |
+| `<all_urls>` | scan / autofill / attach on the long tail of ATS domains (Greenhouse, Lever, Workday, …) | **optional** — granted on demand |
+
+Every other site is an *optional* host permission. The first time Jobsmith needs
+to touch a new ATS domain, the toolbar icon shows a `!` badge; click it and
+press **Grant access to this site** (the browsers only allow that prompt from a
+user click, which is why the popup asks and not the background script). The
+Apply Assist handoff and the docked panel resume automatically once granted.
+
 ## Build
 
 ```bash

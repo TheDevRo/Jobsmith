@@ -5,6 +5,7 @@ const ext = (typeof browser !== "undefined") ? browser : chrome;
 
 let lastMapping = null;     // { tab, url, descriptors, values, deep } — cached from most recent scan
 let currentJob = null;      // { id, title, company, url }
+let currentJobManual = false;  // true when the user typed/loaded this job themselves
 let cachedFiles = { resume: null, cover: null };  // pre-fetched File objects
 let autoScanOn = true;      // gates background scan/poll; synced from config
 let autoFillOn = false;     // fill right after each auto-scan; synced from config
@@ -138,9 +139,26 @@ async function activeTab() {
   return tabs && tabs[0];
 }
 
+// The manifest only carries localhost + LinkedIn + Indeed; every other domain
+// is an optional host permission. We can't request it from here (the browsers
+// want a user gesture on an extension page the user actually opened), so point
+// at the popup, which can.
+const NO_ACCESS_MSG =
+  "No access to this site yet — click the Jobsmith toolbar icon, then “Grant access to this site”.";
+
+async function assertSiteAccess(tab) {
+  const perms = globalThis.JobsmithPermissions;
+  if (!perms) return;
+  if (await perms.hasSiteAccess(tab.url || "")) return;
+  const err = new Error(NO_ACCESS_MSG);
+  err.code = "no_site_access";
+  throw err;
+}
+
 async function snapshotActiveTab() {
   const tab = await activeTab();
   if (!tab || !tab.id) throw new Error("No active tab");
+  await assertSiteAccess(tab);
   // Deep mode: inject into every frame so embedded ATS forms (Greenhouse,
   // Lever, Ashby) are scanned. Off by default — heavy pages have many
   // third-party iframes that slow injection. Toggle in popup settings.
@@ -353,6 +371,10 @@ async function doScan() {
     renderFields(resp.fields, snapshot.fields, null);
     return lastMapping;
   } catch (e) {
+    if (e.code === "no_site_access") {
+      setStatus(NO_ACCESS_MSG, "warn");
+      return null;
+    }
     console.error(e);
     if (e.status === 401) setStatus("Token rejected. Open Settings and update it.", "err");
     else setStatus(`Error: ${e.message}`, "err");
@@ -389,6 +411,18 @@ async function doAutofill() {
       (counts.not_found ? `, missing ${counts.not_found}` : "");
     setStatus(summary, counts.failed || counts.not_found ? "warn" : "ok");
     renderFields(mapping.values, mapping.descriptors, out.results);
+
+    // Hardened uploaders (Workday, some Greenhouse) reject a programmatic
+    // input.files assignment no matter how long fill.js retries. Fall back to
+    // the drag path: arm dropcatch so the upload boxes light up and the user
+    // just drags the tile over.
+    const stuck = items.find((it) => it.action === "upload" &&
+      out.results.some((r) => r.field_id === it.field_id && r.status === "failed"));
+    if (stuck) {
+      await armDropCatch(stuck.value);
+      const label = stuck.value === "cover_letter" ? "Cover Letter" : "Resume";
+      setStatus(`Upload didn't stick — drag the ${label} tile onto the highlighted upload box.`, "warn");
+    }
   } catch (e) {
     console.error(e);
     setStatus(`Autofill error: ${e.message}`, "err");
@@ -566,7 +600,7 @@ function attachDragHandlers(tile, kind) {
   });
 }
 
-async function loadJob(jobId) {
+async function loadJob(jobId, { manual = false } = {}) {
   if (!jobId) {
     setStatus("Enter a job ID.", "warn");
     return;
@@ -579,6 +613,7 @@ async function loadJob(jobId) {
 
   try {
     currentJob = await Jobsmith.jobsmithFetch(`/api/ext/job/${encodeURIComponent(jobId)}`);
+    currentJobManual = manual;
   } catch (e) {
     if (e.status === 404) setStatus(`Job ${jobId} not found.`, "err");
     else setStatus(`Load error: ${e.message}`, "err");
@@ -622,9 +657,9 @@ async function loadJob(jobId) {
   setStatus(`Loaded ${ok} of 2 files. Drag the tile onto the ATS file input.`, ok ? "ok" : "warn");
 }
 
-$("loadJob").addEventListener("click", () => loadJob($("jobId").value.trim()));
+$("loadJob").addEventListener("click", () => loadJob($("jobId").value.trim(), { manual: true }));
 $("jobId").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") loadJob($("jobId").value.trim());
+  if (e.key === "Enter") loadJob($("jobId").value.trim(), { manual: true });
 });
 attachDragHandlers($("resumeTile"), "resume");
 attachDragHandlers($("coverTile"), "cover_letter");
@@ -713,6 +748,10 @@ async function doMarkApplied() {
 
 async function checkActiveJobHint(silent = false) {
   if (!autoScanOn) return;
+  // A job the user loaded by hand wins: silently swapping it out (every 3s,
+  // from a poll) would replace the resume/cover letter they deliberately
+  // picked and could fill the form with another job's documents.
+  if (currentJob && currentJobManual) return;
   // Auto-bind to whichever job the user most recently clicked "Open Job URL"
   // on in the Jobsmith UI. Best-effort; never throws to the caller.
   try {
@@ -806,6 +845,41 @@ setInterval(() => {
   checkActiveJobHint(true);
 }, 3000);
 
+// Backend reachability. A dead-end "not reachable" message left the user with
+// nothing to click, so the failure states offer Retry (the backend is usually
+// just starting up, or moved port).
+async function connect() {
+  $("retry").hidden = true;
+  try {
+    await Jobsmith.jobsmithHealth();
+  } catch {
+    setStatus("Backend not reachable — start Jobsmith, then retry.", "err");
+    $("retry").hidden = false;
+    return false;
+  }
+  try {
+    await Jobsmith.jobsmithFetch("/api/ext/profile");
+  } catch (e) {
+    setStatus(
+      e.status === 401
+        ? "Token missing or invalid — open the Jobsmith toolbar icon and click Auto-detect."
+        : `Error: ${e.message}`,
+      "err",
+    );
+    $("retry").hidden = false;
+    return false;
+  }
+  setStatus("Ready. Click Scan, then Autofill.");
+  return true;
+}
+
+$("retry").addEventListener("click", async () => {
+  setStatus("Reconnecting…");
+  if (!(await connect())) return;
+  checkActiveJobHint(true);
+  autoScanIfReady();
+});
+
 (async function init() {
   // Reflect the saved auto-scan preference before any background work runs.
   try {
@@ -816,19 +890,7 @@ setInterval(() => {
     $("autoFillToggle").checked = autoFillOn;
   } catch { /* defaults: scan on, fill off */ }
 
-  try {
-    await Jobsmith.jobsmithHealth();
-  } catch {
-    setStatus("Backend not reachable. Open Settings.", "err");
-    return;
-  }
-  try {
-    await Jobsmith.jobsmithFetch("/api/ext/profile");
-    setStatus("Ready. Click Scan, then Autofill.");
-  } catch (e) {
-    setStatus(e.status === 401 ? "Token missing or invalid — open Settings." : `Error: ${e.message}`, "err");
-    return;
-  }
+  if (!(await connect())) return;
   checkActiveJobHint(true);
   autoScanIfReady();
 })();

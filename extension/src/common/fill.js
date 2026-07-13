@@ -524,14 +524,22 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
             } catch (_) { /* DragEvent constructor may not accept dataTransfer in all browsers */ }
           }
           // Some uploaders clear the input while starting their own async
-          // handling — give them a beat, then retry the assignment once.
-          await sleep(250);
-          if (!input.files || input.files.length === 0) {
-            assign();
-            await sleep(250);
+          // handling — one 250ms retry was too shallow for the hardened ones
+          // (Workday, some Greenhouse). Poll for up to ~1.5s, re-assigning
+          // each round, and only give up if the input still holds nothing.
+          const deadline = Date.now() + 1500;
+          while ((!input.files || input.files.length === 0) && Date.now() < deadline) {
+            await sleep(150);
+            if (!input.files || input.files.length === 0) assign();
           }
           if (!input.files || input.files.length === 0) {
-            results.push({ field_id: item.field_id, status: "failed", message: "input.files did not accept assignment" });
+            results.push({
+              field_id: item.field_id,
+              status: "failed",
+              // The panel reads this as its cue to arm dropcatch (the drag
+              // path works where a scripted assignment doesn't).
+              message: "this uploader rejects scripted files — drag the tile onto the upload box",
+            });
             continue;
           }
           const targetDesc = input.id ? `#${input.id}` : (input.name ? `[name=${input.name}]` : "file input");
