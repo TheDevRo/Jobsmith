@@ -68,6 +68,32 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
     (18, "ALTER TABLE applications ADD COLUMN outcome TEXT DEFAULT 'awaiting'"),
     (19, "ALTER TABLE applications ADD COLUMN outcome_updated_at TIMESTAMP"),
     (20, "ALTER TABLE applications ADD COLUMN honesty_level TEXT"),
+    # An append-only history of outcome transitions. `applications.outcome` stays
+    # as the denormalized current state, but it alone cannot answer "how long did
+    # applied -> screening take" and — worse — it loses history: an application
+    # that reached `interview` and was then `rejected` used to count only toward
+    # "applied" in the funnel. Events preserve every stage the app actually reached.
+    (21, """CREATE TABLE IF NOT EXISTS application_events (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id TEXT NOT NULL REFERENCES applications(id),
+                from_outcome   TEXT,
+                to_outcome     TEXT NOT NULL,
+                occurred_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                note           TEXT,
+                -- user: picked in the UI | rule: auto-ghosting | email: parsed inbox
+                source         TEXT NOT NULL DEFAULT 'user'
+            )"""),
+    (22, "CREATE INDEX IF NOT EXISTS idx_app_events_app ON application_events(application_id)"),
+    # Backfill: synthesize one event per application that already carries a
+    # non-default outcome, so existing funnels don't reset to zero.
+    (23, """INSERT INTO application_events
+                (application_id, from_outcome, to_outcome, occurred_at, source)
+            SELECT id, NULL, outcome,
+                   COALESCE(outcome_updated_at, applied_at, created_at), 'backfill'
+            FROM applications
+            WHERE status = 'applied'
+              AND outcome IS NOT NULL
+              AND outcome <> 'awaiting'"""),
 ]
 
 
@@ -1058,24 +1084,97 @@ VALID_OUTCOMES = {
 }
 
 
-async def update_application_outcome(app_id: str, outcome: str) -> bool:
+# Outcomes that mean "the employer engaged", ordered by how far the application
+# got. Reaching a later stage implies the earlier ones were reached too, even
+# when the user skips ahead in the dropdown (offer without marking screening).
+_STAGE_ORDER = ("screening", "interview", "offer")
+
+
+async def update_application_outcome(
+    app_id: str, outcome: str, *, note: Optional[str] = None, source: str = "user"
+) -> bool:
     """Update the post-apply outcome for an application.
 
-    Raises ValueError for outcomes outside VALID_OUTCOMES. Returns False when
-    no application matches app_id.
+    Writes an `application_events` row and the denormalized `outcome` column in
+    one transaction. Raises ValueError for outcomes outside VALID_OUTCOMES.
+    Returns False when no application matches app_id.
     """
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of: {sorted(VALID_OUTCOMES)}")
     db = await _get_db()
     try:
         cursor = await db.execute(
+            "SELECT outcome FROM applications WHERE id = ?", (app_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return False
+        previous = row["outcome"]
+        if previous == outcome:
+            return True  # no-op; don't pad the history with duplicate events
+
+        now = datetime.now(timezone.utc).isoformat()
+        await db.execute(
             "UPDATE applications SET outcome = ?, outcome_updated_at = ? WHERE id = ?",
-            (outcome, datetime.now(timezone.utc).isoformat(), app_id),
+            (outcome, now, app_id),
+        )
+        await db.execute(
+            """INSERT INTO application_events
+               (application_id, from_outcome, to_outcome, occurred_at, note, source)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (app_id, previous, outcome, now, note, source),
         )
         await db.commit()
-        return cursor.rowcount > 0
+        return True
     finally:
         await db.close()
+
+
+async def get_application_events(app_id: str) -> list[dict]:
+    """Full outcome history for one application, oldest first."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM application_events WHERE application_id = ? ORDER BY occurred_at",
+            (app_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def mark_ghosted_applications(after_days: int) -> list[str]:
+    """Flip long-silent applications from 'awaiting' to 'no_response'.
+
+    Without this, every submitted application sits in the default 'awaiting'
+    forever unless the user hand-edits it — which made the funnel's response rate
+    report 0% for anyone who skipped the data entry. Returns the ids transitioned.
+    """
+    if after_days <= 0:
+        return []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=after_days)).isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id FROM applications
+               WHERE status = 'applied'
+                 AND COALESCE(outcome, 'awaiting') = 'awaiting'
+                 AND applied_at IS NOT NULL
+                 AND applied_at < ?""",
+            (cutoff,),
+        )
+        stale = [r["id"] for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    for app_id in stale:
+        await update_application_outcome(
+            app_id,
+            "no_response",
+            note=f"No employer response within {after_days} days",
+            source="rule",
+        )
+    return stale
 
 
 async def increment_apply_attempts(app_id: str) -> int:
@@ -1185,6 +1284,68 @@ async def get_failed_applications(limit: int = 50) -> list[dict]:
         await db.close()
 
 
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    """Parse a stored ISO timestamp. Rows written by SQLite's CURRENT_TIMESTAMP
+    are naive UTC ('YYYY-MM-DD HH:MM:SS'); ours are ISO-8601 with a tz offset."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace(" ", "T"))
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+async def _stage_durations(db: aiosqlite.Connection) -> list[dict]:
+    """Median days for each funnel hop: applied→screening→interview→offer.
+
+    "How long until I hear back" is the question the raw funnel can't answer and
+    the one that tells a user which applications are effectively dead.
+    """
+    cursor = await db.execute(
+        """SELECT e.application_id AS app_id, e.to_outcome AS stage,
+                  MIN(e.occurred_at) AS first_at, a.applied_at AS applied_at
+           FROM application_events e
+           JOIN applications a ON a.id = e.application_id
+           WHERE a.status = 'applied' AND e.to_outcome IN ('screening', 'interview', 'offer')
+           GROUP BY e.application_id, e.to_outcome"""
+    )
+    # first_reached[app_id][stage] = when the app first hit that stage
+    first_reached: dict[str, dict[str, datetime]] = {}
+    applied_at: dict[str, datetime] = {}
+    for r in await cursor.fetchall():
+        at, applied = _parse_ts(r["first_at"]), _parse_ts(r["applied_at"])
+        if at is None or applied is None:
+            continue
+        first_reached.setdefault(r["app_id"], {})[r["stage"]] = at
+        applied_at[r["app_id"]] = applied
+
+    def _median(values: list[float]) -> Optional[float]:
+        if not values:
+            return None
+        values.sort()
+        mid, even = len(values) // 2, len(values) % 2 == 0
+        return round((values[mid - 1] + values[mid]) / 2 if even else values[mid], 1)
+
+    hops = [("applied", "screening"), ("screening", "interview"), ("interview", "offer")]
+    out = []
+    for src, dst in hops:
+        deltas = []
+        for app_id, stages in first_reached.items():
+            if dst not in stages:
+                continue
+            # An app can skip a stage (offer with no recorded interview); those
+            # hops have no start point and are simply not sampled.
+            start = applied_at[app_id] if src == "applied" else stages.get(src)
+            if start is None or stages[dst] < start:
+                continue
+            deltas.append((stages[dst] - start).total_seconds() / 86400)
+        out.append({
+            "from": src, "to": dst, "samples": len(deltas), "median_days": _median(deltas),
+        })
+    return out
+
+
 async def get_outcome_analytics() -> dict:
     """Aggregate post-apply outcome analytics over submitted applications.
 
@@ -1209,23 +1370,25 @@ async def get_outcome_analytics() -> dict:
             outcome_counts[r["outcome"]] = r["cnt"]
         total_applied = sum(outcome_counts.values())
 
-        # Funnel: how many applications reached at least each stage.
-        # (rejected/withdrawn don't carry stage history, so they only count
-        # toward "applied".)
-        funnel = [
-            {"stage": "applied", "count": total_applied},
-            {
-                "stage": "screening",
-                "count": outcome_counts["screening"]
-                + outcome_counts["interview"]
-                + outcome_counts["offer"],
-            },
-            {
-                "stage": "interview",
-                "count": outcome_counts["interview"] + outcome_counts["offer"],
-            },
-            {"stage": "offer", "count": outcome_counts["offer"]},
-        ]
+        # Funnel: how many applications reached at least each stage — read from
+        # the event history, not the current outcome. An application that got to
+        # `interview` and was then `rejected` still counts toward screening and
+        # interview; reading the mutable column alone would credit it only to
+        # "applied" and silently understate every stage.
+        cursor = await db.execute(
+            """SELECT e.application_id AS app_id, e.to_outcome AS stage
+               FROM application_events e
+               JOIN applications a ON a.id = e.application_id
+               WHERE a.status = 'applied' AND e.to_outcome IN ('screening', 'interview', 'offer')"""
+        )
+        reached: dict[str, set[str]] = {s: set() for s in _STAGE_ORDER}
+        for r in await cursor.fetchall():
+            # Reaching a stage implies every earlier stage was reached.
+            for stage in _STAGE_ORDER[: _STAGE_ORDER.index(r["stage"]) + 1]:
+                reached[stage].add(r["app_id"])
+
+        funnel = [{"stage": "applied", "count": total_applied}]
+        funnel += [{"stage": s, "count": len(reached[s])} for s in _STAGE_ORDER]
 
         def _rate(responded: int, total: int) -> float:
             return round(100.0 * responded / total, 1) if total else 0.0
@@ -1267,10 +1430,13 @@ async def get_outcome_analytics() -> dict:
             cnt for o, cnt in outcome_counts.items() if o not in ("awaiting", "no_response")
         )
 
+        stage_durations = await _stage_durations(db)
+
         return {
             "total_applied": total_applied,
             "outcome_counts": outcome_counts,
             "funnel": funnel,
+            "stage_durations": stage_durations,
             "response_rate": {
                 "overall": {
                     "total": total_applied,

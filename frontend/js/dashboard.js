@@ -78,6 +78,26 @@ function _outcomeBarRows(title, rows) {
         </div>`;
 }
 
+const _HOP_LABELS = {
+    'applied>screening': 'Applied → Screening',
+    'screening>interview': 'Screening → Interview',
+    'interview>offer': 'Interview → Offer',
+};
+
+function _stageDurations(hops) {
+    const sampled = (hops || []).filter(h => h.samples > 0);
+    if (sampled.length === 0) return '';
+    return `
+        <div class="outcome-breakdown">
+            <h4>Typical Time Between Stages</h4>
+            ${sampled.map(h => `
+                <div class="outcome-bar-row" title="Median across ${h.samples} application(s)">
+                    <span class="outcome-bar-label">${escapeHtml(_HOP_LABELS[`${h.from}>${h.to}`] || `${h.from} → ${h.to}`)}</span>
+                    <span class="outcome-bar-value">${h.median_days} days &middot; n=${h.samples}</span>
+                </div>`).join('')}
+        </div>`;
+}
+
 function renderOutcomesPanel(data) {
     const panel = document.getElementById('outcomes-panel');
     if (!panel) return;
@@ -110,6 +130,7 @@ function renderOutcomesPanel(data) {
             ${_outcomeBarRows('Response Rate by Source', rr.by_source)}
             ${_outcomeBarRows('Response Rate by Fit Score', fitBands)}
             ${_outcomeBarRows('Response Rate by Honesty Level', rr.by_honesty)}
+            ${_stageDurations(data.stage_durations)}
         </div>`;
 }
 

@@ -442,6 +442,13 @@ async def update_application_outcome(application_id: str, body: ApplicationOutco
     return {"ok": True}
 
 
+@router.get("/api/applications/{application_id}/events")
+async def get_application_events(application_id: str):
+    """Append-only outcome history — every stage this application reached, and
+    whether each transition came from the user, the ghost sweep, or email."""
+    return {"events": await db.get_application_events(application_id)}
+
+
 _ALLOWED_MANUAL_STATUSES = {"applied", "manual"}
 
 
