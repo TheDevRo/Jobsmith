@@ -244,7 +244,7 @@ async function findCompanyBoards() {
         }
         results.innerHTML = r.matches.map(m => `
             <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.9rem">
-                <span style="flex:1">${escapeHtml(SOURCE_LABELS[m.source] || m.source)}: <a href="${escapeHtml(m.board_url)}" target="_blank" rel="noopener"><code>${escapeHtml(m.slug)}</code></a>${m.company_name ? ` ("${escapeHtml(m.company_name)}")` : ''} — ${m.jobs} open job${m.jobs === 1 ? '' : 's'}</span>
+                <span style="flex:1">${escapeHtml(SOURCE_LABELS[m.source] || m.source)}: <a href="${escapeHtml(safeHref(m.board_url))}" target="_blank" rel="noopener"><code>${escapeHtml(m.slug)}</code></a>${m.company_name ? ` ("${escapeHtml(m.company_name)}")` : ''} — ${m.jobs} open job${m.jobs === 1 ? '' : 's'}</span>
                 <button class="btn btn-secondary btn-sm" data-add-board data-config-key="${escapeHtml(m.config_key)}" data-slug="${escapeHtml(m.slug)}">Add</button>
             </div>
         `).join('');
@@ -306,7 +306,7 @@ async function suggestCompanies() {
                 : '<span style="font-size:0.75rem;padding:1px 6px;border-radius:8px;background:var(--bg-primary);border:1px solid var(--border)">AI pick</span>';
             const boards = s.boards.map(b => `
                 <div style="display:flex;align-items:center;gap:8px;padding:2px 0 2px 14px;font-size:0.85rem">
-                    <span style="flex:1">${escapeHtml(SOURCE_LABELS[b.source] || b.source)}: <a href="${escapeHtml(b.board_url)}" target="_blank" rel="noopener"><code>${escapeHtml(b.slug)}</code></a>${b.company_name ? ` ("${escapeHtml(b.company_name)}")` : ''} — ${b.jobs} open job${b.jobs === 1 ? '' : 's'}</span>
+                    <span style="flex:1">${escapeHtml(SOURCE_LABELS[b.source] || b.source)}: <a href="${escapeHtml(safeHref(b.board_url))}" target="_blank" rel="noopener"><code>${escapeHtml(b.slug)}</code></a>${b.company_name ? ` ("${escapeHtml(b.company_name)}")` : ''} — ${b.jobs} open job${b.jobs === 1 ? '' : 's'}</span>
                     <button class="btn btn-secondary btn-sm" data-add-board data-config-key="${escapeHtml(b.config_key)}" data-slug="${escapeHtml(b.slug)}">Add</button>
                 </div>`).join('');
             return `
@@ -1226,7 +1226,7 @@ async function verifyLinkedinLocations() {
             const color = r.ok ? '#2a7' : '#c33';
             const previewUrl = r.ok ? `https://www.linkedin.com/jobs/search?geoId=${encodeURIComponent(r.geo_id)}` : '';
             const detail = r.ok
-                ? `geoId <code>${escapeHtml(r.geo_id)}</code> <span class="hint">(${escapeHtml(r.source)})</span> &mdash; <a href="${escapeHtml(previewUrl)}" target="_blank" rel="noopener">preview on LinkedIn</a>`
+                ? `geoId <code>${escapeHtml(r.geo_id)}</code> <span class="hint">(${escapeHtml(r.source)})</span> &mdash; <a href="${escapeHtml(safeHref(previewUrl))}" target="_blank" rel="noopener">preview on LinkedIn</a>`
                 : `<span class="hint">not resolved — LinkedIn will fall back to text matching</span>`;
             return `<div style="font-size:13px;line-height:1.6"><span style="color:${color};font-weight:600">${icon}</span> <strong>${escapeHtml(r.location)}</strong> → ${detail}</div>`;
         }).join('');

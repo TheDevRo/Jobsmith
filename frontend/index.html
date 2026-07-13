@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=37">
+    <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -62,6 +62,9 @@
         </header>
 
         <main>
+            <!-- Page-level status banners (reconnecting, browser install, port
+                 mismatch). Populated by showBanner()/hideBanner() in core.js. -->
+            <div id="app-banners"></div>
             <div id="toast-container"></div>
 
             <!-- Activity Tab (stats + outcomes + batch tools) -->
@@ -1055,6 +1058,8 @@
                         </span>
                     </div>
 
+                    <div id="fit-breakdown-error"></div>
+
                     <div class="fit-breakdown-grid">
                         <!-- Pie Chart Card -->
                         <div class="fit-chart-card">
@@ -1263,14 +1268,14 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=39"></script>
-    <script src="js/dashboard.js?v=35"></script>
-    <script src="js/jobs.js?v=38"></script>
-    <script src="js/review.js?v=38"></script>
-    <script src="js/settings.js?v=41"></script>
+    <script src="js/core.js?v=40"></script>
+    <script src="js/dashboard.js?v=36"></script>
+    <script src="js/jobs.js?v=39"></script>
+    <script src="js/review.js?v=39"></script>
+    <script src="js/settings.js?v=42"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
-    <script src="js/jobs-actions.js?v=36"></script>
-    <script src="js/onboarding.js?v=36"></script>
+    <script src="js/jobs-actions.js?v=37"></script>
+    <script src="js/onboarding.js?v=37"></script>
 </body>
 </html>
