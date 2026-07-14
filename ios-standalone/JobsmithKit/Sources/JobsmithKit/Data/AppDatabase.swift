@@ -170,6 +170,28 @@ public struct AppDatabase: Sendable {
             }
         }
 
+        // A search that can outlive the app. iOS grants ~30 seconds of execution
+        // once the user leaves, but a LinkedIn search budgets minutes — so a run
+        // records which sources it still owes and how far each got, and a later
+        // attempt (foreground return, or a BGProcessingTask) finishes the job
+        // instead of starting over. Device-local: a half-finished run means
+        // nothing on the other device, so this never syncs.
+        migrator.registerMigration("v5_search_runs") { db in
+            try db.create(table: "search_runs") { t in
+                t.primaryKey("id", .text)
+                t.column("startedAt", .text).notNull()
+                // running | interrupted | complete
+                t.column("state", .text).notNull().defaults(to: "running")
+                // JSON [String]
+                t.column("requestedSources", .text).notNull().defaults(to: "[]")
+                t.column("completedSources", .text).notNull().defaults(to: "[]")
+                // JSON {source: opaque cursor JSON}
+                t.column("cursors", .text).notNull().defaults(to: "{}")
+                t.column("insertedSoFar", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(indexOn: "search_runs", columns: ["state"])
+        }
+
         return migrator
     }
 }

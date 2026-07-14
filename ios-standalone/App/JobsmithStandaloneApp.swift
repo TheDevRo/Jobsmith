@@ -40,6 +40,15 @@ struct JobsmithStandaloneApp: App {
                         // auto-sync (an immediate catch-up cycle + polling).
                         model.refresh()
                         model.startAutoSync()
+                        // Finish whatever the last background window cut short.
+                        // Returning to the app is the earliest — and by far the
+                        // most likely — moment to get a long stretch of
+                        // execution, so it beats waiting on iOS to grant a
+                        // BGProcessingTask.
+                        Task {
+                            await model.resumeInterruptedSearch()
+                            model.resumeScoringIfNeeded()
+                        }
                         // Dates change on either device and arrive by sync, so
                         // rebuild the schedule whenever we come back.
                         NotificationManager.rescheduleReminders(model: model)

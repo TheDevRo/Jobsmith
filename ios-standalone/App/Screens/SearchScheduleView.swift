@@ -3,11 +3,12 @@ import JobsmithKit
 
 /// Settings → Background search: opt into recurring, opportunistic job fetches
 /// and pick a cadence. The scheduling engine lives in `BackgroundScheduler`;
-/// this is just the control surface. Runs are fetch-only (no AI scoring) and
-/// notify through `NotificationManager` when new jobs arrive.
+/// this is just the control surface. Runs notify through `NotificationManager`
+/// when new jobs arrive, and can optionally score what they find.
 struct SearchScheduleView: View {
     @State private var enabled = BackgroundScheduler.isEnabled()
     @State private var intervalHours = BackgroundScheduler.intervalHours()
+    @State private var scoreInBackground = BackgroundScheduler.scoresInBackground()
 
     var body: some View {
         Form {
@@ -42,9 +43,22 @@ struct SearchScheduleView: View {
                 Text("Cadence")
             } footer: {
                 Text("iOS decides the exact moment to run based on battery, network, and how "
-                     + "you use the app, so this is a target rather than an exact schedule. "
-                     + "Background searches only fetch listings — scoring still happens when "
-                     + "you open the app.")
+                     + "you use the app, so this is a target rather than an exact schedule.")
+            }
+
+            Section {
+                Toggle("Score new jobs in the background", isOn: $scoreInBackground)
+                    .onChange(of: scoreInBackground) { _, on in
+                        BackgroundScheduler.setScoresInBackground(on)
+                    }
+                    .disabled(!enabled)
+            } header: {
+                Text("Scoring")
+            } footer: {
+                Text("Rates how well each new job fits your profile as it arrives, so the Inbox "
+                     + "is already sorted when you open it. Needs your AI endpoint to be "
+                     + "reachable at the time — a self-hosted one usually means being on your "
+                     + "home network. When it isn't, scoring is skipped and picked up later.")
             }
         }
         .navigationTitle("Background search")
@@ -54,6 +68,7 @@ struct SearchScheduleView: View {
             // a reopened screen could show a stale toggle/cadence.
             enabled = BackgroundScheduler.isEnabled()
             intervalHours = BackgroundScheduler.intervalHours()
+            scoreInBackground = BackgroundScheduler.scoresInBackground()
         }
     }
 }

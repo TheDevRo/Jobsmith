@@ -3,6 +3,13 @@ import Foundation
 public enum AIEngineError: Error, Equatable, Sendable, LocalizedError {
     case invalidBaseURL(String)
     case unreachable(String)
+    /// The call was cut off by something a later attempt won't reproduce: the
+    /// app suspended mid-request, the task cancelled, the network dropped, or
+    /// the endpoint went out of reach (a laptop running LM Studio is only on the
+    /// LAN while you're home). Distinct from `unreachable`, which means the
+    /// server answered the door and said no — a refused connection, a bad host —
+    /// and will say the same thing on every retry.
+    case interrupted(String)
     case httpStatus(Int, String)
     case emptyResponse
 
@@ -12,6 +19,8 @@ public enum AIEngineError: Error, Equatable, Sendable, LocalizedError {
             return url.isEmpty ? "No endpoint URL set" : "Invalid endpoint URL: \(url)"
         case .unreachable(let detail):
             return "Could not reach the server: \(detail)"
+        case .interrupted(let detail):
+            return "The connection to the server was interrupted: \(detail)"
         case .httpStatus(let code, let body):
             let detail = body.prefix(120)
             return detail.isEmpty ? "Server returned HTTP \(code)" : "HTTP \(code): \(detail)"
@@ -79,6 +88,12 @@ public struct OpenAICompatibleEngine: AIEngine {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            // Keep the two apart: a cut-off call is worth resuming, a refused one
+            // is worth reporting. Flattening both into `unreachable` is what made
+            // a backgrounded scoring run look like a dead endpoint and abort.
+            if TransientNetwork.isTransient(error) {
+                throw AIEngineError.interrupted(error.localizedDescription)
+            }
             throw AIEngineError.unreachable(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {

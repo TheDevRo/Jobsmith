@@ -1,5 +1,14 @@
 import Foundation
 
+/// One incremental delivery from a source: jobs collected so far that the
+/// pipeline may persist immediately, plus an opaque resume cursor describing
+/// where the source got to.
+///
+/// The cursor is source-private JSON — only LinkedIn, whose fetch runs for
+/// minutes and pages through search results, produces one. The pipeline stores
+/// it verbatim and hands it back on the next attempt.
+public typealias SourceCheckpoint = @Sendable (_ jobs: [NormalizedJob], _ cursor: String?) async -> Void
+
 /// A job-board fetcher. Mirrors the Python `job_sources` module contract:
 /// each source returns normalized jobs and may throw `SourceBlockedError`
 /// when the site is bot-blocking us.
@@ -8,11 +17,44 @@ public protocol JobSource: Sendable {
     /// Per-source budget enforced by FetchPipeline (Python _SOURCE_TIMEOUTS).
     static var timeout: Duration { get }
     func fetchJobs(config: AppConfig, knownExternalIDs: Set<String>) async throws -> [NormalizedJob]
+
+    /// Fetch, handing results to `onCheckpoint` as they are collected rather
+    /// than only at the end, and resuming from `cursor` when one is supplied.
+    ///
+    /// The default implementation satisfies this for every single-request
+    /// source. Only a source that can be interrupted partway with work worth
+    /// keeping — today just LinkedIn — needs to implement it itself.
+    func fetchJobs(config: AppConfig, knownExternalIDs: Set<String>,
+                   resumeCursor cursor: String?,
+                   onCheckpoint: @escaping SourceCheckpoint) async throws -> [NormalizedJob]
+}
+
+public extension JobSource {
+    /// A source that finishes in one request has nothing to checkpoint: it
+    /// either completes, delivering everything at once, or fails with nothing
+    /// worth keeping. Resuming it just means running it again, so the cursor is
+    /// ignored.
+    func fetchJobs(config: AppConfig, knownExternalIDs: Set<String>,
+                   resumeCursor cursor: String?,
+                   onCheckpoint: @escaping SourceCheckpoint) async throws -> [NormalizedJob] {
+        let jobs = try await fetchJobs(config: config, knownExternalIDs: knownExternalIDs)
+        await onCheckpoint(jobs, nil)
+        return jobs
+    }
 }
 
 /// Raised when a site is bot-blocking us and no results are obtainable, so
 /// the pipeline can distinguish "blocked" from "genuinely zero new jobs".
 public struct SourceBlockedError: Error, Sendable {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+}
+
+/// Raised when a source was cut off mid-fetch by something a retry will not
+/// reproduce — the app being suspended, the network dropping, the task being
+/// cancelled. Distinct from `failed`: whatever the source already checkpointed
+/// is saved, and the run resumes from its cursor rather than reporting an error.
+public struct SourceInterruptedError: Error, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }
 }

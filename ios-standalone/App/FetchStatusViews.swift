@@ -81,10 +81,52 @@ struct FetchProgressBanner: View {
         for source in p.timedOut.sorted() { lines.append("\(name(source)) — timed out") }
         for source in p.failed.sorted() { lines.append("\(name(source)) — no response") }
         for source in p.authFailed.sorted() { lines.append("\(name(source)) — check the API key") }
+        for source in p.interrupted.sorted() { lines.append("\(name(source)) — paused, will finish") }
 
         let remaining = p.sourcesTotal - p.sourcesDone
         if remaining > 0 { lines.append("…\(remaining) still searching") }
         return lines
+    }
+}
+
+/// Shown when a search or a scoring run stopped short of finishing.
+///
+/// This is deliberately not an error. iOS suspends a backgrounded app after
+/// roughly 30 seconds, and a LinkedIn search budgets minutes — so being cut off
+/// is the *expected* outcome of leaving the app mid-search, not a fault. Every
+/// job collected before the cut is already in the Inbox below, and the run will
+/// be picked up again. Saying "LinkedIn had trouble" here, as the app used to,
+/// described a failure that hadn't happened.
+struct PausedBanner: View {
+    let searchPaused: Bool
+    let scoringPaused: Bool
+
+    private var message: String {
+        switch (searchPaused, scoringPaused) {
+        case (true, true): return "Search and scoring will finish in the background."
+        case (true, false): return "Search will finish in the background."
+        default: return "Scoring will finish when the AI endpoint is reachable."
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pause.circle.fill")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Paused").font(.subheadline.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Paused. \(message)")
     }
 }
 

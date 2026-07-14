@@ -184,6 +184,33 @@ public struct JobStore: Sendable {
         }
     }
 
+    /// Postings we already hold a description for. LinkedIn skips the detail-page
+    /// scrape for these — but *not* for a job stored with an empty description,
+    /// which is what a detail fetch cut short by suspension leaves behind. Using
+    /// plain `knownExternalIDs` here would strand those jobs description-less
+    /// forever, since every later run would consider them already known.
+    public func externalIDsWithDescription(source: String) throws -> Set<String> {
+        try db.writer.read {
+            let rows = try String.fetchAll(
+                $0, sql: "SELECT externalId FROM jobs WHERE source = ? AND description != ''",
+                arguments: [source])
+            return Set(rows)
+        }
+    }
+
+    /// Stored postings from `source` that still have no description — the work
+    /// left over when a detail phase was interrupted. Returned as fetch-shaped
+    /// jobs so a resumed run can carry straight on enriching them.
+    public func jobsNeedingDescription(source: String) throws -> [NormalizedJob] {
+        try db.writer.read { dbc in
+            try Job
+                .filter(Column("source") == source && Column("description") == "")
+                .filter(Column("triage") != "deleted")
+                .fetchAll(dbc)
+                .map(NormalizedJob.init(from:))
+        }
+    }
+
     /// Soft delete: mark the job triage='deleted' so it's hidden everywhere and
     /// the removal propagates through the normal `triage` last-writer-wins path
     /// (symmetric with shortlist). The row stays to hold the 'deleted' state, so

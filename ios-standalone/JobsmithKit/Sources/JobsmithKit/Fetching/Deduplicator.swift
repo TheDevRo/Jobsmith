@@ -54,3 +54,39 @@ public enum Deduplicator {
             .trimmingCharacters(in: .whitespaces)
     }
 }
+
+/// The same dedup rules as `Deduplicator`, applied to a stream of batches
+/// instead of one merged array — what the pipeline needs now that it upserts a
+/// source's jobs the moment they arrive rather than pooling every source first.
+///
+/// The one rule the batch version can't express: a job may legitimately arrive
+/// **twice from its own source**. LinkedIn delivers a posting from the search
+/// page with an empty description, then re-delivers it once the detail page has
+/// been scraped. Keying only on URL/identity would discard that second, richer
+/// copy as a duplicate. So each claim records *who* made it — a re-delivery
+/// under the same `source:externalId` passes through (the upsert backfills the
+/// description), while the same posting from a *different* board is dropped, as
+/// before.
+public struct IncrementalDeduplicator {
+    private var urlOwner: [String: String] = [:]
+    private var identityOwner: [Deduplicator.IdentityKey: String] = [:]
+
+    public init() {}
+
+    /// The subset of `jobs` this run may persist, claiming each one's URL and
+    /// identity for its owning posting.
+    public mutating func admit(_ jobs: [NormalizedJob]) -> [NormalizedJob] {
+        var admitted: [NormalizedJob] = []
+        for job in jobs {
+            let owner = job.source + ":" + job.externalId
+            if !job.url.isEmpty, let claimed = urlOwner[job.url], claimed != owner { continue }
+            let identity = Deduplicator.identityKey(job)
+            if let identity, let claimed = identityOwner[identity], claimed != owner { continue }
+
+            if !job.url.isEmpty { urlOwner[job.url] = owner }
+            if let identity { identityOwner[identity] = owner }
+            admitted.append(job)
+        }
+        return admitted
+    }
+}

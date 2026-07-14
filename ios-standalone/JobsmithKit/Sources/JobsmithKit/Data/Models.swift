@@ -108,6 +108,28 @@ public struct NormalizedJob: Codable, Equatable, Sendable {
         self.isRemote = isRemote; self.isEasyApply = isEasyApply
         self.applyType = applyType
     }
+
+    /// Back to fetch shape from a stored row. A resumed search reads the jobs it
+    /// still owes work on — LinkedIn postings whose detail page it never got to —
+    /// straight out of the database, so an interrupted run doesn't have to
+    /// re-run its search phase just to rebuild the list.
+    public init(from job: Job) {
+        self.source = job.source
+        self.externalId = job.externalId
+        self.title = job.title
+        self.company = job.company
+        self.location = job.location
+        self.url = job.url
+        self.description = job.description
+        self.salaryMin = job.salaryMin
+        self.salaryMax = job.salaryMax
+        self.salaryPeriod = job.salaryPeriod
+        self.tags = job.tagList
+        self.datePosted = job.datePosted
+        self.isRemote = job.isRemote
+        self.isEasyApply = job.isEasyApply
+        self.applyType = job.applyType
+    }
 }
 
 public struct Application: Codable, Equatable, Sendable, Identifiable,

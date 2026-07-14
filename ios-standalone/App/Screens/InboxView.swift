@@ -41,6 +41,9 @@ struct InboxView: View {
               // Live per-source status replaces the bare "Fetching…" spinner.
               if model.isFetching {
                   FetchProgressBanner(progress: model.fetchProgress)
+              } else if model.isSearchPaused || model.isScoringPaused {
+                  PausedBanner(searchPaused: model.isSearchPaused,
+                               scoringPaused: model.isScoringPaused)
               }
               Group {
                 if model.inbox.isEmpty {

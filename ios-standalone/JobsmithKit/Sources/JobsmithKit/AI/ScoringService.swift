@@ -21,6 +21,11 @@ public struct FitResult: Equatable, Sendable {
 public enum ScoringError: Error, LocalizedError {
     /// Both the initial call and the low-temperature retry failed.
     case engineUnavailable(String)
+    /// The call was cut off — the app was suspended mid-request, the task was
+    /// cancelled, the endpoint dropped off the network. Nothing is wrong with the
+    /// job or the model, so a batch that hits this *pauses* and resumes later
+    /// rather than reporting a failure and giving up on the remaining jobs.
+    case interrupted(String)
     /// The model answered, but no score could be salvaged from its output.
     case unparseableResponse(String)
 
@@ -28,6 +33,8 @@ public enum ScoringError: Error, LocalizedError {
         switch self {
         case .engineUnavailable(let detail):
             return "The AI endpoint could not be reached: \(detail)"
+        case .interrupted(let detail):
+            return "Scoring was interrupted: \(detail)"
         case .unparseableResponse(let raw):
             return "The AI response contained no score. Raw: \(raw)"
         }
@@ -63,17 +70,32 @@ public enum ScoringService {
             text = try await engine.complete(request, config: config.ai)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
+            // A cut-off call gets no retry: the app is being suspended or the
+            // endpoint has gone out of reach, and a second request would die the
+            // same way. Surface it as `interrupted` so the batch pauses here and
+            // picks this job up again later, instead of treating it as a dead
+            // endpoint and abandoning every job behind it.
+            if TransientNetwork.isTransient(error) {
+                throw ScoringError.interrupted(String(describing: error))
+            }
             // Retry once at low temperature (strict JSON parse only).
             var retry = request
             retry.tier = .strong
             retry.temperature = 0.3
-            if let retryText = try? await engine.complete(retry, config: config.ai)
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               let data = LenientJSON.decodeObject(retryText),
-               let score = LenientJSON.doubleValue(data["score"]) {
-                return FitResult(score: score,
-                                 reasoning: data["reasoning"] as? String ?? "",
-                                 matchReportJSON: sanitizedMatchReportJSON(data))
+            do {
+                let retryText = try await engine.complete(retry, config: config.ai)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let data = LenientJSON.decodeObject(retryText),
+                   let score = LenientJSON.doubleValue(data["score"]) {
+                    return FitResult(score: score,
+                                     reasoning: data["reasoning"] as? String ?? "",
+                                     matchReportJSON: sanitizedMatchReportJSON(data))
+                }
+            } catch let retryError where TransientNetwork.isTransient(retryError) {
+                throw ScoringError.interrupted(String(describing: retryError))
+            } catch {
+                // Fall through — the retry failed for its own reasons, but the
+                // original error is the one worth reporting.
             }
             throw ScoringError.engineUnavailable(String(describing: error))
         }

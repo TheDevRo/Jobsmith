@@ -10,6 +10,7 @@ import JobsmithKit
 final class AppModel {
     let database: AppDatabase
     let jobStore: JobStore
+    let searchRunStore: SearchRunStore
     let applicationStore: ApplicationStore
     let activityStore: ActivityStore
     let answerBank: AnswerBankStore
@@ -35,6 +36,13 @@ final class AppModel {
     /// sort; empty for sources with too little history to judge.
     var conversionBySource: [String: Double] = [:]
     var isFetching = false
+    /// A search stopped short of finishing and is waiting to be resumed. Not an
+    /// error — the jobs it did collect are already in the Inbox — so it shows as
+    /// a quiet banner rather than the blocking error alert.
+    var isSearchPaused = false
+    /// Same, for a Score-all run: the endpoint went out of reach or the app was
+    /// suspended mid-call, and the remaining jobs will be picked up later.
+    var isScoringPaused = false
     /// Live per-source progress for the in-flight fetch, or nil when idle.
     /// Drives the Inbox "Searching…" banner; cleared when the fetch ends.
     var fetchProgress: FetchProgress?
@@ -50,6 +58,7 @@ final class AppModel {
             lastError = "Could not open the database: \(error.localizedDescription)"
         }
         jobStore = JobStore(database)
+        searchRunStore = SearchRunStore(database)
         applicationStore = ApplicationStore(database)
         activityStore = ActivityStore(database)
         answerBank = AnswerBankStore(database)
@@ -85,9 +94,16 @@ final class AppModel {
     private func seedDemoData() {
         try? FileManager.default.removeItem(at: AppGroup.configURL)
         // Reset background-search prefs so UI-test runs start deterministically
-        // off, uncontaminated by a prior run's toggle.
+        // off, uncontaminated by a prior run's toggle — including any run a
+        // previous test left parked, which would otherwise resume mid-test.
         BackgroundScheduler.setEnabled(false)
         BackgroundScheduler.setIntervalHours(12)
+        BackgroundScheduler.setScoresInBackground(false)
+        BackgroundScheduler.clearContinuation()
+        ScoringIntent.clear()
+        try? database.writer.write {
+            try $0.execute(sql: "DELETE FROM search_runs")
+        }
         try? database.writer.write {
             try $0.execute(sql: "DELETE FROM applications")
             try $0.execute(sql: "DELETE FROM jobs")
@@ -344,22 +360,57 @@ final class AppModel {
     /// `candidates` selects the source set — unscored inbox jobs by default,
     /// or e.g. `unscoredPipelineJobs` when scoring from the Pipeline tab.
     ///
-    /// The first failure ends the run: a dead endpoint fails for every job, so
-    /// hammering it for the whole batch just burns the user's time (and, before
-    /// REL-01, poisoned every job with a `0`).
-    func scoreAll(cap: Int, candidates: [Job]? = nil) {
+    /// Like a search, the run holds a background assertion so leaving the app
+    /// doesn't kill it outright, and it distinguishes the two ways it can end
+    /// early:
+    ///
+    /// - **A dead endpoint aborts it.** Every remaining job would fail the same
+    ///   way, so hammering the endpoint for the whole batch just burns the user's
+    ///   time (and, before REL-01, poisoned every job with a `0`).
+    /// - **An interruption pauses it.** The app being suspended mid-call, or the
+    ///   endpoint dropping off the network — an LM Studio box is only on the LAN
+    ///   while you're home — says nothing about the remaining jobs. The run is
+    ///   parked and resumed later. There is no separate progress record to keep:
+    ///   each score is committed as it lands, so "what's left" is simply the jobs
+    ///   still unscored.
+    func scoreAll(cap: Int, candidates: [Job]? = nil, isResume: Bool = false) {
         guard !isScoringAll else { return }
         let batch = ScoreBatch.plan(candidates: candidates ?? unscoredInboxJobs, cap: cap)
-        guard !batch.isEmpty else { return }
+        guard !batch.isEmpty else {
+            ScoringIntent.clear()
+            return
+        }
+        if !isResume {
+            ScoringIntent.save(cap: cap, candidates: candidates == nil ? .inbox : .pipeline)
+        }
         isScoringAll = true
+        isScoringPaused = false
         scoreAllTotal = batch.count
         scoreAllDone = 0
         scoreAllTask = Task { @MainActor in
+            var bgTask = UIBackgroundTaskIdentifier.invalid
+            bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.scoring") {
+                self.scoreAllTask?.cancel()
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+            defer {
+                if bgTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTask)
+                    bgTask = .invalid
+                }
+            }
+
             var failure: String?
+            var paused = false
             for job in batch {
                 if Task.isCancelled { break }
                 do {
                     _ = try await scoreOne(job)
+                } catch let error as ScoringError {
+                    if case .interrupted = error { paused = true; break }
+                    failure = "Scoring stopped: \(error.localizedDescription)"
+                    break
                 } catch {
                     failure = "Scoring stopped: \(error.localizedDescription)"
                     break
@@ -367,20 +418,84 @@ final class AppModel {
                 scoreAllDone += 1
             }
             let done = scoreAllDone
-            let stopped = Task.isCancelled
+            // Cancellation is how the background window closes, so it parks the
+            // run the same way an interruption does. The Stop button clears the
+            // intent first, which is what keeps a deliberate stop from coming
+            // back to life on the next foreground.
+            let cancelled = Task.isCancelled
+            paused = paused || cancelled
+
             isScoringAll = false
             scoreAllTask = nil
-            if let failure { lastError = failure }
+
+            if paused && ScoringIntent.isPending {
+                isScoringPaused = true
+            } else {
+                isScoringPaused = false
+                ScoringIntent.clear()
+            }
+            if let failure {
+                lastError = failure
+                ScoringIntent.clear()
+            }
             refresh()
             activityStore.log("scored_batch",
-                "Scored \(done) job\(done == 1 ? "" : "s")\(stopped ? " (stopped early)" : "")")
+                "Scored \(done) job\(done == 1 ? "" : "s")\(paused ? " (paused — will resume)" : "")")
         }
     }
 
     /// Halt an in-progress Score-all run — the hard kill switch. The current
     /// job's call finishes, then the loop exits before the next one starts.
+    /// Clearing the intent first is what tells the run apart from a pause: a
+    /// stop the user asked for must not resurrect itself on the next foreground.
     func cancelScoreAll() {
+        ScoringIntent.clear()
         scoreAllTask?.cancel()
+    }
+
+    /// Pick up a Score-all run that was paused mid-batch. The remaining work is
+    /// derived from the database — the jobs still unscored — so nothing beyond
+    /// the user's original intent needs to have survived.
+    @discardableResult
+    func resumeScoringIfNeeded() -> Bool {
+        guard !isScoringAll, let intent = ScoringIntent.pending else { return false }
+        let candidates = intent.candidates == .pipeline ? unscoredPipelineJobs : unscoredInboxJobs
+        guard !candidates.isEmpty else {
+            ScoringIntent.clear()
+            isScoringPaused = false
+            return false
+        }
+        scoreAll(cap: intent.cap, candidates: candidates, isResume: true)
+        return true
+    }
+
+    /// Score-all, but awaitable — a background task has to know when the work is
+    /// done before it reports the window finished.
+    func scoreAllAndWait(cap: Int, candidates: [Job]? = nil) async {
+        scoreAll(cap: cap, candidates: candidates)
+        await scoreAllTask?.value
+    }
+
+    /// Can we actually reach the AI endpoint from where the phone is right now?
+    ///
+    /// Worth asking before a background scoring run: a self-hosted endpoint (LM
+    /// Studio on a laptop) is only on the LAN while the user is home, and the
+    /// engine's own request timeout is 90 seconds — long enough to eat a whole
+    /// background window discovering that. This probes the cheap `/models`
+    /// endpoint and gives up quickly.
+    func isAIEndpointReachable(timeout: Duration = .seconds(5)) async -> Bool {
+        let engine = aiEngine
+        let aiConfig = config.ai
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { await engine.testConnection(config: aiConfig).connected }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil  // the probe outlived its welcome
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? false
+        }
     }
 
     /// Score one job and persist the result, without the per-job activity-log
@@ -502,19 +617,68 @@ final class AppModel {
 
     /// Fetch new jobs from all enabled sources.
     ///
-    /// The fetch runs under a `UIApplication` background-task assertion so it
-    /// survives the user leaving the app mid-search: iOS grants a continued-
-    /// execution window (~30s) instead of suspending us the moment we
-    /// background. The pipeline's per-source timeouts keep the total bounded,
-    /// and if iOS reclaims the window early the expiration handler ends the
-    /// assertion cleanly. When the search finishes while backgrounded we post a
-    /// completion notification so the user gets closure without reopening.
+    /// Start a fresh search across every enabled source, superseding any run
+    /// that was left unfinished.
     func fetchJobs() async {
         guard !isFetching else { return }
+        guard let run = try? searchRunStore.begin(
+            sources: SourceRegistry.allIDs.filter { config.search.enabledSources.contains($0) })
+        else { return }
+        await runSearch(run)
+    }
+
+    /// Carry on a search that an earlier attempt couldn't finish — the app was
+    /// backgrounded and iOS reclaimed the ~30s window while LinkedIn, which
+    /// budgets minutes, was still working. Called when the app returns to the
+    /// foreground and from the `BGProcessingTask` continuation.
+    ///
+    /// Returns true if there was a run to resume.
+    @discardableResult
+    func resumeInterruptedSearch() async -> Bool {
+        guard !isFetching else { return false }
+        guard let run = try? searchRunStore.activeRun(), !run.isFinished else { return false }
+        activityStore.log("search_resumed",
+                          "Resuming \(run.remainingSources.count) source(s) from the last search")
+        await runSearch(run)
+        return true
+    }
+
+    /// One attempt at `run`.
+    ///
+    /// The attempt holds a `UIApplication` background-task assertion, so leaving
+    /// the app doesn't suspend it on the spot — iOS grants a continued-execution
+    /// window of roughly 30 seconds. That is nowhere near enough for a LinkedIn
+    /// search, which is the whole reason a run is resumable: the pipeline saves
+    /// jobs as it collects them and bookmarks how far each source got, so when
+    /// the window closes we cancel cleanly, mark the run interrupted, and ask iOS
+    /// for a long `BGProcessingTask` window to finish in. Nothing is discarded
+    /// and nothing is reported as an error.
+    private func runSearch(_ run: SearchRun) async {
         isFetching = true
+        try? searchRunStore.setState(id: run.id, .running)
+
+        let pipeline = FetchPipeline()
+        // Subscribe to the progress stream *before* running so the opening
+        // "fetching from N sources" event isn't missed, then mirror each event
+        // onto `fetchProgress` for the live Inbox banner.
+        let stream = await pipeline.progressUpdates()
+        let progressTask = Task { @MainActor in
+            for await progress in stream { self.fetchProgress = progress }
+        }
+
+        let work = Task { @MainActor in
+            await pipeline.run(config: config, sources: run.remainingSources,
+                               jobStore: jobStore, runStore: searchRunStore,
+                               runID: run.id, cursors: run.cursors)
+        }
 
         var bgTask = UIBackgroundTaskIdentifier.invalid
         bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.search") {
+            // The window is closing. Cancelling is safe now — everything the
+            // pipeline collected is already committed — and it's what lets the
+            // sources report themselves interrupted rather than being frozen
+            // mid-request and losing the run.
+            work.cancel()
             UIApplication.shared.endBackgroundTask(bgTask)
             bgTask = .invalid
         }
@@ -528,20 +692,35 @@ final class AppModel {
             }
         }
 
-        // Subscribe to the pipeline's progress stream *before* running so the
-        // opening "fetching from N sources" event isn't missed, then mirror
-        // each event onto `fetchProgress` for the live Inbox banner.
-        let pipeline = FetchPipeline()
-        let stream = await pipeline.progressUpdates()
-        let progressTask = Task { @MainActor in
-            for await progress in stream { self.fetchProgress = progress }
+        // `work` is unstructured, so it does not inherit cancellation from
+        // whoever is awaiting us — and the BGProcessingTask continuation cancels
+        // exactly that way when its window expires. Without this the pipeline
+        // would keep running into the suspension and the run would never be
+        // marked interrupted.
+        let summary = await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
         }
-        let summary = await pipeline.run(
-            config: config,
-            sources: Array(config.search.enabledSources),
-            jobStore: jobStore
-        )
         progressTask.cancel()
+
+        if summary.isIncomplete {
+            // Left unfinished, not failed. Park it and line up a long background
+            // window to finish in; the app returning to the foreground will also
+            // pick it up, whichever comes first.
+            try? searchRunStore.setState(id: run.id, .interrupted)
+            isSearchPaused = true
+            BackgroundScheduler.requestContinuation()
+            activityStore.log(
+                "search_paused",
+                "Paused with \(summary.interrupted.count) source(s) left — will finish in the background")
+            return
+        }
+
+        try? searchRunStore.setState(id: run.id, .complete)
+        isSearchPaused = false
+        BackgroundScheduler.clearContinuation()
+
         let total = summary.inserted
         activityStore.log("fetched", "\(total) new job\(total == 1 ? "" : "s") from \(summary.perSource.count) sources")
         // A rejected key is actionable in a way "had trouble" is not, so it wins
