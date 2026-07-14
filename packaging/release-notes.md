@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.2 -->
+<!-- notes-updated-for: 0.2.4 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -14,29 +14,30 @@ Docker image — all built from the same tag.
 
 ## What's new in __VERSION__
 
-- **Bring your own AI + API key support** — the AI connection now works with
-  any OpenAI-compatible server, not just LM Studio: Ollama locally, or hosted
-  providers like OpenRouter and OpenAI. Set the server URL and (for hosted
-  providers) an API key in **Settings → Integrations → AI Connection** or the
-  setup wizard; **Load Models** and **Test connection** pick up freshly typed
-  values immediately.
-- **Editable AI prompts** — every prompt Jobsmith sends to your local model
-  (job scoring, resume tailoring, cover letters, revisions, parsing,
-  auto-apply…) is now viewable and editable from **Settings → Prompts**.
-  Placeholders like `{profile_summary}` are filled in at run time, literal
-  braces need no escaping, and each prompt has its own Save / Reset to
-  Default. Customized prompts persist in `config.yaml`; prompts left at
-  default keep picking up built-in improvements.
-- **Basic / Advanced settings** — Settings now opens in a leaner Basic mode;
-  an Advanced toggle reveals the Auto-Apply, Prompts, and Logs tabs plus
-  deeper knobs (scoring tier, context window, cookie import, ATS/Workday
-  credentials, BLS, FlareSolverr, max resume entries, AI Edit tier). The
-  Auto-Apply settings tab is reachable from the UI again.
-- **Save Settings moved to the top** — no more scrolling past every panel to
-  save.
-- **Tour & setup wizard refreshed** — the product tour has new stops for the
-  Advanced toggle and the prompt editor, and its Settings walkthrough matches
-  the current tabs; the wizard now points power users at Advanced mode.
+**Jobsmith is now open source, under the AGPL-3.0.** Self-hosting is free and
+stays that way.
+
+- **Docker: your settings survive a restart.** This is the big one. Anything you
+  saved in the Settings UI — profile, keywords, AI endpoint — was being silently
+  discarded when the container restarted, because the config write replaced the
+  symlink to your mounted config instead of writing through it. Fixed. Docker
+  users should re-enter any settings that went missing.
+- **Five resume styles** — `executive`, `ledger`, `banner`, `compact`, `swiss`,
+  each with a selectable accent color and embedded PDF fonts, all still
+  ATS-friendly. The style picker now shows you the resume each one produces.
+- **Pipeline intelligence** — application outcome tracking, follow-up reminders,
+  auto-ghosting of stale applications, a duplicate-application guard, and a
+  digest weighted by what actually converts for you.
+- **Security pass** — the dashboard API is authenticated, SSRF and XSS holes are
+  closed, `javascript:` URLs are blocked in the frontend, the extension no
+  longer requests `<all_urls>` and validates its RPC senders, and the Docker
+  container runs as a non-root user bound to loopback by default.
+- **Apply fixes** — Workday file uploads were being skipped (file inputs now
+  resolve deterministically), and tailored documents attach during in-app apply.
+- **iOS** — a long search now survives leaving the app; importing a PDF résumé
+  no longer drops every employment date; LinkedIn sign-in leads the setup wizard
+  and, when connected, your own session is used for LinkedIn searches instead of
+  anonymous guest access.
 
 ## macOS app (Apple Silicon)
 
@@ -94,8 +95,7 @@ The same tag publishes a multi-arch image to GHCR:
 docker pull ghcr.io/thedevro/jobsmith:__VERSION__
 ```
 
-See the repo README for `docker compose` usage. (The repo/registry is private;
-`docker login ghcr.io` with a token first.)
+See the repo README for `docker compose` usage — no login required.
 
 ## Checksums
 
