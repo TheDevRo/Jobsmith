@@ -269,21 +269,60 @@ final class DocumentTests: XCTestCase {
 
     /// A specimen that skipped a section would hide that section's styling, so
     /// the sample has to exercise everything a style can touch.
-    ///
-    /// Note the date assertion is a substring, not "2021 - Present": this
-    /// renderer paints right-tabbed dates so that they extract *detached* from
-    /// their entry, at the end of the text stream. That's a pre-existing quirk
-    /// of DocxPDFRenderer (the desktop ReportLab path keeps them inline), not
-    /// something the preview introduced — asserting adjacency here would be
-    /// asserting on a bug that lives elsewhere.
     func testStylePreviewSampleShowsEverySection() throws {
         let data = StylePreviewSample.pdf(style: .ledger)
         let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: data)
         XCTAssertTrue(text.contains("Morgan Reyes"))        // letterhead
         XCTAssertTrue(text.contains("Northwind Logistics")) // accent company name
-        XCTAssertTrue(text.contains("Present"))             // right-aligned dates
+        XCTAssertTrue(text.contains("2021 - Present"))      // right-aligned dates
         XCTAssertTrue(text.contains("Oregon State"))        // education
         XCTAssertTrue(text.contains("Tableau"))             // skills + certifications
+    }
+
+    // MARK: - PDF import reading order
+
+    /// Régression: importing a PDF résumé used to lose every employment date.
+    ///
+    /// `PDFPage.string` treats a right-aligned date column as a separate column
+    /// and emits it at the *end of the page*, detached from the roles, while
+    /// gluing the first bullet onto the entry line. The extracted text went
+    /// straight to the AI, which had no way to reattach dates to jobs.
+    func testPDFImportKeepsDatesOnTheirEntryLine() throws {
+        let pdf = StylePreviewSample.pdf(style: .ledger)
+        let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: pdf)
+        let lines = text.split(separator: "\n").map(String.init)
+
+        let senior = try XCTUnwrap(lines.first { $0.contains("Senior Data Analyst") },
+                                   "lost the entry line entirely")
+        XCTAssertTrue(senior.contains("2021 - Present"),
+                      "dates detached from their role: \(senior)")
+        XCTAssertFalse(senior.contains("Cut freight spend"),
+                       "first bullet glued onto the entry line: \(senior)")
+
+        let second = try XCTUnwrap(lines.first { $0.contains("Data Analyst · Cascade") })
+        XCTAssertTrue(second.contains("2018 - 2021"), "dates detached: \(second)")
+
+        // Nothing may be stranded at the foot of the page.
+        XCTAssertFalse(lines.last?.contains("2021") ?? false,
+                       "dates stranded at the end of the page: \(lines.last ?? "")")
+
+        // Bullets keep their own lines, in order.
+        XCTAssertTrue(lines.contains { $0.hasPrefix("•") && $0.contains("Cut freight spend") })
+    }
+
+    /// Every style must survive the round trip, not just the one style whose
+    /// geometry happened to cooperate.
+    func testPDFImportReadingOrderHoldsForEveryStyle() throws {
+        for style in HonestyConfig.Style.allCases {
+            let pdf = StylePreviewSample.pdf(style: style)
+            let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: pdf)
+            let entry = try XCTUnwrap(
+                text.split(separator: "\n").map(String.init)
+                    .first { $0.contains("Senior Data Analyst") },
+                "\(style): lost the entry line")
+            XCTAssertTrue(entry.contains("2021 - Present"),
+                          "\(style): dates detached from their role — got '\(entry)'")
+        }
     }
     #endif
 
