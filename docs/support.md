@@ -31,9 +31,8 @@ When reporting a bug, it helps a lot to include:
 - Which AI endpoint you have configured (on-device, local server, or a cloud
   provider) — many issues are endpoint-specific
 
-If you would rather not use GitHub, you can email:
-<!-- TODO(owner): replace with a real contact email before App Store submission -->
-`TODO-ADD-CONTACT-EMAIL`
+If you would rather not use GitHub, you can email
+[contact@thedevro.com](mailto:contact@thedevro.com).
 
 ## Troubleshooting
 

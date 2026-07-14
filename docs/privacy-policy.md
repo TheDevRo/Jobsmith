@@ -226,4 +226,4 @@ updated policy will be published on this page.
 Questions about privacy, or something in this policy that looks wrong?
 
 - Open an issue: [github.com/TheDevRo/Jobsmith/issues](https://github.com/TheDevRo/Jobsmith/issues)
-- Email: <!-- TODO(owner): replace with a real contact email before App Store submission --> `TODO-ADD-CONTACT-EMAIL`
+- Email: [contact@thedevro.com](mailto:contact@thedevro.com)

@@ -44,16 +44,11 @@ In App Store Connect:
 Both must be live and publicly reachable *before* you submit, or review will
 reject the build. Open them in a private browser window to confirm.
 
-## 3. Before you submit — TODOs
+## 3. Contact address
 
-Two placeholders must be replaced. Search the folder for `TODO-ADD-CONTACT-EMAIL`:
-
-- `docs/privacy-policy.md` — contact email in the "Contact" section
-- `docs/support.md` — contact email in the "Getting help" section
-
-Apple expects a way to reach you. GitHub Issues alone is usually accepted for
-the Support URL, but a real email address is safer and is expected for privacy
-inquiries. Use an address you actually monitor.
+Both pages list `contact@thedevro.com`. Apple expects a way to reach you, and a
+real address is expected for privacy inquiries — make sure that mailbox is
+actually monitored, since review may write to it.
 
 ## Notes
 
