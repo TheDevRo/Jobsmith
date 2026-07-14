@@ -8,7 +8,6 @@
 #   package.json                  .version              (the SSOT everything else follows)
 #   backend/version.py            APP_VERSION
 #   src-tauri/Cargo.toml          [package] version     (tauri.conf.json reads package.json)
-#   ios/project.yml               MARKETING_VERSION
 #   ios-standalone/project.yml    MARKETING_VERSION
 #
 # Not touched: CURRENT_PROJECT_VERSION (the iOS build number — that's a
@@ -41,14 +40,13 @@ report() {
     printf '  %-28s %s\n' "package.json" "$(current_pkg)"
     printf '  %-28s %s\n' "backend/version.py" "$(current_py)"
     printf '  %-28s %s\n' "src-tauri/Cargo.toml" "$(current_cargo)"
-    printf '  %-28s %s\n' "ios/project.yml" "$(current_yml ios/project.yml)"
     printf '  %-28s %s\n' "ios-standalone/project.yml" "$(current_yml ios-standalone/project.yml)"
 }
 
 if [ "$MODE" = "--check" ]; then
     ok=1
     for got in "$(current_pkg)" "$(current_py)" "$(current_cargo)" \
-               "$(current_yml ios/project.yml)" "$(current_yml ios-standalone/project.yml)"; do
+               "$(current_yml ios-standalone/project.yml)"; do
         [ "$got" = "$VERSION" ] || ok=0
     done
     if [ "$ok" -eq 1 ]; then
@@ -80,7 +78,7 @@ sed -i '' -e "s/^APP_VERSION = \".*\"/APP_VERSION = \"${VERSION}\"/" backend/ver
 sed -i '' -e "/^\[package\]/,/^\[dependencies\]/ s/^version = \".*\"/version = \"${VERSION}\"/" \
     src-tauri/Cargo.toml
 
-for yml in ios/project.yml ios-standalone/project.yml; do
+for yml in ios-standalone/project.yml; do
     [ -f "$yml" ] || continue
     sed -i '' -e "s/^\([[:space:]]*MARKETING_VERSION:[[:space:]]*\).*$/\1${VERSION}/" "$yml"
 done
