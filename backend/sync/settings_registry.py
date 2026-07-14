@@ -316,18 +316,183 @@ def syncable_for(cfg: dict) -> tuple[Setting, ...]:
     return tuple(s for s in syncable() if s.category in on)
 
 
-# ---- config <-> {canonical_path: value} bridge -----------------------------
-# STUB: Phase 1 wires these to the nested config.yaml dict. `export_settings`
-# reads each SYNC path out of the config dict (expanding the prompts.* wildcard
-# and folding enabled_sources); `apply_setting` writes one path back, honoring
-# base-overlay so a key this device doesn't model is preserved. Mirror the
-# profile bridge in service.py:_make_engine.
+# ---- canonical-id parity + lookups (also dumped by the parity test) --------
 
-def export_settings(cfg: dict) -> dict[str, dict]:  # -> {path: {"value": <json>}}
-    raise NotImplementedError("Phase 1: read each syncable() path from cfg; "
-                              "fold enabled_sources; expand prompts.*")
+def syncable_canonical_ids() -> list[str]:
+    """Sorted canonical ids of every SYNC row (the `prompts.*` wildcard included
+    verbatim — it expands per prompt id at runtime). The registry-parity test
+    asserts the Swift `registry` produces the identical list."""
+    return sorted(s.canonical for s in syncable())
+
+
+_BY_CANONICAL: dict[str, Setting] = {s.canonical: s for s in syncable()}
+
+
+def category_for_path(path: str) -> Optional[str]:
+    """The gating category for a concrete canonical path, or None when the path
+    is not a SYNC row (a secret, a machine-local key, or an unknown key an older/
+    newer peer emitted). None ⇒ never written on import — the allowlist is the
+    only switch."""
+    s = _BY_CANONICAL.get(path)
+    if s is not None:
+        return s.category
+    if path.startswith("prompts."):  # prompts.* wildcard expansion
+        return "prompts"
+    return None
+
+
+# ---- enabled_sources fold (canonicalization rule #3) -----------------------
+# Canonical form is a SORTED list of enabled source ids. The desktop stores each
+# source's on/off as `search.<id>.enabled`; only `indeed` persists this today
+# (opt-in, OFF by default), the rest default ON. iOS carries a Set<String> plus a
+# separate `linkedInEnabled` — the mappers fold both into/out of this same list.
+SOURCE_IDS: tuple[str, ...] = (
+    "adzuna", "arbeitnow", "ashby", "greenhouse", "indeed", "linkedin",
+    "recruitee", "remoteok", "usajobs", "weworkremotely", "workable",
+)
+# indeed is the one source that is opt-in; every other source is on unless the
+# user turned it off. Keep in sync with job_sources.SOURCES defaults.
+_SOURCE_DEFAULT_ON = frozenset(s for s in SOURCE_IDS if s != "indeed")
+
+
+def fold_enabled_sources(cfg: dict) -> list[str]:
+    search = cfg.get("search") or {}
+    out = []
+    for sid in SOURCE_IDS:
+        sub = search.get(sid)
+        default = sid in _SOURCE_DEFAULT_ON
+        enabled = bool(sub.get("enabled", default)) if isinstance(sub, dict) else default
+        if enabled:
+            out.append(sid)
+    return sorted(out)
+
+
+def unfold_enabled_sources(cfg: dict, ids) -> None:
+    enabled = {str(s) for s in (ids or [])}
+    search = cfg.setdefault("search", {})
+    for sid in SOURCE_IDS:
+        sub = search.get(sid)
+        if not isinstance(sub, dict):
+            sub = {}
+            search[sid] = sub
+        sub["enabled"] = sid in enabled
+
+
+# ---- config <-> {canonical_path: value} bridge -----------------------------
+# `export_settings` reads each enabled SYNC path out of the nested config dict
+# (expanding the prompts.* wildcard and folding enabled_sources); `apply_setting`
+# writes one path back with base-overlay so a sibling key this device doesn't
+# model is preserved. Mirrors the profile bridge in service.py:_make_engine.
+
+_MISSING = object()
+
+# Canonical path -> the nested cfg path when they differ. The desktop nests the
+# model id under a per-tier object (`ai.models.<tier>.model`) whose other keys
+# must survive; canonical carries only the id string.
+_CFG_PATH_OVERRIDES: dict[str, str] = {
+    "ai.models.strong": "ai.models.strong.model",
+    "ai.models.fast": "ai.models.fast.model",
+    "ai.models.utility": "ai.models.utility.model",
+}
+
+
+def _cfg_path(canonical: str) -> str:
+    return _CFG_PATH_OVERRIDES.get(canonical, canonical)
+
+
+def _read_path(cfg: dict, dotted: str):
+    node: Any = cfg
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+def _write_path(cfg: dict, dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    node = cfg
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            node[part] = child
+        node = child
+    node[parts[-1]] = value
+
+
+def _delete_path(cfg: dict, dotted: str) -> None:
+    parts = dotted.split(".")
+    node: Any = cfg
+    for part in parts[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            return
+    if isinstance(node, dict):
+        node.pop(parts[-1], None)
+
+
+def _normalize_enum(setting: Optional[Setting], value: Any) -> Any:
+    """Normalize enum values on both read and write. Resume styles carry retired
+    aliases (standard/modern->ledger, minimal->swiss); other enums are lowercased
+    so casing never causes spurious churn."""
+    if setting is None or setting.kind is not Kind.ENUM or not isinstance(value, str):
+        return value
+    v = value.lower()
+    if setting.canonical == "application_honesty.resume_style":
+        v = _LEGACY_RESUME_STYLES.get(v, v)
+    return v
+
+
+_LEGACY_RESUME_STYLES = {"standard": "ledger", "modern": "ledger", "minimal": "swiss"}
+
+
+def export_settings(cfg: dict) -> dict[str, dict]:
+    """{canonical_path: {"value": <json>}} for every enabled SYNC path present in
+    `cfg`. Category-gated (iterates `syncable_for`), folds enabled_sources, and
+    expands `prompts.*` to one record per prompt id. An explicit null is emitted
+    (it carries meaning); an absent key is simply omitted (older-client shape)."""
+    out: dict[str, dict] = {}
+    for s in syncable_for(cfg):
+        if s.canonical == "prompts.*":
+            for pid, template in (cfg.get("prompts") or {}).items():
+                out[f"prompts.{pid}"] = {"value": template}
+            continue
+        if s.canonical == "search.enabled_sources":
+            out[s.canonical] = {"value": fold_enabled_sources(cfg)}
+            continue
+        val = _read_path(cfg, _cfg_path(s.canonical))
+        if val is _MISSING:
+            continue
+        out[s.canonical] = {"value": _normalize_enum(s, val)}
+    return out
 
 
 def apply_setting(cfg: dict, path: str, value: Any) -> None:
-    raise NotImplementedError("Phase 1: write one path into cfg with base-overlay; "
-                              "reject any path not in syncable(); normalize enums.")
+    """Write one imported setting into `cfg` in place, base-overlay style. Rejects
+    any path not classed SYNC in the registry (secrets, machine-local keys, and
+    keys a newer peer knows but we don't are silently ignored). Normalizes enums,
+    unfolds enabled_sources, and routes prompts.<id> into cfg['prompts']."""
+    if category_for_path(path) is None:
+        return  # not a SYNC row — the allowlist is the only switch
+    if path.startswith("prompts."):
+        cfg.setdefault("prompts", {})[path[len("prompts."):]] = value
+        return
+    if path == "search.enabled_sources":
+        unfold_enabled_sources(cfg, value)
+        return
+    value = _normalize_enum(_BY_CANONICAL.get(path), value)
+    _write_path(cfg, _cfg_path(path), value)
+
+
+def remove_setting(cfg: dict, path: str) -> None:
+    """Apply a setting tombstone (a removed key — chiefly a deleted prompt
+    override). Ignores non-SYNC paths, like `apply_setting`."""
+    if category_for_path(path) is None:
+        return
+    if path.startswith("prompts."):
+        prompts = cfg.get("prompts")
+        if isinstance(prompts, dict):
+            prompts.pop(path[len("prompts."):], None)
+        return
+    _delete_path(cfg, _cfg_path(path))

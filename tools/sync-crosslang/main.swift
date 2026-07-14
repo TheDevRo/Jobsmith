@@ -73,6 +73,53 @@ case "merge":
     let merged = SyncMerge.merge(SyncMerge.loadLogs(folder))
     print(merged.canonicalString())
 
+case "registry":
+    // Canonical-id parity: the Python test asserts this equals
+    // settings_registry.syncable_canonical_ids(). `folder` is ignored.
+    let data = try! JSONEncoder().encode(SettingsSync.canonicalIDs())
+    print(String(data: data, encoding: .utf8)!)
+
+case "emit-settings":
+    // Emit `setting` records produced by the REAL iOS mapper from an iOS-native
+    // config dict — exercising enabledSources fold, prompt expansion, the
+    // on-device-sentinel skip, and secret-strip-by-omission (a folder-strip
+    // secret like adzuna_app_key is not a registry row, so it never appears).
+    let iosConfig: [String: JSONValue] = [
+        "honesty": .object([
+            "level": .string("tailored"),
+            "resumeStyle": .string("modern"),          // legacy alias -> ledger
+        ]),
+        "search": .object([
+            "keywords": .array([.string("swift"), .string("ios")]),
+            "minSalary": .null,                          // explicit null travels
+            "enabledSources": .array([.string("greenhouse"), .string("remoteok")]),
+            "linkedInEnabled": .bool(true),              // folds in as "linkedin"
+        ]),
+        "ai": .object([
+            "baseURL": .string("http://lan:1234/v1"),
+            "apiKey": .string("sk-shared"),              // synced by decision
+            "strongModel": .string("big-model"),
+            "fastModel": .string("apple-on-device"),     // sentinel -> skipped
+        ]),
+        "promptOverrides": .object(["score": .string("my score prompt")]),
+        "apiKeys": .object(["adzunaAppKey": .string("SECRET-must-not-sync")]),
+    ]
+    let enabled: Set<String> = ["documents", "postings", "ai_connection", "prompts"]
+    let exported = SettingsSync.export(iosConfig, enabled: enabled)
+    var recs: [ChangeRecord] = []
+    var i = 0
+    for (path, data) in exported.sorted(by: { $0.key < $1.key }) {
+        i += 1
+        let ts = String(format: "2026-07-08T11:00:%02d.000Z", i)
+        recs.append(record("setting", path, ts, data))
+    }
+    let changes = folder.appendingPathComponent("changes")
+    try! FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    var text = ""
+    for rec in recs { text += String(data: try! encoder.encode(rec), encoding: .utf8)! + "\n" }
+    try! text.write(to: changes.appendingPathComponent("IOSDEV.jsonl"), atomically: true, encoding: .utf8)
+
 default:
     die("unknown command: \(command)")
 }

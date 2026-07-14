@@ -15,6 +15,16 @@ struct SyncSettingsView: View {
     @State private var showPicker = false
     @State private var syncing = false
     @State private var status = ""
+    // One flag per sync category (jobsmith.sync.settings.<key>), seeded from the
+    // registry defaults. Kept in @State so toggling re-renders; persisted to
+    // UserDefaults via SyncManager.
+    @State private var categoryOn: [String: Bool] = SyncSettingsView.readCategories()
+
+    private static func readCategories() -> [String: Bool] {
+        var out: [String: Bool] = [:]
+        for c in SettingsSync.categories { out[c.key] = SyncManager.shared.settingsCategoryEnabled(c.key) }
+        return out
+    }
 
     var body: some View {
         Form {
@@ -65,6 +75,21 @@ struct SyncSettingsView: View {
             }
 
             Section {
+                ForEach(SettingsSync.categories, id: \.key) { category in
+                    categoryToggle(category)
+                }
+            } header: {
+                Text("Sync these across devices")
+            } footer: {
+                Text("Pick which groups of settings ride the shared folder. A group only "
+                     + "syncs when it's on here AND on your other device.\n\n"
+                     + "AI Connection INCLUDES your AI API key — it travels in your sync folder "
+                     + "with the endpoint and model choices, so this device works without "
+                     + "re-entering it. Never synced: your LinkedIn cookie, ATS/Workday passwords, "
+                     + "Adzuna/USAJobs/BLS keys, and the sync folder itself.")
+            }
+
+            Section {
                 Button {
                     Task { await runSync() }
                 } label: {
@@ -84,6 +109,14 @@ struct SyncSettingsView: View {
             }
         }
         .navigationTitle("Sync")
+        .onAppear {
+            // A NavigationLink destination's @State is initialized eagerly at
+            // list-render time, so re-read the live values when the screen shows.
+            enabled = SyncManager.shared.isEnabled()
+            folderName = SyncManager.shared.folderName()
+            interval = SyncManager.shared.syncIntervalSeconds()
+            categoryOn = SyncSettingsView.readCategories()
+        }
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 do {
@@ -95,6 +128,19 @@ struct SyncSettingsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func categoryToggle(_ category: SettingsSync.Category) -> some View {
+        let binding = Binding<Bool>(
+            get: { categoryOn[category.key] ?? category.defaultOn },
+            set: { on in
+                categoryOn[category.key] = on
+                SyncManager.shared.setSettingsCategoryEnabled(category.key, on)
+            }
+        )
+        Toggle(category.label, isOn: binding)
+            .disabled(!enabled)   // a group can't sync while master sync is off
     }
 
     @MainActor

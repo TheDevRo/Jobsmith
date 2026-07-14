@@ -12,23 +12,25 @@ import Foundation
 // language conformance test enforces this — see SETTINGS_SYNC_PLAN.md Phase 3).
 // The read/write plumbing is stubbed where it needs SyncEngine wiring (Phase 2).
 
-enum SettingsSync {
+public enum SettingsSync {
 
     /// A user-facing sync toggle, mirroring `settings_registry.CATEGORIES`.
     /// Each maps to a `jobsmith.sync.settings.<key>` UserDefaults bool (device-
     /// local). A category syncs on this device only when its toggle is on here;
     /// two devices share a category only if both enable it.
-    struct Category {
-        let key: String
-        let label: String
-        let defaultOn: Bool
+    public struct Category {
+        public let key: String
+        public let label: String
+        public let defaultOn: Bool
+        public init(key: String, label: String, defaultOn: Bool) {
+            self.key = key; self.label = label; self.defaultOn = defaultOn
+        }
     }
 
     /// Keep in lockstep with settings_registry.CATEGORIES (order + keys + defaults).
     /// `profile` defaults ON to preserve today's behavior (profile already syncs);
-    /// it gates the EXISTING profile bridge, not a `registry` row below. There is
-    /// deliberately no "AI Connection" category — that whole screen is device-local.
-    static let categories: [Category] = [
+    /// it gates the EXISTING profile bridge, not a `registry` row below.
+    public static let categories: [Category] = [
         Category(key: "profile", label: "Profile", defaultOn: true),
         Category(key: "postings", label: "Postings (Search & sources)", defaultOn: false),
         Category(key: "documents", label: "Documents (resume & honesty)", defaultOn: false),
@@ -116,20 +118,156 @@ enum SettingsSync {
               note: "Wildcard: one record per prompt id (id = prompts.<id>) for per-prompt LWW."),
     ]
 
-    // MARK: - AppConfig <-> {canonical_path: JSONValue} bridge  (STUB, Phase 2)
+    // MARK: - lookups + parity
 
-    /// Read the settings this device owns out of `config`, keyed by canonical
-    /// path, as `{path: {"value": JSONValue}}`. Fold enabledSources -> sorted
-    /// list; expand promptOverrides -> one record per id.
-    static func export(_ config: AppConfig) -> [String: [String: JSONValue]] {
-        fatalError("Phase 2: read each ios!=nil registry row from AppConfig; fold enabledSources; expand prompts.*")
+    /// The `ios` config keypath that routes a tier to Apple's on-device model.
+    /// A tier holding this sentinel is NEVER exported (it's meaningless off-device).
+    static let onDeviceModelSentinel = "apple-on-device"
+
+    /// Sorted canonical ids of every registry row (the `prompts.*` wildcard
+    /// verbatim). The registry-parity test asserts this equals the Python
+    /// `settings_registry.syncable_canonical_ids()`.
+    static func canonicalIDs() -> [String] { registry.map(\.canonical).sorted() }
+
+    private static let byCanonical: [String: Entry] = {
+        var out: [String: Entry] = [:]
+        for e in registry { out[e.canonical] = e }
+        return out
+    }()
+
+    /// The gating category for a concrete canonical path, or nil when it is not a
+    /// registry row (nil ⇒ never applied — the allowlist is the only switch).
+    static func category(for path: String) -> String? {
+        if let e = byCanonical[path] { return e.category }
+        if path.hasPrefix("prompts.") { return "prompts" }   // prompts.* expansion
+        return nil
     }
 
-    /// Apply one imported setting back into `config` (in place), honoring
-    /// base-overlay: a canonical path this device doesn't model is written to
-    /// nothing here but MUST be preserved in the sync snapshot for re-export.
-    /// Reject any path not in `registry`. Normalize enums (legacy resume styles).
-    static func apply(_ config: inout AppConfig, path: String, value: JSONValue) {
-        fatalError("Phase 2: map canonical path -> AppConfig keypath; unfold enabled_sources; normalize.")
+    private static let legacyResumeStyles = ["standard": "ledger", "modern": "ledger", "minimal": "swiss"]
+
+    private static func normalizeEnum(_ path: String, _ value: JSONValue) -> JSONValue {
+        guard path == "application_honesty.resume_style", case .string(let s) = value else { return value }
+        let low = s.lowercased()
+        return .string(legacyResumeStyles[low] ?? low)
+    }
+
+    // MARK: - nested [String: JSONValue] access (iOS-native camelCase config)
+
+    private static func getIOS(_ config: [String: JSONValue], _ dotted: String) -> JSONValue? {
+        var node = JSONValue.object(config)
+        for part in dotted.split(separator: ".") {
+            guard case .object(let o) = node, let next = o[String(part)] else { return nil }
+            node = next
+        }
+        return node
+    }
+
+    private static func setIOS(_ config: inout [String: JSONValue], _ dotted: String, _ value: JSONValue) {
+        let parts = dotted.split(separator: ".").map(String.init)
+        func recurse(_ node: inout [String: JSONValue], _ i: Int) {
+            if i == parts.count - 1 { node[parts[i]] = value; return }
+            var child: [String: JSONValue] = {
+                if case .object(let o)? = node[parts[i]] { return o }
+                return [:]
+            }()
+            recurse(&child, i + 1)
+            node[parts[i]] = .object(child)
+        }
+        recurse(&config, 0)
+    }
+
+    // MARK: - enabled_sources fold (canonicalization rule #3)
+
+    /// iOS `search.enabledSources` (a Set encoded as an array) plus the separate
+    /// `search.linkedInEnabled` flag -> canonical SORTED list of enabled ids
+    /// (linkedin folded in). Sorted so the snapshot hash is stable.
+    static func foldEnabledSources(_ config: [String: JSONValue]) -> [String] {
+        var ids = Set<String>()
+        if case .array(let arr)? = getIOS(config, "search.enabledSources") {
+            for v in arr { if case .string(let s) = v { ids.insert(s) } }
+        }
+        if case .bool(let on)? = getIOS(config, "search.linkedInEnabled") {
+            if on { ids.insert("linkedin") } else { ids.remove("linkedin") }
+        }
+        return ids.sorted()
+    }
+
+    /// Inverse: canonical list -> iOS `enabledSources` (minus linkedin) plus
+    /// `linkedInEnabled`.
+    static func unfoldEnabledSources(_ config: inout [String: JSONValue], _ value: JSONValue) {
+        guard case .array(let arr) = value else { return }
+        var ids = Set<String>()
+        for v in arr { if case .string(let s) = v { ids.insert(s) } }
+        let linkedIn = ids.contains("linkedin")
+        ids.remove("linkedin")
+        setIOS(&config, "search.enabledSources", .array(ids.sorted().map { .string($0) }))
+        setIOS(&config, "search.linkedInEnabled", .bool(linkedIn))
+    }
+
+    // MARK: - export / apply  (iOS-native config dict <-> canonical settings)
+
+    /// Read the modeled settings out of the iOS-native config dict (camelCase,
+    /// nested: honesty/search/ai/promptOverrides), keyed by canonical path, as
+    /// `{path: {"value": JSONValue}}`. Only categories in `enabled` are emitted;
+    /// folds enabledSources, expands promptOverrides, and never exports a model
+    /// tier holding the on-device sentinel (or an empty slot).
+    static func export(_ config: [String: JSONValue], enabled: Set<String>) -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for e in registry where enabled.contains(e.category) {
+            if e.canonical == "prompts.*" {
+                if case .object(let prompts)? = getIOS(config, "promptOverrides") {
+                    for (pid, val) in prompts { out["prompts.\(pid)"] = ["value": val] }
+                }
+                continue
+            }
+            if e.canonical == "search.enabled_sources" {
+                out[e.canonical] = ["value": .array(foldEnabledSources(config).map { .string($0) })]
+                continue
+            }
+            guard let iosPath = e.ios, let raw = getIOS(config, iosPath) else { continue }
+            // Never let a tier routed to Apple's on-device model (or an empty
+            // fallback slot) land on another device.
+            if e.canonical.hasPrefix("ai.models.") {
+                if case .string(let s) = raw, s == onDeviceModelSentinel || s.isEmpty { continue }
+            }
+            out[e.canonical] = ["value": normalizeEnum(e.canonical, raw)]
+        }
+        return out
+    }
+
+    /// Apply one imported setting into the iOS-native config dict in place. A
+    /// canonical path this device doesn't model (ios == nil, e.g. pipeline.*) is a
+    /// no-op here — the engine simply never tombstones it, so it survives a
+    /// round-trip through the phone untouched (base-overlay). Rejects any path not
+    /// in `registry`; normalizes legacy resume styles.
+    static func apply(_ config: inout [String: JSONValue], path: String, value: JSONValue) {
+        guard category(for: path) != nil else { return }
+        if path.hasPrefix("prompts.") {
+            let pid = String(path.dropFirst("prompts.".count))
+            setIOS(&config, "promptOverrides.\(pid)", value)
+            return
+        }
+        if path == "search.enabled_sources" {
+            unfoldEnabledSources(&config, value)
+            return
+        }
+        guard let e = byCanonical[path], let iosPath = e.ios else { return }  // unmodeled: base-overlay
+        setIOS(&config, iosPath, normalizeEnum(path, value))
+    }
+
+    /// True when this device models `path` in its config (so the engine tracks it
+    /// in the snapshot and may tombstone it). Unmodeled paths are never emitted.
+    static func isModeled(_ path: String) -> Bool {
+        if path.hasPrefix("prompts.") { return true }
+        return byCanonical[path]?.ios != nil
+    }
+
+    static func removePrompt(_ config: inout [String: JSONValue], _ path: String) {
+        guard path.hasPrefix("prompts.") else { return }
+        let pid = String(path.dropFirst("prompts.".count))
+        if case .object(var prompts)? = getIOS(config, "promptOverrides") {
+            prompts.removeValue(forKey: pid)
+            setIOS(&config, "promptOverrides", .object(prompts))
+        }
     }
 }

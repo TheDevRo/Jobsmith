@@ -18,6 +18,7 @@ from .. import resume_generator
 from .. import resume_parser
 from .. import linkedin_profile_import
 from ..auto_apply import has_linkedin_session
+from ..sync.settings_registry import api_masked_keys
 from . import _auth
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,10 @@ router = APIRouter()
 # mask into config.yaml. Clearing the field still clears the secret.
 SECRET_MASK = "•" * 8
 
-# (section, key) pairs never handed to an off-machine caller in the clear.
+# The historical HTTP-mask set, kept only so the guard test can assert every
+# member migrated into settings_registry.api_masked_keys() (which is now the SSOT
+# and a strict superset — it also masks the API key that syncs, and the other
+# api_keys/profile credentials). Masking is driven by api_masked_keys() below.
 _SECRET_FIELDS = (
     ("profile", "workday_password"),
     ("profile", "ats_login_password"),
@@ -41,13 +45,18 @@ _SECRET_FIELDS = (
 
 
 def _mask_secrets(payload: dict) -> dict:
-    """Replace stored secrets with SECRET_MASK (only where one is actually set)."""
-    for section, key in _SECRET_FIELDS:
-        if payload.get(section, {}).get(key):
-            payload[section][key] = SECRET_MASK
-    bls = payload.get("salary_estimator", {}).get("bls", {})
-    if bls.get("api_key"):
-        bls["api_key"] = SECRET_MASK
+    """Replace stored secrets with SECRET_MASK (only where one is actually set),
+    driven by the canonical HTTP-mask list. A dotted path like
+    `salary_estimator.bls.api_key` walks the nested payload."""
+    for dotted in api_masked_keys():
+        parts = dotted.split(".")
+        node = payload
+        for p in parts[:-1]:
+            node = node.get(p) if isinstance(node, dict) else None
+            if node is None:
+                break
+        if isinstance(node, dict) and node.get(parts[-1]):
+            node[parts[-1]] = SECRET_MASK
     return payload
 
 

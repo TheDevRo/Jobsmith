@@ -1,0 +1,4 @@
+{"v":1,"entity":"setting","id":"application_honesty.resume_style","updated_at":"2026-07-08T10:00:00.000Z","device":"A1B2","deleted":false,"data":{"value":"ledger"}}
+{"v":1,"entity":"setting","id":"search.enabled_sources","updated_at":"2026-07-08T10:00:00.000Z","device":"A1B2","deleted":false,"data":{"value":["greenhouse","linkedin","remoteok"]}}
+{"v":1,"entity":"setting","id":"prompts.score","updated_at":"2026-07-08T10:00:00.000Z","device":"A1B2","deleted":false,"data":{"value":"A score prompt"}}
+{"v":1,"entity":"setting","id":"prompts.junk","updated_at":"2026-07-08T10:00:00.000Z","device":"A1B2","deleted":false,"data":{"value":"delete me"}}

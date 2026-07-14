@@ -404,6 +404,7 @@ function summarizeSync(r) {
     const outC = (r.exported?.live || 0) + (r.exported?.tombstones || 0);
     const parts = [`${inC} pulled`, `${outC} pushed`];
     if (r.imported?.profile) parts.push('profile updated');
+    if (r.imported?.settings) parts.push(`${r.imported.settings} setting(s)`);
     return parts.join(', ');
 }
 
@@ -443,11 +444,44 @@ async function loadSyncSettings() {
         if (interval && document.activeElement !== interval && st.interval_seconds != null) {
             interval.value = String(st.interval_seconds);
         }
+        renderSyncCategories(st);
         renderSyncStatus(st);
     } catch (e) {
         renderSyncStatus(null);
         const el = document.getElementById('sync-status');
         if (el) el.innerHTML = `<span style="color:var(--accent-red)">Could not load sync status: ${e.message}</span>`;
+    }
+}
+
+// Render one toggle per sync category (the list comes from the registry via
+// /api/sync/status, so a new category needs no frontend edit). Greyed out until
+// master sync is enabled — a group can't sync while the folder is off.
+function renderSyncCategories(st) {
+    const box = document.getElementById('sync-categories');
+    if (!box) return;
+    const cats = st.settings_categories || [];
+    const state = st.settings || {};
+    const masterOn = !!st.enabled;
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    box.innerHTML = cats.map(c => {
+        const on = state[c.key] !== undefined ? !!state[c.key] : !!c.default;
+        return `<label class="remote-toggle" style="display:flex;align-items:center;gap:8px;${masterOn ? '' : 'opacity:0.5'}">`
+            + `<input type="checkbox" ${on ? 'checked' : ''} ${masterOn ? '' : 'disabled'} `
+            + `onchange="saveSyncCategory('${esc(c.key)}', this.checked)"> ${esc(c.label)}</label>`;
+    }).join('');
+}
+
+async function saveSyncCategory(key, on) {
+    try {
+        const st = await api('/api/sync/config', {
+            method: 'POST',
+            body: JSON.stringify({ settings: { [key]: !!on } }),
+        });
+        renderSyncCategories(st);
+        renderSyncStatus(st);
+    } catch (e) {
+        toast(`Could not update sync group: ${e.message}`, 'error');
+        await loadSyncSettings();
     }
 }
 
@@ -462,6 +496,7 @@ async function saveSyncConfig() {
             method: 'POST',
             body: JSON.stringify({ enabled, folder, device_label, interval_seconds }),
         });
+        renderSyncCategories(st);  // re-grey when the master toggle changed
         renderSyncStatus(st);
         toast('Sync settings saved', 'success');
     } catch (e) {

@@ -244,7 +244,24 @@ application_honesty:
 #   device_id:    generated once on first sync; never edit by hand
 #   device_label: display-only name shown in the folder manifest
 # ATS-login credentials are NEVER written into the sync folder.
+#
+# `settings:` opts groups of app settings into the same sync, per category. A
+# group syncs only when it is on here AND on the other device. `profile` defaults
+# on (it always synced); every other group is opt-in. `ai_connection` INCLUDES
+# the AI api_key (it rides in your folder) but stays masked in the HTTP API. Never
+# synced regardless: the LinkedIn cookie, ATS/Workday passwords, Adzuna/USAJobs/
+# BLS keys, the extension token, server ports, and the folder itself.
 # sync:
 #   enabled: false
 #   folder: ""
 #   device_label: ""
+#   settings:
+#     profile: true
+#     postings: false        # search.* (keywords, locations, ATS boards, sources)
+#     documents: false       # application_honesty.* (resume style/accent, honesty)
+#     ai_connection: false   # ai.base_url + api_key + model tiers + gen params
+#     pipeline: false         # ranking weights, ghosting
+#     auto_apply: false       # apply policy (mode, whitelist, rate limits)
+#     salary: false           # salary_estimator.* (minus the BLS key)
+#     prompts: false          # AI prompt overrides
+#     general: false          # misc UX (notification sound)

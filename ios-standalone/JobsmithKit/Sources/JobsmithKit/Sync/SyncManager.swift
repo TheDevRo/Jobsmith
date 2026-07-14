@@ -39,6 +39,24 @@ public final class SyncManager {
         return profile
     }
 
+    // MARK: AppConfig <-> [String: JSONValue]  (the settings bridge source)
+
+    /// Whole AppConfig -> its native JSON dict (camelCase, nested
+    /// honesty/search/ai/promptOverrides/…), the shape SettingsSync reads.
+    public static func configToDict(_ config: AppConfig) -> [String: JSONValue] {
+        guard let data = try? JSONEncoder().encode(config),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              case .object(let dict) = JSONValue.from(obj) else { return [:] }
+        return dict
+    }
+
+    /// Inverse of configToDict; malformed/missing keys fall back to defaults.
+    public static func dictToConfig(_ dict: [String: JSONValue]) -> AppConfig {
+        guard let data = try? JSONSerialization.data(withJSONObject: JSONValue.object(dict).toAny()),
+              let config = try? JSONDecoder().decode(AppConfig.self, from: data) else { return AppConfig() }
+        return config
+    }
+
     // MARK: sync cycle
 
     /// Run one sync cycle against `folder`. Reads the profile from `configStore`
@@ -52,21 +70,42 @@ public final class SyncManager {
                          deviceLabel: String? = nil,
                          defaults: UserDefaults = .standard) async throws -> SyncCoordinator.Result {
         let device = deviceId(defaults)
-        let profileSnapshot = SyncManager.profileToDict(await configStore.load().profile)
+        let config = await configStore.load()
+        let enabled = enabledSettingsCategories(defaults)
+        let profileOn = enabled.contains("profile")
+
+        // Snapshot both the profile and the whole settings config up front; the
+        // engine's closures are synchronous while ConfigStore is an actor.
+        let profileSnapshot = SyncManager.profileToDict(config.profile)
+        let settingsSnapshot = SyncManager.configToDict(config)
         var mergedProfile: [String: JSONValue]?
+        var mergedSettings: [String: JSONValue]?
 
         let engine = SyncEngine(
             db: db, deviceId: device,
-            loadProfile: { profileSnapshot },
+            loadProfile: { profileOn ? profileSnapshot : nil },
             saveProfile: { mergedProfile = $0 },
+            loadSettings: { settingsSnapshot },
+            saveSettings: { mergedSettings = $0 },
+            settingsEnabled: enabled,
             docsLocalDir: docsLocalDir
         )
         let coordinator = SyncCoordinator(engine: engine, deviceId: device, deviceLabel: deviceLabel)
         let result = try coordinator.syncOnce(folder: folder, securityScoped: securityScoped)
 
-        if let mergedProfile {
-            let profile = SyncManager.dictToProfile(mergedProfile)
-            _ = try await configStore.update { $0.profile = profile }
+        if mergedProfile != nil || mergedSettings != nil {
+            _ = try await configStore.update { cfg in
+                if let mergedProfile { cfg.profile = SyncManager.dictToProfile(mergedProfile) }
+                if let mergedSettings {
+                    // Only the sections settings can affect — profile rides its own
+                    // bridge, apiKeys (secrets) never sync.
+                    let updated = SyncManager.dictToConfig(mergedSettings)
+                    cfg.search = updated.search
+                    cfg.ai = updated.ai
+                    cfg.honesty = updated.honesty
+                    cfg.promptOverrides = updated.promptOverrides
+                }
+            }
         }
         return result
     }
@@ -85,6 +124,29 @@ public extension SyncManager {
     }
     func setEnabled(_ on: Bool, _ defaults: UserDefaults = .standard) {
         defaults.set(on, forKey: enabledKey)
+    }
+
+    // MARK: per-category settings-sync toggles (jobsmith.sync.settings.<key>)
+
+    private func settingsFlagKey(_ category: String) -> String { "jobsmith.sync.settings.\(category)" }
+
+    /// Whether this device syncs `category`, seeded from SettingsSync.categories'
+    /// default when the flag was never written (so `profile` reads ON and every
+    /// new category OFF, rather than false).
+    func settingsCategoryEnabled(_ category: String, _ defaults: UserDefaults = .standard) -> Bool {
+        if let v = defaults.object(forKey: settingsFlagKey(category)) as? Bool { return v }
+        return SettingsSync.categories.first { $0.key == category }?.defaultOn ?? false
+    }
+
+    func setSettingsCategoryEnabled(_ category: String, _ on: Bool, _ defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: settingsFlagKey(category))
+    }
+
+    /// The set of category keys currently synced on this device (seeded defaults).
+    func enabledSettingsCategories(_ defaults: UserDefaults = .standard) -> Set<String> {
+        var out = Set<String>()
+        for c in SettingsSync.categories where settingsCategoryEnabled(c.key, defaults) { out.insert(c.key) }
+        return out
     }
 
     /// Foreground auto-sync cadence in seconds while the app is open; 0 means
