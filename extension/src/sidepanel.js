@@ -266,6 +266,7 @@ async function buildFillItems(descriptors, values) {
     const item = {
       field_id:   v.field_id,
       selector:   d._selector || "",
+      human_selector: d._human_selector || "",
       name:       d.name || "",
       value:      v.value || "",
       action:     v.action || "fill",

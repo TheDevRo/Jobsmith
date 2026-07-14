@@ -41,6 +41,14 @@ const html = `<!DOCTYPE html><html><body>
 
     <input type="file" id="resume" data-jobsmith-fid="resume">
     <input type="file" id="cover" data-jobsmith-fid="cover">
+
+    <!-- Controlled inputs (react-hook-form/Formik/masked): the framework can
+         snap the DOM value back to empty on its next render. -->
+    <label for="ctrl1">Recovers on retry</label><input id="ctrl1" data-jobsmith-fid="ctrl1" type="text">
+    <label for="ctrl2">Never sticks</label><input id="ctrl2" data-jobsmith-fid="ctrl2" type="text">
+
+    <!-- Loses its data-jobsmith-fid stamp on an SPA re-render before fill. -->
+    <label for="email2">Email</label><input id="email2" data-jobsmith-fid="email2" type="email">
   </form>
 </body></html>`;
 
@@ -74,6 +82,26 @@ function hostileFileInput(id, acceptOnAttempt) {
 const resumeInput = hostileFileInput("resume", 3);       // accepts on the 3rd assignment
 const coverInput = hostileFileInput("cover", Infinity);  // never accepts
 
+// A controlled input: on each `input` event the "framework" re-renders and
+// overwrites the DOM value back to empty — until the Nth attempt, when it
+// finally accepts. acceptOnAttempt = Infinity → it always reverts.
+function controlledRevert(id, acceptOnAttempt) {
+  const el = window.document.getElementById(id);
+  const state = { attempts: 0 };
+  const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+  el.addEventListener("input", () => {
+    state.attempts++;
+    if (state.attempts < acceptOnAttempt) proto.set.call(el, "");
+  });
+  return state;
+}
+const ctrl1 = controlledRevert("ctrl1", 2);        // sticks on the 2nd attempt
+const ctrl2 = controlledRevert("ctrl2", Infinity); // never sticks
+
+// (c) Simulate an SPA re-render dropping the injected stamp before fill runs,
+//     so fill.js must re-locate the field via its _human_selector.
+window.document.getElementById("email2").removeAttribute("data-jobsmith-fid");
+
 evalScript(window, "common/fill.js");
 
 const items = [
@@ -90,6 +118,9 @@ const items = [
     file_bytes: [1, 2, 3], file_name: "Resume.docx", file_mime: "application/octet-stream" },
   { field_id: "cover", selector: '[data-jobsmith-fid="cover"]', value: "cover_letter", action: "upload", field_type: "file", confidence: 1,
     file_bytes: [4, 5, 6], file_name: "CoverLetter.docx", file_mime: "application/octet-stream" },
+  { field_id: "ctrl1", selector: '[data-jobsmith-fid="ctrl1"]', human_selector: "#ctrl1", value: "Recovered", action: "fill", field_type: "text", confidence: 0.95 },
+  { field_id: "ctrl2", selector: '[data-jobsmith-fid="ctrl2"]', human_selector: "#ctrl2", value: "NeverSticks", action: "fill", field_type: "text", confidence: 0.95 },
+  { field_id: "email2", selector: '[data-jobsmith-fid="email2"]', human_selector: "#email2", value: "jane@example.com", action: "fill", field_type: "email", confidence: 0.95 },
 ];
 
 (async () => {
@@ -116,6 +147,13 @@ const items = [
     ["upload that never sticks → failed", byId.cover.status === "failed"],
     ["failed upload points at the drag path", /drag the tile/i.test(byId.cover.message || "")],
     ["failed upload retried several times", coverInput.attempts >= 5],
+
+    // Phase 1 (fill robustness): controlled-input verify/retry + stamp re-locate.
+    ["plain text survives verify re-read", doc.getElementById("fname").value === "Jane" && byId.fname.status === "filled"],
+    ["controlled input recovers via retry", doc.getElementById("ctrl1").value === "Recovered" && byId.ctrl1.status === "filled" && ctrl1.attempts >= 2],
+    ["persistent revert → failed (no false 'filled')", byId.ctrl2.status === "failed" && doc.getElementById("ctrl2").value === "" && ctrl2.attempts >= 3],
+    ["stamp-dropped field re-located via human_selector", doc.getElementById("email2").value === "jane@example.com" && byId.email2.status === "filled"],
+    ["re-located field was re-stamped", doc.getElementById("email2").getAttribute("data-jobsmith-fid") === "email2"],
   ]);
 
   if (fail) {

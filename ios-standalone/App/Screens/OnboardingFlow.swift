@@ -327,9 +327,12 @@ struct ResumeImportStep: View {
             Task { await importFile(url) }
         }
         .sheet(isPresented: $showLinkedInSignIn) {
-            LinkedInSignInSheet { text, cookie in
+            LinkedInSignInSheet { text, cookie, jsession in
                 if let cookie, !cookie.isEmpty {
-                    model.saveConfig { $0.apiKeys.linkedInCookie = cookie }
+                    model.saveConfig {
+                        $0.apiKeys.linkedInCookie = cookie
+                        $0.apiKeys.linkedInJSessionId = jsession ?? ""
+                    }
                 }
                 Task { await parse(text: text) }
             }

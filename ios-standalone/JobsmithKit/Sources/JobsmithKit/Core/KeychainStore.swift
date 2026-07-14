@@ -6,6 +6,9 @@ import Security
 /// if it ever leaves the device in cleartext.
 public enum SecretKey: String, Sendable, CaseIterable {
     case linkedInCookie = "linkedin.li_at"
+    /// LinkedIn `JSESSIONID` — a session cookie whose value is also the
+    /// `csrf-token` the Voyager API requires for authenticated actions.
+    case linkedInJSessionId = "linkedin.jsessionid"
 }
 
 /// Where those credentials live. An abstraction only so `ConfigStore` can be

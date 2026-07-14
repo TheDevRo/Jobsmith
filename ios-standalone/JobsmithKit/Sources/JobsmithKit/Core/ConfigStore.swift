@@ -54,11 +54,21 @@ public actor ConfigStore {
             return fresh
         }
 
+        var rewriteForLegacyPlaintext = false
         if config.apiKeys.linkedInCookie.isEmpty {
             config.apiKeys.linkedInCookie = secrets.get(.linkedInCookie) ?? ""
         } else if secrets.set(config.apiKeys.linkedInCookie, for: .linkedInCookie) {
-            // Legacy plaintext cookie on disk — now in the Keychain; rewrite the
-            // file without it. (`save` strips whatever the Keychain accepted.)
+            rewriteForLegacyPlaintext = true
+        }
+        if config.apiKeys.linkedInJSessionId.isEmpty {
+            config.apiKeys.linkedInJSessionId = secrets.get(.linkedInJSessionId) ?? ""
+        } else if secrets.set(config.apiKeys.linkedInJSessionId, for: .linkedInJSessionId) {
+            rewriteForLegacyPlaintext = true
+        }
+        if rewriteForLegacyPlaintext {
+            // Legacy plaintext credential(s) on disk — now in the Keychain;
+            // rewrite the file without them. (`persist` strips whatever the
+            // Keychain accepted.)
             try? persist(config)
         }
         cached = config
@@ -79,6 +89,9 @@ public actor ConfigStore {
         var onDisk = config
         if secrets.set(config.apiKeys.linkedInCookie, for: .linkedInCookie) {
             onDisk.apiKeys.linkedInCookie = ""
+        }
+        if secrets.set(config.apiKeys.linkedInJSessionId, for: .linkedInJSessionId) {
+            onDisk.apiKeys.linkedInJSessionId = ""
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

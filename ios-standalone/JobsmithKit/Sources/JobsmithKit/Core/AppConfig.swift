@@ -368,13 +368,24 @@ public struct APIKeys: Codable, Equatable, Sendable {
     /// a plain property so callers don't have to care.
     public var linkedInCookie: String
 
+    /// LinkedIn `JSESSIONID` session cookie captured alongside `li_at`. Its value
+    /// doubles as LinkedIn's `csrf-token`, which the Voyager API (Easy Apply,
+    /// authenticated actions) requires — `li_at` alone renders logged-in but the
+    /// action POSTs 401. It is a session cookie (evicted sooner than the
+    /// persistent `li_at`), so it is captured/re-injected each sign-in. Like
+    /// `linkedInCookie` it is a live credential and is round-tripped through the
+    /// Keychain by `ConfigStore` rather than this struct's JSON.
+    public var linkedInJSessionId: String
+
     public init(adzunaAppID: String = "", adzunaAppKey: String = "",
                 usajobsEmail: String = "", usajobsAPIKey: String = "",
-                blsRegistrationKey: String = "", linkedInCookie: String = "") {
+                blsRegistrationKey: String = "", linkedInCookie: String = "",
+                linkedInJSessionId: String = "") {
         self.adzunaAppID = adzunaAppID; self.adzunaAppKey = adzunaAppKey
         self.usajobsEmail = usajobsEmail; self.usajobsAPIKey = usajobsAPIKey
         self.blsRegistrationKey = blsRegistrationKey
         self.linkedInCookie = linkedInCookie
+        self.linkedInJSessionId = linkedInJSessionId
     }
 
     // Tolerant decoding: fields added over time must not fail (and thereby
@@ -387,5 +398,6 @@ public struct APIKeys: Codable, Equatable, Sendable {
         usajobsAPIKey = try c.decodeIfPresent(String.self, forKey: .usajobsAPIKey) ?? ""
         blsRegistrationKey = try c.decodeIfPresent(String.self, forKey: .blsRegistrationKey) ?? ""
         linkedInCookie = try c.decodeIfPresent(String.self, forKey: .linkedInCookie) ?? ""
+        linkedInJSessionId = try c.decodeIfPresent(String.self, forKey: .linkedInJSessionId) ?? ""
     }
 }
