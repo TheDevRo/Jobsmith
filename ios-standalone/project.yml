@@ -31,7 +31,7 @@ settings:
     SWIFT_VERSION: "5.9"
     # Tracks package.json, the version source of truth for the whole repo.
     MARKETING_VERSION: 0.2.4
-    CURRENT_PROJECT_VERSION: 11
+    CURRENT_PROJECT_VERSION: 12
     CODE_SIGN_STYLE: Automatic
     # Team is declared here so `xcodegen generate` preserves signing config for
     # headless archiving — regenerating from this file otherwise wipes a
