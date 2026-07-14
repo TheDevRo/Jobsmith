@@ -35,6 +35,21 @@ struct ApplyBrowserView: View {
         return cookie.isEmpty ? nil : cookie
     }
 
+    /// The stored `JSESSIONID`, or nil. Needed (in addition to `li_at`) for
+    /// LinkedIn's authenticated actions like Easy Apply — see `APIKeys`.
+    private var storedLinkedInJSessionId: String? {
+        let cookie = model.config.apiKeys.linkedInJSessionId
+        return cookie.isEmpty ? nil : cookie
+    }
+
+    /// LinkedIn browsing works on `li_at` alone, but Easy Apply's Voyager POST
+    /// needs a live `JSESSIONID` too. Prompt a (fresh) sign-in when either is
+    /// missing rather than loading a half-authenticated session whose Apply
+    /// button silently 401s.
+    private var needsLinkedInSignIn: Bool {
+        isLinkedIn && (storedLinkedInCookie == nil || storedLinkedInJSessionId == nil)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -44,7 +59,7 @@ struct ApplyBrowserView: View {
                     ContentUnavailableView("No application URL",
                                            systemImage: "link.badge.plus")
                 }
-                if isLinkedIn && storedLinkedInCookie == nil {
+                if needsLinkedInSignIn {
                     linkedInSignInBanner
                 }
                 bottomBar
@@ -55,10 +70,13 @@ struct ApplyBrowserView: View {
                 guard !didStart, let url = jobURL else { return }
                 didStart = true
                 controller.start(url: url,
-                                 liAtCookie: isLinkedIn ? storedLinkedInCookie : nil)
+                                 liAtCookie: isLinkedIn ? storedLinkedInCookie : nil,
+                                 jsessionId: isLinkedIn ? storedLinkedInJSessionId : nil)
             }
             .sheet(isPresented: $showLinkedInSignIn) {
-                LinkedInSignInSheet { _, cookie in handleLinkedInSignIn(cookie) }
+                LinkedInSignInSheet { _, cookie, jsession in
+                    handleLinkedInSignIn(cookie, jsession)
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -135,13 +153,17 @@ struct ApplyBrowserView: View {
         .background(.thinMaterial)
     }
 
-    /// Persist the captured `li_at` cookie (same store onboarding writes) and
-    /// reload the posting so it renders behind the fresh session.
-    private func handleLinkedInSignIn(_ cookie: String?) {
+    /// Persist the captured `li_at` + `JSESSIONID` cookies (same store
+    /// onboarding writes) and reload the posting so it renders — and can Easy
+    /// Apply — behind the fresh session.
+    private func handleLinkedInSignIn(_ cookie: String?, _ jsession: String?) {
         guard let cookie, !cookie.isEmpty else { return }
-        model.saveConfig { $0.apiKeys.linkedInCookie = cookie }
+        model.saveConfig {
+            $0.apiKeys.linkedInCookie = cookie
+            $0.apiKeys.linkedInJSessionId = jsession ?? ""
+        }
         if let url = jobURL {
-            controller.start(url: url, liAtCookie: cookie)
+            controller.start(url: url, liAtCookie: cookie, jsessionId: jsession)
         }
     }
 
@@ -161,9 +183,30 @@ struct ApplyBrowserView: View {
                 }
                 status = "Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…"
                 let values = await model.mapApplyFields(snap.fields, job: job)
-                let items = Self.buildFillItems(descriptors: snap.fields, values: values,
+                var items = Self.buildFillItems(descriptors: snap.fields, values: values,
                                                 documents: uploadDocuments(for: values))
                 status = "Filling…"
+                // Phase 2 — shrink the snapshot→fill window. Mapping above can
+                // take seconds (LLM), during which an SPA form may re-render and
+                // drop the data-jobsmith-fid stamps snapshot.js applied. Re-run
+                // snapshot to re-stamp the current nodes under the same stable
+                // field_ids, then refresh each item's selector from the fresh
+                // descriptors (matched by field_id) so fill.js targets live nodes.
+                if let fresh = try? await controller.snapshot() {
+                    var freshSelectors: [String: String] = [:]
+                    for f in fresh.fields {
+                        if let fid = f["field_id"] as? String,
+                           let sel = f["_selector"] as? String {
+                            freshSelectors[fid] = sel
+                        }
+                    }
+                    for i in items.indices {
+                        if let fid = items[i]["field_id"] as? String,
+                           let sel = freshSelectors[fid] {
+                            items[i]["selector"] = sel
+                        }
+                    }
+                }
                 let fillResults = try await controller.fill(items: items)
                 rows = Self.buildRows(descriptors: snap.fields, values: values,
                                       fillResults: fillResults)
@@ -228,6 +271,9 @@ struct ApplyBrowserView: View {
             var item: [String: Any] = [
                 "field_id": fid,
                 "selector": d["_selector"] as? String ?? "",
+                // Fallback selector (id/name) so fill.js can re-locate the field
+                // if an SPA re-render dropped the injected data-jobsmith-fid.
+                "human_selector": d["_human_selector"] as? String ?? "",
                 "name": d["name"] as? String ?? "",
                 "value": v["value"] as? String ?? "",
                 "action": v["action"] as? String ?? "fill",
@@ -329,27 +375,71 @@ struct ApplyFieldRow: Identifiable {
 /// Owns the WKWebView and exposes async snapshot/fill helpers. Kept out of the
 /// SwiftUI view so the injected-script calls read cleanly.
 @MainActor
-final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
+final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavigationDelegate {
+    /// The primary web view showing the posting. `SwiftUI` renders
+    /// `containerView`; the primary (or a child spawned by an external-apply
+    /// window.open) is mounted inside it, so a handoff can be shown in place.
     let webView: WKWebView
+    let containerView = UIView()
+
+    /// The web view autofill currently targets — the primary, or the child an
+    /// external-apply handoff navigated into (so Autofill works on the visible
+    /// ATS form, not the hidden posting behind it).
+    private(set) var activeWebView: WKWebView
+
+    /// Child web views spawned by `window.open`. Capped so a misbehaving opener
+    /// can't spawn unbounded web views.
+    private var childWebViews: [WKWebView] = []
+    private let maxChildWebViews = 4
 
     override init() {
         let config = WKWebViewConfiguration()
         webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        activeWebView = webView
         super.init()
         webView.uiDelegate = self
+        webView.navigationDelegate = self
+        mount(webView)
     }
 
-    /// LinkedIn's external Apply button hands off to the company ATS via
-    /// `window.open` / `target="_blank"`. WKWebView routes new-window
-    /// navigations here and silently drops them without a UI delegate, so
-    /// load them in the same web view (swipe-back returns to the posting).
+    /// Show `view` filling the container, replacing whatever was mounted, and
+    /// route autofill at it.
+    private func mount(_ view: WKWebView) {
+        activeWebView = view
+        containerView.subviews.forEach { $0.removeFromSuperview() }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: containerView.topAnchor),
+            view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+        ])
+    }
+
+    /// LinkedIn's external Apply button (and many ATS redirect shims) hand off
+    /// to the company site via `window.open` / `target="_blank"`. WKWebView
+    /// routes those here and drops them without a UI delegate.
+    ///
+    /// Two shapes:
+    ///  - carries a URL → load it in the opener (swipe-back returns to the
+    ///    posting), which is enough for most `target="_blank"` links.
+    ///  - blank/`about:blank` then-navigate → the opener opens an empty window
+    ///    and later sets `location` on the returned handle. Returning `nil`
+    ///    drops that flow, so hand back a real child web view (created with the
+    ///    passed configuration, as WKWebView requires) presented in place.
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard navigationAction.targetFrame == nil,
-              let url = navigationAction.request.url else { return nil }
+        guard navigationAction.targetFrame == nil else { return nil }
+        let url = navigationAction.request.url
+
+        if url == nil || url?.absoluteString == "about:blank" {
+            return makeChildWebView(configuration)
+        }
+        guard let url else { return nil }
         if url.scheme == "http" || url.scheme == "https" {
             webView.load(navigationAction.request)
         } else if UIApplication.shared.canOpenURL(url) {
@@ -359,22 +449,81 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
         return nil
     }
 
-    /// Inject the stored LinkedIn `li_at` session cookie (if any) into the web
-    /// view's cookie store, then load — so LinkedIn postings render behind the
-    /// user's own session instead of the logged-out wall. The cookie is scoped
-    /// to `.linkedin.com`, so it's never sent to other ATS hosts.
-    func start(url: URL, liAtCookie: String?) {
-        guard let liAtCookie, !liAtCookie.isEmpty,
-              let cookie = Self.linkedInSessionCookie(value: liAtCookie) else {
-            load(url)
-            return
+    private func makeChildWebView(_ configuration: WKWebViewConfiguration) -> WKWebView? {
+        guard childWebViews.count < maxChildWebViews else { return nil }
+        let child = WKWebView(frame: .zero, configuration: configuration)
+        child.allowsBackForwardNavigationGestures = true
+        child.uiDelegate = self
+        child.navigationDelegate = self
+        childWebViews.append(child)
+        mount(child)
+        return child
+    }
+
+    /// A child that scripts `window.close()` — pop it and re-show whatever was
+    /// underneath (the previous child, or the primary posting).
+    func webViewDidClose(_ webView: WKWebView) {
+        guard let idx = childWebViews.firstIndex(of: webView) else { return }
+        childWebViews.remove(at: idx)
+        mount(childWebViews.last ?? self.webView)
+    }
+
+    // MARK: WKNavigationDelegate — allow (incl. cross-origin apply redirects)
+    // and log, so a dropped handoff is diagnosable.
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if let url = navigationAction.request.url {
+            NSLog("[Apply] navigate → %@", url.absoluteString)
         }
-        webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { [weak self] in
-            self?.load(url)
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) {
+        NSLog("[Apply] provisional navigation failed: %@", error.localizedDescription)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        NSLog("[Apply] navigation failed: %@", error.localizedDescription)
+    }
+
+    /// Inject the stored LinkedIn session cookies (if any) into the web view's
+    /// cookie store, then load — so LinkedIn postings render, and can Easy
+    /// Apply, behind the user's own session instead of the logged-out wall.
+    /// `li_at` alone renders logged-in but the Easy-Apply POST needs a live
+    /// `JSESSIONID` (its value is LinkedIn's csrf-token). Both are scoped to
+    /// `.linkedin.com`, so they're never sent to other ATS hosts.
+    func start(url: URL, liAtCookie: String?, jsessionId: String?) {
+        var cookies: [HTTPCookie] = []
+        if let liAtCookie, !liAtCookie.isEmpty,
+           let cookie = Self.linkedInSessionCookie(value: liAtCookie) {
+            cookies.append(cookie)
         }
+        if let jsessionId, !jsessionId.isEmpty,
+           let cookie = Self.linkedInJSessionCookie(value: jsessionId) {
+            cookies.append(cookie)
+        }
+        guard !cookies.isEmpty else { load(url); return }
+        setCookies(cookies, thenLoad: url)
+    }
+
+    /// Set each cookie in turn (the store's completion fires per-cookie), then
+    /// load — so the request goes out with every cookie already in place.
+    private func setCookies(_ cookies: [HTTPCookie], thenLoad url: URL) {
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        var remaining = cookies
+        func next() {
+            guard let cookie = remaining.first else { load(url); return }
+            remaining.removeFirst()
+            store.setCookie(cookie) { next() }
+        }
+        next()
     }
 
     func load(_ url: URL) {
+        if activeWebView !== webView { mount(webView) }
         webView.load(URLRequest(url: url))
     }
 
@@ -388,9 +537,21 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
         ])
     }
 
-    /// Inject snapshot.js; its IIFE returns `{ url, fields }` directly.
+    static func linkedInJSessionCookie(value: String) -> HTTPCookie? {
+        HTTPCookie(properties: [
+            .domain: ".linkedin.com",
+            .path: "/",
+            .name: "JSESSIONID",
+            .value: value,
+            .secure: "TRUE",
+        ])
+    }
+
+    /// Inject snapshot.js; its IIFE returns `{ url, fields }` directly. Targets
+    /// the active web view so autofill scans the visible page (including an
+    /// external-apply child), not the posting hidden behind it.
     func snapshot() async throws -> (url: String, fields: [[String: Any]]) {
-        let result = try await webView.evaluateJavaScript(ApplyScripts.snapshot)
+        let result = try await activeWebView.evaluateJavaScript(ApplyScripts.snapshot)
         let dict = result as? [String: Any] ?? [:]
         return (dict["url"] as? String ?? "",
                 dict["fields"] as? [[String: Any]] ?? [])
@@ -401,8 +562,8 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
     /// a Data/byte-array does not) — decode each back into the `file_bytes`
     /// Uint8Array that fill.js's DataTransfer attachment path expects.
     func fill(items: [[String: Any]]) async throws -> [[String: Any]] {
-        _ = try await webView.evaluateJavaScript(ApplyScripts.fill)
-        let out = try await webView.callAsyncJavaScript(
+        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.fill)
+        let out = try await activeWebView.callAsyncJavaScript(
             """
             for (const it of (items || [])) {
                 if (!it.file_b64) continue;
@@ -424,9 +585,11 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate {
 private struct ApplyWebView: UIViewRepresentable {
     let controller: ApplyWebController
 
-    func makeUIView(context: Context) -> WKWebView { controller.webView }
+    // The controller mounts the primary (or an external-apply child) web view
+    // inside this container, so a window.open handoff swaps in place.
+    func makeUIView(context: Context) -> UIView { controller.containerView }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
 /// Lazily-loaded bundled autofill scripts (single-sourced from

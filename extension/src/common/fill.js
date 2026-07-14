@@ -392,16 +392,37 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     return null;
   }
 
+  // Re-apply the data-jobsmith-fid stamp to an element located by a fallback,
+  // so later steps (retry re-acquisition, the highlight overlay) can rely on
+  // item.selector again even though the SPA re-render dropped the original.
+  function restamp(el, item) {
+    if (el && item.field_id) {
+      try { el.setAttribute("data-jobsmith-fid", item.field_id); } catch (_) {}
+    }
+    return el;
+  }
+
   function findElement(item) {
+    // 1. The data-jobsmith-fid stamp snapshot.js applied — stable across most
+    //    re-renders, and cheap to resolve.
     if (item.selector) {
       const el = deepQuerySelector(item.selector);
       if (el) return el;
     }
+    // 2. The element's own id/name selector (snapshot's _human_selector). A
+    //    React/Vue re-render frequently drops the injected data-jobsmith-fid
+    //    while keeping the id/name — the common case for bespoke name/email
+    //    widgets that made findElement return null before. Re-stamp on a hit.
+    if (item.human_selector) {
+      const el = deepQuerySelector(item.human_selector);
+      if (el) return restamp(el, item);
+    }
+    // 3. Any element still carrying this name= (custom components with no id).
     if (item.name) {
       const byName = deepQuerySelector(
-        `input[name="${CSS.escape(item.name)}"], textarea[name="${CSS.escape(item.name)}"], select[name="${CSS.escape(item.name)}"]`
+        `input[name="${CSS.escape(item.name)}"], textarea[name="${CSS.escape(item.name)}"], select[name="${CSS.escape(item.name)}"], [name="${CSS.escape(item.name)}"]`
       );
-      if (byName) return byName;
+      if (byName) return restamp(byName, item);
     }
     return null;
   }
@@ -475,6 +496,38 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     return t === "month"
       ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
       : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  // Set a text/email/number/textarea/date/tel/url value and confirm it survives
+  // the page's next render. Controlled inputs (react-hook-form, Formik, masked
+  // fields) sometimes accept the synthetic input event, then snap the DOM value
+  // back to empty on the following render — so a synchronous read reports a
+  // "filled" that isn't real (the classic "detected but not filled"). We set,
+  // wait a tick, re-read, and retry on a revert (up to 2 retries), re-acquiring
+  // the element each round in case the framework replaced the node. Verification
+  // happens BEFORE blur, so a validation-driven clear is observed, not hidden.
+  // Returns { ok, actual }.
+  async function setTextFieldWithRetry(item, firstEl, value) {
+    let el = firstEl;
+    let actual = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!el || !el.isConnected) el = findElement(item) || el;
+      if (!el) break;
+      try { el.focus(); } catch (_) {}
+      fireFocus(el);
+      nativeSet(el, value);
+      fireInputEvents(el, value);
+      await sleep(120);  // let a controlled re-render land before trusting it
+      actual = (el.value || "");
+      if (actual === value || (value && actual.includes(value))) {
+        fireBlur(el);
+        try { el.blur(); } catch (_) {}
+        return { ok: true, actual };
+      }
+      // Reverted — the node may have been replaced; re-acquire and retry.
+      el = findElement(item) || el;
+    }
+    return { ok: false, actual };
   }
 
   // ---- Apply fills -----------------------------------------------------
@@ -601,19 +654,14 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         }
       } else {
         const value = normalizeDateValue(el, item.value);
-        el.focus();
-        fireFocus(el);
-        nativeSet(el, value);
-        fireInputEvents(el, value);
-        fireBlur(el);
-        el.blur();
-        // Verify-after-fill: if React snapped the value back, surface it.
-        const actual = (el.value || "");
-        if (actual !== value && !(value && actual.includes(value))) {
+        // Verify-and-retry: set, wait, re-read, retry on a controlled-input
+        // revert. Only reports ok if the value survives the post-delay re-read.
+        const res = await setTextFieldWithRetry(item, el, value);
+        if (!res.ok) {
           results.push({
             field_id: item.field_id,
             status: "failed",
-            message: actual ? `reverted to "${actual.slice(0, 40)}"` : "value reverted",
+            message: res.actual ? `reverted to "${res.actual.slice(0, 40)}"` : "value reverted",
           });
           continue;
         }

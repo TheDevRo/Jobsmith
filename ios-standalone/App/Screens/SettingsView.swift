@@ -389,7 +389,10 @@ struct LinkedInSettingsSection: View {
                         Label("Account connected", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.secondary)
                         Button("Disconnect account", role: .destructive) {
-                            model.saveConfig { $0.apiKeys.linkedInCookie = "" }
+                            model.saveConfig {
+                                $0.apiKeys.linkedInCookie = ""
+                                $0.apiKeys.linkedInJSessionId = ""
+                            }
                         }
                     } else {
                         Button {
@@ -408,9 +411,12 @@ struct LinkedInSettingsSection: View {
                      : "Signed in, Jobsmith searches LinkedIn as you — more results, far fewer rate limits. Without an account it falls back to LinkedIn's public pages. Turn LinkedIn off and Jobsmith never contacts it at all.")
             }
             .sheet(isPresented: $showSignIn) {
-                LinkedInSignInSheet { _, cookie in
+                LinkedInSignInSheet { _, cookie, jsession in
                     if let cookie, !cookie.isEmpty {
-                        model.saveConfig { $0.apiKeys.linkedInCookie = cookie }
+                        model.saveConfig {
+                            $0.apiKeys.linkedInCookie = cookie
+                            $0.apiKeys.linkedInJSessionId = jsession ?? ""
+                        }
                     }
                 }
             }

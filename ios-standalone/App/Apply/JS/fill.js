@@ -336,16 +336,26 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     }
     return null;
   }
+  function restamp(el, item) {
+    if (el && item.field_id) {
+      try { el.setAttribute("data-jobsmith-fid", item.field_id); } catch (_) {}
+    }
+    return el;
+  }
   function findElement(item) {
     if (item.selector) {
       const el = deepQuerySelector(item.selector);
       if (el) return el;
     }
+    if (item.human_selector) {
+      const el = deepQuerySelector(item.human_selector);
+      if (el) return restamp(el, item);
+    }
     if (item.name) {
       const byName = deepQuerySelector(
-        `input[name="${CSS.escape(item.name)}"], textarea[name="${CSS.escape(item.name)}"], select[name="${CSS.escape(item.name)}"]`
+        `input[name="${CSS.escape(item.name)}"], textarea[name="${CSS.escape(item.name)}"], select[name="${CSS.escape(item.name)}"], [name="${CSS.escape(item.name)}"]`
       );
-      if (byName) return byName;
+      if (byName) return restamp(byName, item);
     }
     return null;
   }
@@ -413,6 +423,27 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     return t === "month"
       ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
       : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  async function setTextFieldWithRetry(item, firstEl, value) {
+    let el = firstEl;
+    let actual = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!el || !el.isConnected) el = findElement(item) || el;
+      if (!el) break;
+      try { el.focus(); } catch (_) {}
+      fireFocus(el);
+      nativeSet(el, value);
+      fireInputEvents(el, value);
+      await sleep(120);  // let a controlled re-render land before trusting it
+      actual = (el.value || "");
+      if (actual === value || (value && actual.includes(value))) {
+        fireBlur(el);
+        try { el.blur(); } catch (_) {}
+        return { ok: true, actual };
+      }
+      el = findElement(item) || el;
+    }
+    return { ok: false, actual };
   }
   const results = [];
   for (const item of items || []) {
@@ -524,18 +555,12 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         }
       } else {
         const value = normalizeDateValue(el, item.value);
-        el.focus();
-        fireFocus(el);
-        nativeSet(el, value);
-        fireInputEvents(el, value);
-        fireBlur(el);
-        el.blur();
-        const actual = (el.value || "");
-        if (actual !== value && !(value && actual.includes(value))) {
+        const res = await setTextFieldWithRetry(item, el, value);
+        if (!res.ok) {
           results.push({
             field_id: item.field_id,
             status: "failed",
-            message: actual ? `reverted to "${actual.slice(0, 40)}"` : "value reverted",
+            message: res.actual ? `reverted to "${res.actual.slice(0, 40)}"` : "value reverted",
           });
           continue;
         }

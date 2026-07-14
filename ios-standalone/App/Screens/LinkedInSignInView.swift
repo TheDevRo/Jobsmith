@@ -7,8 +7,8 @@ import WebKit
 /// the linkedin_import extraction) plus the li_at session cookie.
 struct LinkedInSignInSheet: View {
     @Environment(\.dismiss) private var dismiss
-    /// (profileText, liAtCookie)
-    let onComplete: (String, String?) -> Void
+    /// (profileText, liAtCookie, jsessionIdCookie)
+    let onComplete: (String, String?, String?) -> Void
 
     @State private var phase: Phase = .signIn
     enum Phase: Equatable {
@@ -17,9 +17,9 @@ struct LinkedInSignInSheet: View {
 
     var body: some View {
         NavigationStack {
-            LinkedInWebView(phase: $phase) { text, cookie in
+            LinkedInWebView(phase: $phase) { text, cookie, jsession in
                 dismiss()
-                onComplete(text, cookie)
+                onComplete(text, cookie, jsession)
             }
             .overlay {
                 if phase != .signIn {
@@ -48,7 +48,8 @@ struct LinkedInSignInSheet: View {
 
 private struct LinkedInWebView: UIViewRepresentable {
     @Binding var phase: LinkedInSignInSheet.Phase
-    let onExtracted: (String, String?) -> Void
+    /// (profileText, liAtCookie, jsessionIdCookie)
+    let onExtracted: (String, String?, String?) -> Void
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -88,8 +89,8 @@ private struct LinkedInWebView: UIViewRepresentable {
             // Anywhere else (feed, checkpoint done, etc.): once the session
             // cookie exists, the login is complete — jump to the profile.
             guard !openedProfile else { return }
-            liAtCookie { [weak self] cookie in
-                guard let self, cookie != nil, !self.openedProfile else { return }
+            sessionCookies { [weak self] liAt, _ in
+                guard let self, liAt != nil, !self.openedProfile else { return }
                 self.openedProfile = true
                 self.parent.phase = .loadingProfile
                 webView.load(URLRequest(url: URL(string: "https://www.linkedin.com/in/me/")!))
@@ -107,8 +108,8 @@ private struct LinkedInWebView: UIViewRepresentable {
                     let text = (result as? String) ?? ""
                     if text.count > 800 || attempt >= 5 {
                         self.finished = true
-                        self.liAtCookie { cookie in
-                            self.onDone(text: text, cookie: cookie)
+                        self.sessionCookies { liAt, jsession in
+                            self.onDone(text: text, cookie: liAt, jsession: jsession)
                         }
                     } else {
                         self.extractText(attempt: attempt + 1)
@@ -117,16 +118,21 @@ private struct LinkedInWebView: UIViewRepresentable {
             }
         }
 
-        private func onDone(text: String, cookie: String?) {
+        private func onDone(text: String, cookie: String?, jsession: String?) {
             DispatchQueue.main.async {
-                self.parent.onExtracted(text, cookie)
+                self.parent.onExtracted(text, cookie, jsession)
             }
         }
 
-        private func liAtCookie(_ completion: @escaping (String?) -> Void) {
-            guard let webView else { completion(nil); return }
+        /// The two cookies an authenticated LinkedIn session needs: the
+        /// persistent `li_at`, and the session `JSESSIONID` whose value the
+        /// Voyager API reads back as its `csrf-token`.
+        private func sessionCookies(_ completion: @escaping (_ liAt: String?, _ jsession: String?) -> Void) {
+            guard let webView else { completion(nil, nil); return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                completion(cookies.first { $0.name == "li_at" }?.value)
+                let liAt = cookies.first { $0.name == "li_at" }?.value
+                let jsession = cookies.first { $0.name == "JSESSIONID" }?.value
+                completion(liAt, jsession)
             }
         }
     }
