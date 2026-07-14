@@ -51,11 +51,12 @@ struct SettingsView: View {
                     formatPicker
                     honestyPicker
                     stylePicker
+                    accentPicker
                     experienceLimit
                 } header: {
                     Eyebrow(text: "Documents")
                 } footer: {
-                    Text("Résumés and cover letters are generated in your chosen format. Limiting work history keeps only the roles most relevant to each job (pinned roles are always included). Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
+                    Text("Résumés and cover letters are generated in your chosen format and share one visual style, so a recruiter opening both sees a matched set. Every style stays single-column real text, so all of them parse cleanly through an ATS. Limiting work history keeps only the roles most relevant to each job (pinned roles are always included). Honesty controls how much latitude the AI takes when tailoring — from reorder-only to invented experience. Fabricated is at your own risk.")
                 }
 
                 Section {
@@ -168,10 +169,36 @@ struct SettingsView: View {
             set: { style in model.saveConfig { $0.honesty.resumeStyle = style } }
         )) {
             ForEach(HonestyConfig.Style.allCases, id: \.self) { style in
-                Text(style.rawValue.capitalized).tag(style)
+                Text(style.label).tag(style)
             }
         } label: {
             row("Resume style", system: "doc.richtext", detail: nil)
+        }
+    }
+
+    /// Recolors the accent bars, section headers, and company names. Executive
+    /// and Swiss are monochrome by design — the setting does nothing for them,
+    /// so it's disabled rather than silently ignored (mirrors the web UI).
+    @ViewBuilder
+    private var accentPicker: some View {
+        let style = model.config.honesty.resumeStyle
+        Picker(selection: Binding(
+            get: { model.config.honesty.resumeAccent },
+            set: { accent in model.saveConfig { $0.honesty.resumeAccent = accent } }
+        )) {
+            ForEach(HonestyConfig.ResumeAccent.allCases, id: \.self) { accent in
+                Text(accent.label).tag(accent)
+            }
+        } label: {
+            row("Accent color", system: "paintpalette", detail: nil)
+        }
+        .disabled(style.isMonochrome)
+        .foregroundStyle(style.isMonochrome ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+
+        if style.isMonochrome {
+            Text("\(style.label) is monochrome by design — it ignores the accent color.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

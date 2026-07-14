@@ -114,7 +114,12 @@ async function loadSettings() {
 
     try {
         const rs = await api('/api/settings/resume-style');
-        _applyResumeStyle(rs.resume_style || 'standard');
+        _applyResumeStyle(rs.resume_style || 'ledger');
+    } catch (e) { /* non-fatal */ }
+
+    try {
+        const ra = await api('/api/settings/resume-accent');
+        _applyResumeAccent(ra.resume_accent || 'default');
     } catch (e) { /* non-fatal */ }
 
     try {
@@ -837,10 +842,28 @@ async function setHonestyLevel(level) {
 
 // ---- Resume Style ----
 
+// Executive and Swiss are deliberately monochrome — the accent picker does
+// nothing for them, so it's disabled rather than silently ignored.
+const MONOCHROME_STYLES = ['executive', 'swiss'];
+
 function _applyResumeStyle(style) {
     document.querySelectorAll('.resume-style-stop').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.style === style);
     });
+    const monochrome = MONOCHROME_STYLES.includes(style);
+    const accentRow = document.getElementById('resume-accent-row');
+    if (accentRow) {
+        accentRow.classList.toggle('accent-disabled', monochrome);
+        accentRow.querySelectorAll('.resume-accent-chip').forEach(chip => {
+            chip.disabled = monochrome;
+        });
+    }
+    const note = document.getElementById('resume-accent-note');
+    if (note) {
+        note.textContent = monochrome
+            ? `${style[0].toUpperCase()}${style.slice(1)} is monochrome by design — it ignores the accent color.`
+            : '';
+    }
 }
 
 async function setResumeStyle(style) {
@@ -853,6 +876,29 @@ async function setResumeStyle(style) {
         toast(`Resume style set to "${style}"`, 'success');
     } catch (e) {
         toast('Failed to update resume style', 'error');
+    }
+}
+
+// ---- Resume Accent ----
+
+function _applyResumeAccent(accent) {
+    document.querySelectorAll('.resume-accent-chip').forEach(chip => {
+        const on = chip.dataset.accent === accent;
+        chip.classList.toggle('active', on);
+        chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+}
+
+async function setResumeAccent(accent) {
+    try {
+        await api('/api/settings/resume-accent', {
+            method: 'PUT',
+            body: JSON.stringify({ resume_accent: accent }),
+        });
+        _applyResumeAccent(accent);
+        toast(`Accent color set to "${accent}"`, 'success');
+    } catch (e) {
+        toast('Failed to update accent color', 'error');
     }
 }
 

@@ -245,13 +245,66 @@ public struct HonestyConfig: Codable, Equatable, Sendable {
     public enum Tone: String, Codable, Sendable, CaseIterable {
         case professional, conversational, enthusiastic
     }
+    /// Visual preset for the generated resume *and* its matching cover letter.
+    /// Mirrors resume_generator.py `_STYLES`.
     public enum Style: String, Codable, Sendable, CaseIterable {
-        case standard, minimal, modern
+        case executive, ledger, banner, compact, swiss
+
+        public static let `default`: Style = .ledger
+
+        /// Persisted configs (and `applications.style_preset` rows) written
+        /// before the five-style lineup carry retired names — map them instead
+        /// of failing to decode. Mirrors `LEGACY_STYLE_ALIASES`.
+        public static func fromPersisted(_ raw: String) -> Style {
+            switch raw.lowercased() {
+            case "standard", "modern": return .ledger
+            case "minimal": return .swiss
+            default: return Style(rawValue: raw.lowercased()) ?? .default
+            }
+        }
+
+        public var label: String { rawValue.capitalized }
+
+        /// Executive and Swiss are deliberately monochrome — they ignore the
+        /// user's accent choice (`accent_locked` in the Python presets).
+        public var isMonochrome: Bool { self == .executive || self == .swiss }
+
+        public var blurb: String {
+            switch self {
+            case .executive: return "Georgia serif, centered small-caps name over a double rule; monochrome."
+            case .ledger:    return "Bold sans, accent stub bar, accent company names (recommended)."
+            case .banner:    return "A solid ink band behind your name; the boldest look here."
+            case .compact:   return "9.5pt and tight margins; fits a deep work history on one page."
+            case .swiss:     return "No rules, no color; hierarchy from spacing and weight alone; monochrome."
+            }
+        }
+    }
+
+    /// User-selectable accent palette. `.default` keeps each preset's own
+    /// accent. Mirrors resume_generator.py `ACCENT_CHOICES`.
+    public enum ResumeAccent: String, Codable, Sendable, CaseIterable {
+        case `default`, navy, burgundy, forest, plum, charcoal
+
+        /// nil for `.default` — the preset's own accent stands.
+        public var hex: String? {
+            switch self {
+            case .default:  return nil
+            case .navy:     return "1F3A5F"
+            case .burgundy: return "6D1F2C"
+            case .forest:   return "1F4D3A"
+            case .plum:     return "3D3A4F"
+            case .charcoal: return "37404A"
+            }
+        }
+
+        public var label: String { rawValue.capitalized }
     }
 
     public var level: Level
     public var coverLetterTone: Tone
     public var resumeStyle: Style
+    /// Accent recolor for the accent-driven styles; ignored by monochrome ones.
+    public var resumeAccent: ResumeAccent
     /// nil = include all roles; otherwise cap and let the LLM pick.
     public var maxResumeExperienceEntries: Int?
     public var aiEditTier: ModelTier
@@ -259,23 +312,31 @@ public struct HonestyConfig: Codable, Equatable, Sendable {
     public var documentFormat: FileVault.Format
 
     public init(level: Level = .honest, coverLetterTone: Tone = .professional,
-                resumeStyle: Style = .standard, maxResumeExperienceEntries: Int? = nil,
+                resumeStyle: Style = .ledger, resumeAccent: ResumeAccent = .default,
+                maxResumeExperienceEntries: Int? = nil,
                 aiEditTier: ModelTier = .strong, documentFormat: FileVault.Format = .pdf) {
         self.level = level; self.coverLetterTone = coverLetterTone
         self.resumeStyle = resumeStyle
+        self.resumeAccent = resumeAccent
         self.maxResumeExperienceEntries = maxResumeExperienceEntries
         self.aiEditTier = aiEditTier
         self.documentFormat = documentFormat
     }
 
-    // Tolerant decoding: documentFormat was added later, so configs written by
-    // older builds (which lack the key) must still decode with the PDF default
-    // rather than failing and resetting the whole config.
+    // Tolerant decoding: documentFormat and resumeAccent were added later, so
+    // configs written by older builds (which lack the keys) must still decode
+    // with their defaults rather than failing and resetting the whole config.
+    // resumeStyle is decoded as a raw string so retired style names
+    // (standard/minimal/modern) map forward instead of throwing.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         level = try c.decodeIfPresent(Level.self, forKey: .level) ?? .honest
         coverLetterTone = try c.decodeIfPresent(Tone.self, forKey: .coverLetterTone) ?? .professional
-        resumeStyle = try c.decodeIfPresent(Style.self, forKey: .resumeStyle) ?? .standard
+        resumeStyle = Style.fromPersisted(
+            try c.decodeIfPresent(String.self, forKey: .resumeStyle) ?? Style.default.rawValue)
+        resumeAccent = ResumeAccent(
+            rawValue: (try c.decodeIfPresent(String.self, forKey: .resumeAccent) ?? "default").lowercased()
+        ) ?? .default
         maxResumeExperienceEntries = try c.decodeIfPresent(Int.self, forKey: .maxResumeExperienceEntries)
         aiEditTier = try c.decodeIfPresent(ModelTier.self, forKey: .aiEditTier) ?? .strong
         documentFormat = try c.decodeIfPresent(FileVault.Format.self, forKey: .documentFormat) ?? .pdf

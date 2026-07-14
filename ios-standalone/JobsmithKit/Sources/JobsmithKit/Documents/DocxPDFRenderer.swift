@@ -3,12 +3,16 @@ import UIKit
 
 /// Renders the shared `DocxDocument` layout model to a PDF so PDF and `.docx`
 /// output stay structurally identical — same sections, fonts, spacing, rules,
-/// and bullets — instead of maintaining two separate resume layouts.
+/// bullets, and the Banner band — instead of maintaining two separate layouts.
 ///
 /// Paints onto a US-Letter page with UIKit text drawing (NSStringDrawing),
 /// which honors paragraph alignment, indents, and right tab stops and handles
-/// the coordinate flip for us. Office fonts the platform lacks (Calibri, Aptos)
-/// map to close iOS equivalents.
+/// the coordinate flip for us.
+///
+/// Fonts: unlike the desktop PDF path (which embeds Lato / PT Serif TTFs for
+/// ReportLab), this uses CoreText system faces — Georgia and Arial/Helvetica
+/// ship with iOS, and the Office-only faces (Calibri, Aptos) map to Helvetica
+/// Neue. Swiss stays on Helvetica, which is the design, matching Python.
 public enum DocxPDFRenderer {
     /// US-Letter, 72 pt per inch.
     private static let pageWidth: CGFloat = 612
@@ -49,6 +53,16 @@ public enum DocxPDFRenderer {
                     cursorY = marginTop
                 }
 
+                // Banner band: paragraph shading, painted behind the text and
+                // through the trailing space so consecutive shaded paragraphs
+                // form one continuous band.
+                if let fill = paragraph.shadingFill {
+                    let band = CGRect(x: marginLeft, y: cursorY, width: contentWidth,
+                                      height: textHeight + CGFloat(paragraph.spacingAfterPt))
+                    color(fill).setFill()
+                    UIBezierPath(rect: band).fill()
+                }
+
                 if attr.length > 0 {
                     attr.draw(with: CGRect(x: marginLeft, y: cursorY,
                                            width: contentWidth, height: textHeight),
@@ -56,14 +70,25 @@ public enum DocxPDFRenderer {
                 }
 
                 if let border = paragraph.bottomBorder {
-                    let lineY = cursorY + textHeight + 1
-                    let path = UIBezierPath()
-                    path.move(to: CGPoint(x: marginLeft, y: lineY))
-                    path.addLine(to: CGPoint(x: marginLeft + contentWidth, y: lineY))
+                    // A right indent shortens the rule — that's how the stub
+                    // accent bars are drawn (same trick as the DOCX path).
+                    let ruleWidth = contentWidth - CGFloat(paragraph.rightIndentInches ?? 0) * 72
                     // OOXML border sizes are eighths of a point.
-                    path.lineWidth = CGFloat((Double(border.size) ?? 8) / 8)
+                    let thickness = max(0.4, CGFloat(Double(border.size) ?? 8) / 8)
+                    var lineY = cursorY + textHeight + 1
                     color(border.color).setStroke()
-                    path.stroke()
+
+                    // "double" draws the thin twin rule the Executive style uses.
+                    let passes = border.val == "double" ? 2 : 1
+                    for pass in 0..<passes {
+                        let path = UIBezierPath()
+                        let y = lineY + CGFloat(pass) * (thickness + 1.5)
+                        path.move(to: CGPoint(x: marginLeft, y: y))
+                        path.addLine(to: CGPoint(x: marginLeft + max(0, ruleWidth), y: y))
+                        path.lineWidth = thickness
+                        path.stroke()
+                    }
+                    lineY += CGFloat(passes - 1) * (thickness + 1.5)
                     cursorY = lineY + 1
                 }
 
@@ -79,6 +104,7 @@ public enum DocxPDFRenderer {
             style.headIndent = CGFloat(left) * 72
             style.firstLineHeadIndent = CGFloat(left - (paragraph.hangingIndentInches ?? 0)) * 72
         }
+        if let right = paragraph.rightIndentInches { style.tailIndent = -CGFloat(right) * 72 }
         if let multiple = paragraph.lineSpacingMultiple { style.lineHeightMultiple = CGFloat(multiple) }
         if let tab = paragraph.rightTabStopInches {
             style.tabStops = [NSTextTab(textAlignment: .right, location: CGFloat(tab) * 72)]
@@ -107,7 +133,11 @@ public enum DocxPDFRenderer {
         ]
         if s.letterSpacingPt != 0 { attrs[.kern] = CGFloat(s.letterSpacingPt) }
         if underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-        return NSAttributedString(string: s.allCaps ? text.uppercased() : text, attributes: attrs)
+        // Small caps has no cheap CoreText equivalent across arbitrary system
+        // faces, so — exactly like the desktop ReportLab path — the text is
+        // upper-cased instead. With the preset's letter-spacing it reads the same.
+        let display = (s.allCaps || s.smallCaps) ? text.uppercased() : text
+        return NSAttributedString(string: display, attributes: attrs)
     }
 
     private static func font(for s: RunStyle) -> UIFont {
@@ -122,11 +152,14 @@ public enum DocxPDFRenderer {
         return base
     }
 
-    /// The desktop presets use Office fonts; map the ones iOS doesn't ship to
-    /// close system equivalents so the PDF still reads as intended.
+    /// The presets name Office fonts; map the ones iOS doesn't ship to close
+    /// system equivalents so the PDF still reads as intended. Georgia (Executive)
+    /// and Helvetica (Swiss) are real system faces and are used as-is.
     private static func mappedFontName(_ name: String) -> String {
         switch name.lowercased() {
         case "calibri", "aptos": return "Helvetica Neue"
+        case "arial", "helvetica": return "Helvetica"
+        case "georgia": return "Georgia"
         case "times new roman": return "Times New Roman"
         default: return name
         }

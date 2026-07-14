@@ -236,7 +236,8 @@ auto_apply:
 application_honesty:
   honesty_level: honest          # honest | tailored | embellished | fabricated
   cover_letter_tone: professional  # professional | conversational | enthusiastic
-  resume_style: standard         # standard | minimal | modern
+  resume_style: ledger           # executive | ledger | banner | compact | swiss
+  resume_accent: default         # default | navy | burgundy | forest | plum | charcoal
   max_resume_experience_entries: null  # null = include all roles; or 1-20 to cap and let the LLM pick the most relevant
   ai_edit_model_tier: strong     # fast | strong — default model for the AI Edit feature
 ```

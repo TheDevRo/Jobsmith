@@ -103,8 +103,28 @@ enum BackgroundScheduler {
         }
     }
 
-    private static func handleRefresh(_ task: BGAppRefreshTask, model: AppModel) {
+    /// Re-arm the next run, or bail out if the user has since turned recurring
+    /// search off. `cancelScheduled()` only drops requests iOS hasn't committed
+    /// to yet — once it has decided to launch us, the cancel is a no-op and the
+    /// task still arrives here, potentially many hours after the toggle was
+    /// flipped (the processing tier's earliest begin date is already 2× the
+    /// cadence out, and iOS may sit on it well past that). Enforcing the
+    /// preference at run time, not just at schedule time, is what stops a stale
+    /// request from fetching behind the user's back. Reporting success — not
+    /// failure — keeps a task we simply declined to run from being charged
+    /// against the app's future background budget.
+    private static func shouldRun(_ task: BGTask) -> Bool {
+        guard isEnabled() else {
+            cancelScheduled()
+            task.setTaskCompleted(success: true)
+            return false
+        }
         scheduleNext()
+        return true
+    }
+
+    private static func handleRefresh(_ task: BGAppRefreshTask, model: AppModel) {
+        guard shouldRun(task) else { return }
         let completion = Completion()
         let work = Task {
             let summary = await runFetch(model: model, sources: refreshSources,
@@ -119,7 +139,7 @@ enum BackgroundScheduler {
     }
 
     private static func handleProcessing(_ task: BGProcessingTask, model: AppModel) {
-        scheduleNext()
+        guard shouldRun(task) else { return }
         let completion = Completion()
         let work = Task {
             let summary = await runFetch(model: model, sources: processingSources,

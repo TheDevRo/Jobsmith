@@ -117,7 +117,7 @@ final class AppModel {
             try? jobStore.setStatus("applied", jobId: applied.id)
             if let application = try? applicationStore.createOrReplace(
                 jobId: applied.id, resume: "RESUME", coverLetter: "COVER",
-                honestyLevel: "honest", stylePreset: "standard") {
+                honestyLevel: "honest", stylePreset: "ledger") {
                 try? applicationStore.updateStatus(id: application.id, status: "applied")
             }
         }
@@ -432,16 +432,21 @@ final class AppModel {
                 DocEducation(degree: $0.degree, school: $0.school, year: $0.year)
             },
             certifications: parsed.certifications)
-        let style = HonestyConfig.Style(rawValue: application.stylePreset) ?? .standard
+        // The application row records the style it was tailored under; rows
+        // written before the five-style lineup carry retired names, so map them.
+        let style = HonestyConfig.Style.fromPersisted(application.stylePreset)
+        let accent = config.honesty.resumeAccent
         let format = config.honesty.documentFormat
 
-        let resumeDoc = ResumeDocxGenerator.build(content: content,
-                                                  profile: config.profile, style: style)
+        let resumeDoc = ResumeDocxGenerator.build(content: content, profile: config.profile,
+                                                  style: style, accent: accent)
         let resumeURL = try FileVault.write(render(resumeDoc, as: format),
                                             jobId: job.id, kind: .resume, format: format)
+        // The cover letter shares the resume's letterhead and typography, so the
+        // pair reads as one matched set.
         let coverDoc = CoverLetterDocxGenerator.build(
             content: application.coverLetterContent, profile: config.profile,
-            jobTitle: job.title, company: job.company)
+            jobTitle: job.title, company: job.company, style: style, accent: accent)
         let coverURL = try FileVault.write(render(coverDoc, as: format),
                                            jobId: job.id, kind: .coverLetter, format: format)
         try applicationStore.setDocumentPaths(id: application.id,

@@ -51,7 +51,10 @@ APPLY_LOG_V2_FIELDS = (
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 VALID_HONESTY_LEVELS = {"honest", "tailored", "embellished", "fabricated"}
-VALID_RESUME_STYLES = {"standard", "minimal", "modern"}
+VALID_RESUME_STYLES = {"executive", "ledger", "banner", "compact", "swiss"}
+# Retired style names still present in older configs — mapped on read.
+LEGACY_RESUME_STYLES = {"standard": "ledger", "modern": "ledger", "minimal": "swiss"}
+VALID_RESUME_ACCENTS = {"default", "navy", "burgundy", "forest", "plum", "charcoal"}
 VALID_DOC_FORMATS = {"docx", "pdf"}
 VALID_AI_EDIT_TIERS = {"fast", "strong"}
 

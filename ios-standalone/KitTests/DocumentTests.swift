@@ -32,11 +32,11 @@ final class DocumentTests: XCTestCase {
 
     func testResumeDocxStructure() throws {
         let data = try ResumeDocxGenerator.generate(content: sampleContent(),
-                                                    profile: sampleProfile(), style: .standard)
+                                                    profile: sampleProfile(), style: .ledger)
         let xml = try documentXML(from: data)
 
-        // Name uppercased with letter spacing (standard preset).
-        XCTAssertTrue(xml.contains("JANE DOE"))
+        // Ledger keeps the name mixed-case.
+        XCTAssertTrue(xml.contains(">Jane Doe<"))
         // Section headers in fixed order.
         for header in ["SUMMARY", "TECHNICAL SKILLS", "PROFESSIONAL EXPERIENCE", "EDUCATION", "CERTIFICATIONS", "REFERENCES"] {
             XCTAssertTrue(xml.contains(header), "missing section \(header)")
@@ -46,10 +46,12 @@ final class DocumentTests: XCTestCase {
         XCTAssertFalse(xml.contains("**"))
         // XML-escaped ampersand in bullet text.
         XCTAssertTrue(xml.contains("Built things &amp; shipped them"))
-        // Right tab stop for dates (stacked layout: 6.1in = 8784 twips).
-        XCTAssertTrue(xml.contains("w:pos=\"8784\""))
-        // Header underline borders (standard preset).
+        // Right tab stop for dates (inline layout, 6.9in text column = 9936 twips).
+        XCTAssertTrue(xml.contains("w:pos=\"9936\""))
+        // Header rules present.
         XCTAssertTrue(xml.contains("<w:pBdr><w:bottom w:val=\"single\""))
+        // Section headers are kept with the content that follows them.
+        XCTAssertTrue(xml.contains("<w:keepNext/>"))
         // References appended.
         XCTAssertTrue(xml.contains("Pat Ref"))
         // Valid archive contains all four OPC parts.
@@ -59,29 +61,106 @@ final class DocumentTests: XCTestCase {
         }
     }
 
-    func testModernPresetUsesInlineLayoutAndHyperlinks() throws {
+    func testLedgerPresetUsesInlineLayoutAndHyperlinks() throws {
         let data = try ResumeDocxGenerator.generate(content: sampleContent(),
-                                                    profile: sampleProfile(), style: .modern)
+                                                    profile: sampleProfile(), style: .ledger)
         let xml = try documentXML(from: data)
         // Inline layout separator between title and company.
         XCTAssertTrue(xml.contains("  ·  "))
         // Hyperlinked contact entry with relationship id.
         XCTAssertTrue(xml.contains("<w:hyperlink r:id=\"rId100\">"))
         XCTAssertTrue(xml.contains("linkedin.com/in/janedoe"))
-        // Modern: no header underline on section headers, but name rule exists.
-        XCTAssertTrue(xml.contains("Aptos"))
-        // Name NOT uppercased in modern.
-        XCTAssertTrue(xml.contains(">Jane Doe<"))
+        // Calibri, not Aptos — Aptos is Microsoft 365-only and substitutes to a
+        // serif everywhere else, which would wreck this style's bold-sans identity.
+        XCTAssertTrue(xml.contains("Calibri"))
+        XCTAssertFalse(xml.contains("Aptos"))
+        // Ledger's default accent (navy) colors headers, stubs and company names.
+        XCTAssertTrue(xml.contains("w:val=\"1F3A5F\""))
+        // Stub bars: an empty bordered paragraph with a big right indent.
+        XCTAssertTrue(xml.contains("w:right="))
+    }
+
+    func testExecutiveIsSerifSmallCapsWithDoubleRuleAndIgnoresAccent() throws {
+        let data = try ResumeDocxGenerator.generate(content: sampleContent(),
+                                                    profile: sampleProfile(),
+                                                    style: .executive, accent: .burgundy)
+        let xml = try documentXML(from: data)
+        XCTAssertTrue(xml.contains("Georgia"))
+        XCTAssertTrue(xml.contains("<w:smallCaps/>"))
+        XCTAssertTrue(xml.contains("<w:bottom w:val=\"double\""))
+        // accent_locked: the user's burgundy must not leak in.
+        XCTAssertFalse(xml.contains("6D1F2C"))
+    }
+
+    func testBannerUsesParagraphShadingNotATable() throws {
+        let data = try ResumeDocxGenerator.generate(content: sampleContent(),
+                                                    profile: sampleProfile(), style: .banner)
+        let xml = try documentXML(from: data)
+        // The band is paragraph shading on real text — the ATS-safe way.
+        XCTAssertTrue(xml.contains("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"1F2D42\"/>"))
+        // Banner drops contact hyperlinks (they'd be unreadable on the band).
+        XCTAssertFalse(xml.contains("<w:hyperlink"))
+    }
+
+    func testAccentRecolorsUnlockedStylesOnly() throws {
+        let forest = DocStyle.resolve(style: .ledger, accent: .forest)
+        XCTAssertEqual(forest.accent, "1F4D3A")
+        XCTAssertEqual(forest.headerColor, "1F4D3A")
+        XCTAssertEqual(forest.nameRuleColor, "1F4D3A")
+        // company_style is an enum value, not a color — it must survive the
+        // accent-sentinel substitution intact.
+        XCTAssertEqual(forest.companyStyle, "accent")
+        // Locked presets keep their own ink.
+        XCTAssertEqual(DocStyle.resolve(style: .swiss, accent: .forest).accent, "3A3F47")
+        XCTAssertEqual(DocStyle.resolve(style: .executive, accent: .plum).accent, "17202B")
+        // "default" keeps the preset's own accent.
+        XCTAssertEqual(DocStyle.resolve(style: .ledger, accent: .default).accent, "1F3A5F")
+    }
+
+    /// The non-negotiable invariant: every style is single-column real text.
+    func testEveryStyleStaysSingleColumnRealText() throws {
+        for style in HonestyConfig.Style.allCases {
+            let data = try ResumeDocxGenerator.generate(content: sampleContent(),
+                                                        profile: sampleProfile(), style: style)
+            let xml = try documentXML(from: data)
+            XCTAssertFalse(xml.contains("<w:tbl"), "\(style) emitted a table")
+            XCTAssertFalse(xml.contains("<w:drawing"), "\(style) emitted a drawing")
+            XCTAssertFalse(xml.contains("<w:txbxContent"), "\(style) emitted a text box")
+            XCTAssertFalse(xml.contains("<w:pict"), "\(style) emitted a picture")
+            XCTAssertFalse(xml.contains("<w:cols w:num"), "\(style) emitted multiple columns")
+            // Real text survived.
+            XCTAssertTrue(xml.contains("Senior Engineer"), "\(style) lost the job title")
+            // Word rejects malformed document.xml outright ("unreadable content").
+            let parser = XMLParser(data: Data(xml.utf8))
+            XCTAssertTrue(parser.parse(), "\(style) produced malformed XML: \(parser.parserError as Any)")
+        }
+        // Only Banner paints a band, and it does so with paragraph shading.
+        let banner = try documentXML(from: try ResumeDocxGenerator.generate(
+            content: sampleContent(), profile: sampleProfile(), style: .banner))
+        XCTAssertTrue(banner.contains("<w:shd"))
+        let swiss = try documentXML(from: try ResumeDocxGenerator.generate(
+            content: sampleContent(), profile: sampleProfile(), style: .swiss))
+        XCTAssertFalse(swiss.contains("<w:shd"))
     }
 
     func testCategorizedSkills() throws {
         var content = sampleContent()
         content.skillsText = "Languages: Python, Swift\nCloud: AWS, GCP"
         let data = try ResumeDocxGenerator.generate(content: content,
-                                                    profile: sampleProfile(), style: .minimal)
+                                                    profile: sampleProfile(), style: .swiss)
         let xml = try documentXML(from: data)
         XCTAssertTrue(xml.contains("Languages: "))
-        XCTAssertTrue(xml.contains("Times New Roman"))
+        XCTAssertTrue(xml.contains("Arial"))
+    }
+
+    /// Compact joins a flat skills list with pipes; Swiss with middots.
+    func testSkillsSeparatorFollowsPreset() throws {
+        let compact = try documentXML(from: try ResumeDocxGenerator.generate(
+            content: sampleContent(), profile: sampleProfile(), style: .compact))
+        XCTAssertTrue(compact.contains("Python | Swift | Docker"))
+        let swiss = try documentXML(from: try ResumeDocxGenerator.generate(
+            content: sampleContent(), profile: sampleProfile(), style: .swiss))
+        XCTAssertTrue(swiss.contains("Python  ·  Swift  ·  Docker"))
     }
 
     func testCoverLetterSkipsAIClosings() throws {
@@ -108,12 +187,33 @@ final class DocumentTests: XCTestCase {
         XCTAssertTrue(xml.contains("Jane Doe"))
     }
 
+    /// The cover letter shares the resume's letterhead and typography.
+    func testCoverLetterHonorsStylePreset() throws {
+        let executive = try documentXML(from: try CoverLetterDocxGenerator.generate(
+            content: "Dear Hiring Team,\n\nI would be a great fit.",
+            profile: sampleProfile(), jobTitle: "Engineer", company: "Acme",
+            style: .executive))
+        XCTAssertTrue(executive.contains("Georgia"))
+        XCTAssertTrue(executive.contains("<w:smallCaps/>"))
+        XCTAssertTrue(executive.contains("<w:bottom w:val=\"double\""))
+        // Cover letters never carry the resume's contact links.
+        XCTAssertFalse(executive.contains("linkedin.com"))
+
+        let banner = try documentXML(from: try CoverLetterDocxGenerator.generate(
+            content: "Dear Hiring Team,\n\nI would be a great fit.",
+            profile: sampleProfile(), jobTitle: "Engineer", company: "Acme",
+            style: .banner, accent: .burgundy))
+        // Banner is not accent-locked, so the user's burgundy drives the band.
+        XCTAssertTrue(banner.contains("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"6D1F2C\"/>"))
+        XCTAssertFalse(banner.contains("<w:tbl"))
+    }
+
     #if canImport(UIKit)
     /// The PDF renderer consumes the same layout model as the .docx writer, so
     /// the resume text round-trips back out through PDFKit extraction.
     func testResumePDFIsValidAndRoundTripsText() throws {
         let doc = ResumeDocxGenerator.build(content: sampleContent(),
-                                            profile: sampleProfile(), style: .standard)
+                                            profile: sampleProfile(), style: .ledger)
         let data = DocxPDFRenderer.render(doc)
 
         // Real PDF (magic header) and non-trivial.
@@ -138,12 +238,64 @@ final class DocumentTests: XCTestCase {
         let text = try ResumeTextExtractor.extract(filename: "cover.pdf", data: data)
         XCTAssertTrue(text.contains("Re: Engineer at Acme"))
     }
+
+    /// Every preset must render a PDF whose text still extracts — including
+    /// Banner (shaded band) and Executive (small caps → upper-cased).
+    func testEveryStylePDFRoundTripsText() throws {
+        for style in HonestyConfig.Style.allCases {
+            let doc = ResumeDocxGenerator.build(content: sampleContent(),
+                                                profile: sampleProfile(), style: style)
+            let data = DocxPDFRenderer.render(doc)
+            XCTAssertTrue(data.starts(with: Array("%PDF".utf8)), "\(style) is not a PDF")
+            let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: data)
+            XCTAssertTrue(text.contains("Senior Engineer"), "\(style) lost the job title")
+            XCTAssertTrue(text.contains("Built things"), "\(style) lost a bullet")
+        }
+    }
     #endif
 
     func testDocumentFormatDefaultsToPDF() {
         XCTAssertEqual(HonestyConfig().documentFormat, .pdf)
         XCTAssertEqual(FileVault.Format.pdf.label, "PDF")
         XCTAssertEqual(FileVault.Format.docx.label, "Word (.docx)")
+    }
+
+    // MARK: - Config
+
+    func testResumeStyleDefaultsToLedger() {
+        XCTAssertEqual(HonestyConfig().resumeStyle, .ledger)
+        XCTAssertEqual(HonestyConfig().resumeAccent, .default)
+    }
+
+    /// Configs persisted before the five-style lineup must keep working —
+    /// the retired names map forward instead of failing to decode.
+    func testLegacyResumeStylesDecodeToTheirReplacements() throws {
+        func decode(_ json: String) throws -> HonestyConfig {
+            try JSONDecoder().decode(HonestyConfig.self, from: Data(json.utf8))
+        }
+        XCTAssertEqual(try decode(#"{"resumeStyle":"modern"}"#).resumeStyle, .ledger)
+        XCTAssertEqual(try decode(#"{"resumeStyle":"standard"}"#).resumeStyle, .ledger)
+        XCTAssertEqual(try decode(#"{"resumeStyle":"minimal"}"#).resumeStyle, .swiss)
+        // New names round-trip; an unknown name falls back to the default.
+        XCTAssertEqual(try decode(#"{"resumeStyle":"banner"}"#).resumeStyle, .banner)
+        XCTAssertEqual(try decode(#"{"resumeStyle":"nonsense"}"#).resumeStyle, .ledger)
+        // A config with no style/accent keys at all still decodes.
+        XCTAssertEqual(try decode("{}").resumeStyle, .ledger)
+        XCTAssertEqual(try decode("{}").resumeAccent, .default)
+        // Accent decodes leniently too.
+        XCTAssertEqual(try decode(#"{"resumeAccent":"forest"}"#).resumeAccent, .forest)
+        XCTAssertEqual(try decode(#"{"resumeAccent":"chartreuse"}"#).resumeAccent, .default)
+        // And the same mapping backs the persisted application.style_preset.
+        XCTAssertEqual(HonestyConfig.Style.fromPersisted("minimal"), .swiss)
+        XCTAssertEqual(HonestyConfig.Style.fromPersisted("standard"), .ledger)
+    }
+
+    func testOnlyExecutiveAndSwissAreMonochrome() {
+        XCTAssertEqual(HonestyConfig.Style.allCases.filter(\.isMonochrome), [.executive, .swiss])
+        for style in HonestyConfig.Style.allCases {
+            XCTAssertEqual(DocStyle.preset(style).accentLocked, style.isMonochrome,
+                           "\(style): accentLocked disagrees with isMonochrome")
+        }
     }
 }
 
@@ -161,7 +313,7 @@ final class ResumeTextExtractorTests: XCTestCase {
         let profile = Profile(fullName: "Jane Doe", email: "jane@example.com",
                               phone: "555-555-5555", location: "Denver, CO")
         let docx = try ResumeDocxGenerator.generate(content: content,
-                                                    profile: profile, style: .standard)
+                                                    profile: profile, style: .ledger)
 
         let text = try ResumeTextExtractor.extract(filename: "resume.docx", data: docx)
         XCTAssertTrue(text.contains("Engineer with eight years of experience."))

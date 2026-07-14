@@ -21,6 +21,10 @@ datas = [
     (str(repo_root / "frontend"), "frontend"),
     (str(repo_root / "extension" / "dist"), "extension/dist"),
     (str(repo_root / "config.example.yaml"), "."),
+    # Embedded PDF typefaces (OFL). resume_generator.py finds these
+    # __file__-relative, so they must sit beside the frozen backend package.
+    # Without them, PDFs silently fall back to built-in Helvetica/Times.
+    (str(repo_root / "backend" / "fonts"), "backend/fonts"),
 ]
 datas += collect_data_files("playwright_stealth")
 datas += collect_data_files("playwright")

@@ -2,9 +2,11 @@ import Foundation
 
 /// Minimal WordprocessingML builder covering exactly the subset the desktop
 /// resume_generator.py uses: paragraphs + runs with fonts/size/bold/italic/
-/// caps/color/letter-spacing, paragraph spacing, hanging indents, right tab
-/// stops, bottom borders, line spacing, and external hyperlinks.
-/// No tables, no images — ATS-safe by design.
+/// caps/small-caps/color/letter-spacing, paragraph spacing, hanging and right
+/// indents, right tab stops, bottom borders (single or double), paragraph
+/// shading, keep-with-next, line spacing, and external hyperlinks.
+/// No tables, no images, no text boxes, no multi-column sections — every style
+/// stays single-column real text, which is what keeps the DOCX ATS-parseable.
 public struct OOXML {
     /// Twips: 1 inch = 1440.
     static func twips(inches: Double) -> Int { Int((inches * 1440).rounded()) }
@@ -26,22 +28,29 @@ public struct RunStyle: Sendable {
     public var bold: Bool
     public var italic: Bool
     public var allCaps: Bool
+    /// Renders lowercase letters as smaller capitals, keeping the source text
+    /// mixed-case (Executive's name and section headers).
+    public var smallCaps: Bool
     /// RRGGBB hex, no '#'.
     public var colorHex: String
     public var letterSpacingPt: Double
 
     public init(font: String, sizePt: Double, bold: Bool = false, italic: Bool = false,
-                allCaps: Bool = false, colorHex: String = "333333", letterSpacingPt: Double = 0) {
+                allCaps: Bool = false, smallCaps: Bool = false,
+                colorHex: String = "333333", letterSpacingPt: Double = 0) {
         self.font = font; self.sizePt = sizePt; self.bold = bold
-        self.italic = italic; self.allCaps = allCaps
+        self.italic = italic; self.allCaps = allCaps; self.smallCaps = smallCaps
         self.colorHex = colorHex; self.letterSpacingPt = letterSpacingPt
     }
 
     var xml: String {
+        // CT_RPr child order matters: rFonts → b → i → caps → smallCaps →
+        // color → spacing → sz.
         var props = "<w:rFonts w:ascii=\"\(font)\" w:hAnsi=\"\(font)\"/>"
         if bold { props += "<w:b/>" }
         if italic { props += "<w:i/>" }
         if allCaps { props += "<w:caps/>" }
+        if smallCaps { props += "<w:smallCaps/>" }
         props += "<w:color w:val=\"\(colorHex)\"/>"
         if letterSpacingPt != 0 { props += "<w:spacing w:val=\"\(OOXML.twentieths(letterSpacingPt))\"/>" }
         props += "<w:sz w:val=\"\(OOXML.halfPoints(sizePt))\"/><w:szCs w:val=\"\(OOXML.halfPoints(sizePt))\"/>"
@@ -62,11 +71,28 @@ public struct DocxParagraph {
     var lineSpacingMultiple: Double?
     var leftIndentInches: Double?
     var hangingIndentInches: Double?
+    /// Pushes the right edge of the text column (and therefore of a bottom
+    /// border) inward — this is how the short "stub" accent bars are drawn.
+    var rightIndentInches: Double?
     var rightTabStopInches: Double?
-    var bottomBorder: (color: String, size: String)?
+    /// A paragraph border spans the paragraph's text column.
+    /// `val` is the OOXML border style: "single" or "double".
+    var bottomBorder: (color: String, size: String, val: String)?
+    /// Solid background fill (RRGGBB) — the Banner band. Presentation-only in
+    /// OOXML: the runs underneath stay ordinary text, so ATS extraction is
+    /// unaffected. NOT a table and NOT an image.
+    var shadingFill: String?
+    /// Keeps the paragraph on the same page as the next one, so a section
+    /// header is never stranded at the foot of a page.
+    var keepNext: Bool = false
     var runs: [RunContent] = []
 
     public init() {}
+
+    /// Convenience for the common single-line border.
+    mutating func setBottomBorder(color: String, size: String, val: String = "single") {
+        bottomBorder = (color, size, val)
+    }
 
     public mutating func run(_ text: String, _ style: RunStyle) {
         runs.append(.text(text, style))
@@ -81,10 +107,15 @@ public struct DocxParagraph {
     /// Renders paragraph XML; hyperlink relationship ids are allocated
     /// through `relationships`.
     func xml(relationships: DocxRelationships) -> String {
-        // CT_PPr child order matters: pBdr → tabs → spacing → ind → jc.
+        // CT_PPr child order matters:
+        // keepNext → pBdr → shd → tabs → spacing → ind → jc.
         var pPr = ""
+        if keepNext { pPr += "<w:keepNext/>" }
         if let border = bottomBorder {
-            pPr += "<w:pBdr><w:bottom w:val=\"single\" w:sz=\"\(border.size)\" w:space=\"1\" w:color=\"\(border.color)\"/></w:pBdr>"
+            pPr += "<w:pBdr><w:bottom w:val=\"\(border.val)\" w:sz=\"\(border.size)\" w:space=\"1\" w:color=\"\(border.color)\"/></w:pBdr>"
+        }
+        if let fill = shadingFill {
+            pPr += "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"\(fill)\"/>"
         }
         if let tab = rightTabStopInches {
             pPr += "<w:tabs><w:tab w:val=\"right\" w:pos=\"\(OOXML.twips(inches: tab))\"/></w:tabs>"
@@ -95,9 +126,10 @@ public struct DocxParagraph {
         }
         spacing += "/>"
         pPr += spacing
-        if leftIndentInches != nil || hangingIndentInches != nil {
+        if leftIndentInches != nil || hangingIndentInches != nil || rightIndentInches != nil {
             var ind = "<w:ind"
             if let left = leftIndentInches { ind += " w:left=\"\(OOXML.twips(inches: left))\"" }
+            if let right = rightIndentInches { ind += " w:right=\"\(OOXML.twips(inches: right))\"" }
             if let hanging = hangingIndentInches { ind += " w:hanging=\"\(OOXML.twips(inches: hanging))\"" }
             ind += "/>"
             pPr += ind
@@ -146,10 +178,16 @@ public struct DocxDocument {
     public var paragraphs: [DocxParagraph] = []
     /// top, bottom, left, right in inches.
     public var margins: (Double, Double, Double, Double) = (1, 1, 1, 1)
+    /// Line spacing applied to every added paragraph that doesn't set its own —
+    /// stands in for python-docx's `styles['Normal'].paragraph_format`.
+    /// Set it before adding paragraphs.
+    public var defaultLineSpacing: Double?
 
     public init() {}
 
     public mutating func add(_ paragraph: DocxParagraph) {
+        var paragraph = paragraph
+        if paragraph.lineSpacingMultiple == nil { paragraph.lineSpacingMultiple = defaultLineSpacing }
         paragraphs.append(paragraph)
     }
 

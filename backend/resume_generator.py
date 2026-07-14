@@ -20,99 +20,241 @@ logger = logging.getLogger(__name__)
 
 RESUMES_DIR = project_root() / "resumes"
 
-# -- Color palette --
+# -- Color palette (fixed body-text colors shared by every style) --
 COLOR_BLACK = RGBColor(0x22, 0x22, 0x22)
 COLOR_DARK = RGBColor(0x33, 0x33, 0x33)
 COLOR_GRAY = RGBColor(0x66, 0x66, 0x66)
-COLOR_LIGHT_GRAY = RGBColor(0x99, 0x99, 0x99)
-COLOR_ACCENT = RGBColor(0x2B, 0x57, 0x97)
-COLOR_NAVY = RGBColor(0x1F, 0x3A, 0x5F)
-COLOR_CHARCOAL = RGBColor(0x1F, 0x1F, 0x1F)
-COLOR_RULE = RGBColor(0x99, 0x99, 0x99)
 
+
+def _rgb(hex6: str) -> RGBColor:
+    """Convert a 6-char hex string ('1F3A5F') to a python-docx RGBColor."""
+    return RGBColor.from_string(hex6)
+
+
+# User-selectable accent palette. "default" keeps each preset's own accent.
+ACCENT_CHOICES: dict[str, str] = {
+    "navy": "1F3A5F",
+    "burgundy": "6D1F2C",
+    "forest": "1F4D3A",
+    "plum": "3D3A4F",
+    "charcoal": "37404A",
+}
+
+DEFAULT_RESUME_STYLE = "ledger"
+
+# Configs written before the 5-style lineup carry the retired names.
+LEGACY_STYLE_ALIASES: dict[str, str] = {
+    "standard": "ledger",
+    "modern": "ledger",
+    "minimal": "swiss",
+}
+
+# Tokens every preset inherits; presets override only what differs.
+# All colors are 6-char hex strings; the value "accent" resolves to the
+# active accent (the preset's own, or the user's resume_accent choice).
+_STYLE_DEFAULTS: dict = {
+    "body_font": "Calibri",
+    "name_font": "Calibri",
+    "body_size": 10.5,
+    "name_size": 20,
+    "name_bold": True,
+    "name_uppercase": False,
+    "name_small_caps": False,
+    "name_letter_spacing": 0,
+    "name_align": "left",
+    "name_color": "222222",
+    "accent": "1F3A5F",       # preset's default accent hex
+    "accent_locked": False,   # True → deliberately monochrome; ignore user accent
+    "accent_color": "accent",
+    "contact_color": "666666",
+    "contact_separator": "  ·  ",
+    "contact_inline": False,  # contact info on the name line (compact)
+    "header_size": 10,
+    "header_color": "222222",
+    "header_small_caps": False,
+    "header_letter_spacing": 0,
+    "header_underline": False,
+    "header_underline_color": "999999",
+    "header_underline_size": "4",
+    "header_rule_style": "full",   # full-width rule | short "stub" bar
+    "section_gap": 10,             # points of space before section headers
+    "bullet_marker": "•  ",
+    "bullet_marker_size": 10.5,
+    "bullet_marker_color": "333333",
+    "name_rule": False,
+    "name_rule_style": "single",   # single | double | stub
+    "name_rule_color": "999999",
+    "name_rule_size": "6",
+    "banner": False,               # shaded band behind name + contact
+    "margins": (0.6, 0.6, 0.75, 0.75),  # top, bottom, left, right (inches)
+    "line_spacing": None,
+    "entry_layout": "inline",      # "Title · Company ....... Dates" one line
+    "entry_separator": "  ·  ",
+    "company_style": "plain",      # plain | italic | accent
+    "skills_separator": ", ",
+    "hyperlinks": True,
+}
 
 # Style tokens — each preset is a flat dict consumed by generate_resume_docx.
 # All presets stay single-column, real text, no images/tables (ATS-safe).
 _STYLES: dict[str, dict] = {
-    "standard": {
+    # Executive — engraved-letterhead serif: centered small-caps name over a
+    # thin double rule. Deliberately monochrome (accent_locked).
+    "executive": {
+        "body_font": "Georgia",
+        "name_font": "Georgia",
+        "name_size": 22,
+        "name_bold": False,
+        "name_small_caps": True,
+        "name_letter_spacing": 3,
+        "name_align": "center",
+        "name_color": "17202B",
+        "accent": "17202B",
+        "accent_locked": True,
+        "header_size": 11,
+        "header_color": "17202B",
+        "header_small_caps": True,
+        "header_letter_spacing": 1.5,
+        "header_underline": True,
+        "header_underline_color": "C9C2B4",
+        "header_underline_size": "4",
+        "name_rule": True,
+        "name_rule_style": "double",
+        "name_rule_color": "17202B",
+        "name_rule_size": "4",
+        "margins": (0.7, 0.7, 0.85, 0.85),
+        "entry_separator": ", ",
+        "company_style": "italic",
+        "skills_separator": "  ·  ",
+        "bullet_marker": "•  ",
+        "bullet_marker_size": 9,
+        "bullet_marker_color": "17202B",
+    },
+    # Ledger — bold sans with a short thick accent stub under the name and
+    # stub-underlined section headers. The default style; shows off accents.
+    #
+    # Calibri, not Aptos: Aptos ships only with Microsoft 365, and every other
+    # reader (LibreOffice, older Word, Google Docs) substitutes a *serif* for
+    # it — which wrecks a style whose whole identity is "bold sans". The PDF
+    # path embeds Lato, so PDFs keep the more modern face regardless.
+    "ledger": {
         "body_font": "Calibri",
         "name_font": "Calibri",
-        "name_size": 20,
-        "name_uppercase": True,
-        "name_letter_spacing": 2,
-        "name_color": COLOR_BLACK,
-        "accent_color": COLOR_ACCENT,
-        "header_size": 11,
-        "header_color": COLOR_ACCENT,
+        "name_size": 26,
+        "name_color": "171C24",
+        "header_size": 10,
+        "header_color": "accent",
+        "header_letter_spacing": 1.2,
         "header_underline": True,
-        "header_underline_color": "2B5797",
-        "header_underline_size": "4",
-        "header_letter_spacing": 0,
-        "bullet_marker": "▸  ",
-        "bullet_marker_size": 8,
-        "bullet_marker_color": COLOR_ACCENT,
+        "header_underline_color": "accent",
+        "header_underline_size": "20",
+        "header_rule_style": "stub",
         "name_rule": True,
-        "name_rule_color": "2B5797",
-        "name_rule_size": "8",
-        "margins": (0.5, 0.5, 0.7, 0.7),  # top, bottom, left, right (inches)
-        "line_spacing": None,
-        "entry_layout": "stacked",
-        "hyperlinks": False,
+        "name_rule_style": "stub",
+        "name_rule_color": "accent",
+        "name_rule_size": "28",
+        "margins": (0.6, 0.6, 0.8, 0.8),
+        "line_spacing": 1.12,
+        "company_style": "accent",
+        "skills_separator": "  ·  ",
     },
-    "minimal": {
-        "body_font": "Times New Roman",
-        "name_font": "Times New Roman",
-        "name_size": 16,
-        "name_uppercase": False,
-        "name_letter_spacing": 0,
-        "name_color": COLOR_BLACK,
-        "accent_color": COLOR_DARK,
-        "header_size": 11,
-        "header_color": COLOR_DARK,
+    # Banner — full-width ink band behind name + contact. Paragraph shading
+    # on real text (w:shd / backColor) — parses identically to plain text.
+    # Calibri for the same reason as Ledger (see above).
+    "banner": {
+        "body_font": "Calibri",
+        "name_font": "Calibri",
+        "accent": "1F2D42",
+        "name_size": 24,
+        "name_color": "FFFFFF",
+        "contact_color": "D7DEE9",
+        "banner": True,
+        "header_size": 10,
+        "header_color": "accent",
+        "header_letter_spacing": 1.2,
         "header_underline": True,
-        "header_underline_color": "999999",
+        "header_underline_color": "accent",
+        "header_underline_size": "12",
+        "margins": (0.5, 0.6, 0.8, 0.8),
+        "line_spacing": 1.1,
+        "entry_separator": "  —  ",
+        "skills_separator": "  ·  ",
+    },
+    # Compact — 9.5pt, half-inch margins, contact on the name line,
+    # pipe-separated skills. Two pages become one.
+    "compact": {
+        "body_size": 9.5,
+        "name_size": 14,
+        "contact_inline": True,
+        "accent": "37404A",
+        "header_size": 9,
+        "header_color": "accent",
+        "header_letter_spacing": 1,
+        "header_underline": True,
+        "header_underline_color": "CCCCCC",
         "header_underline_size": "4",
-        "header_letter_spacing": 0,
-        "bullet_marker": "-  ",
-        "bullet_marker_size": 10.5,
-        "bullet_marker_color": COLOR_DARK,
+        "section_gap": 7,
         "name_rule": True,
         "name_rule_color": "999999",
         "name_rule_size": "4",
-        "margins": (0.75, 0.75, 1.0, 1.0),
-        "line_spacing": None,
-        "entry_layout": "stacked",
-        "hyperlinks": False,
+        "margins": (0.5, 0.5, 0.5, 0.5),
+        "line_spacing": 1.0,
+        "skills_separator": " | ",
+        "bullet_marker_size": 9.5,
     },
-    "modern": {
-        # Body: Aptos (Office 365 default, falls back to Calibri on older systems)
-        # Name: same family at larger weight — single-family typography, more polished
-        "body_font": "Aptos",
-        "name_font": "Aptos",
-        "name_size": 22,
-        "name_uppercase": False,
-        "name_letter_spacing": 0,
-        "name_color": COLOR_CHARCOAL,
-        "accent_color": COLOR_NAVY,
-        "header_size": 10,
-        "header_color": COLOR_CHARCOAL,
-        "header_underline": False,  # no full-width rule — cleaner hierarchy
-        "header_underline_color": "1F3A5F",
-        "header_underline_size": "4",
-        "header_letter_spacing": 1.5,
-        "bullet_marker": "•  ",
-        "bullet_marker_size": 10.5,
-        "bullet_marker_color": COLOR_DARK,
-        "name_rule": True,
-        "name_rule_color": "1F3A5F",
-        "name_rule_size": "6",
-        "margins": (0.6, 0.6, 0.8, 0.8),
-        "line_spacing": 1.15,
-        # Inline: "Title  ·  Company                Dates" on one line.
-        "entry_layout": "inline",
-        "hyperlinks": True,
+    # Swiss — no rules, no color: hierarchy from spacing, weight, and quiet
+    # letter-spaced grey headers alone. Deliberately monochrome.
+    "swiss": {
+        "body_font": "Arial",
+        "name_font": "Arial",
+        "name_size": 21,
+        "name_bold": False,
+        "name_color": "14181D",
+        "accent": "3A3F47",
+        "accent_locked": True,
+        "header_size": 9.5,
+        "header_color": "9AA0A9",
+        "header_letter_spacing": 2.5,
+        "section_gap": 15,
+        "margins": (0.9, 0.8, 0.95, 0.95),
+        "line_spacing": 1.2,
+        "entry_separator": ", ",
+        "skills_separator": "  ·  ",
+        "bullet_marker": "—  ",
+        "bullet_marker_color": "6E747D",
     },
 }
+
+
+def _resolve_resume_style(config: dict | None) -> dict:
+    """Resolve config to a fully-populated style dict — shared by the DOCX
+    and PDF paths for both resumes and cover letters.
+
+    Handles legacy style names, merges preset over defaults, and substitutes
+    the "accent" sentinel with the active accent hex (the user's
+    application_honesty.resume_accent choice unless the preset is locked).
+    """
+    honesty = (config or {}).get("application_honesty", {})
+    name = str(honesty.get("resume_style", DEFAULT_RESUME_STYLE)).lower()
+    name = LEGACY_STYLE_ALIASES.get(name, name)
+    preset = _STYLES.get(name, _STYLES[DEFAULT_RESUME_STYLE])
+
+    s = dict(_STYLE_DEFAULTS)
+    s.update(preset)
+
+    accent_hex = s["accent"]
+    if not s["accent_locked"]:
+        choice = str(honesty.get("resume_accent", "default")).lower()
+        accent_hex = ACCENT_CHOICES.get(choice, accent_hex)
+
+    # Only *color* tokens carry the "accent" sentinel — company_style legitimately
+    # has "accent" as an enum value and must not be rewritten to a hex.
+    resolved = {
+        k: (accent_hex if (v == "accent" and k.endswith("_color")) else v)
+        for k, v in s.items()
+    }
+    resolved["accent"] = accent_hex
+    return resolved
 
 
 def _add_hyperlink(paragraph, url, text, font_name, size_pt, color_hex):
@@ -172,26 +314,44 @@ def _set_paragraph_spacing(para, before=0, after=0, line_spacing=None):
         pf.line_spacing = Pt(line_spacing)
 
 
-def _add_bottom_border(paragraph, color="999999", size="6"):
-    """Add a thin bottom border line to a paragraph."""
+def _add_bottom_border(paragraph, color="999999", size="6", val="single"):
+    """Add a bottom border line to a paragraph. val="double" draws the thin
+    twin rule the Executive style uses under its letterhead."""
     pPr = paragraph._p.get_or_add_pPr()
     pBdr = parse_xml(
         f'<w:pBdr {nsdecls("w")}>'
-        f'  <w:bottom w:val="single" w:sz="{size}" w:space="1" w:color="{color}"/>'
+        f'  <w:bottom w:val="{val}" w:sz="{size}" w:space="1" w:color="{color}"/>'
         f'</w:pBdr>'
     )
     pPr.append(pBdr)
 
 
-def _add_section_header(doc, title):
-    """Add a styled section header with underline rule."""
+def _shade_paragraph(paragraph, fill_hex):
+    """Fill a paragraph's background with a solid color (the Banner band).
+
+    Shading is presentation-only in OOXML — the run text underneath is
+    ordinary text, so ATS extraction is unaffected.
+    """
+    pPr = paragraph._p.get_or_add_pPr()
+    pPr.append(parse_xml(
+        f'<w:shd {nsdecls("w")} w:val="clear" w:color="auto" w:fill="{fill_hex}"/>'
+    ))
+
+
+def _add_stub_rule(doc, content_width, width, color, size, before=2, after=4):
+    """Add a short accent bar (the Ledger stub) as its own paragraph.
+
+    A paragraph border spans the full text column, so a short bar is drawn by
+    pushing the paragraph's right indent in until only `width` inches remain.
+    The paragraph is collapsed to a hairline — an empty paragraph at body size
+    would otherwise reserve a full blank line under every bar.
+    """
     para = doc.add_paragraph()
-    _set_paragraph_spacing(para, before=10, after=3)
-    run = para.add_run(title.upper())
-    _set_font(run, size=11, bold=True, color=COLOR_ACCENT)
-    run.font.all_caps = True
-    # Add a line under the header
-    _add_bottom_border(para, color="2B5797", size="4")
+    _set_paragraph_spacing(para, before=before, after=after)
+    para.paragraph_format.right_indent = Inches(max(0.0, content_width - width))
+    para.paragraph_format.line_spacing = Pt(1)  # exact — collapse the empty line
+    _set_font(para.add_run(""), size=1)
+    _add_bottom_border(para, color=color, size=size)
     return para
 
 
@@ -485,30 +645,140 @@ def _parse_education_entries(text: str) -> list[dict]:
     return entries
 
 
+def _contact_entries(profile: dict, *, include_links: bool) -> list[tuple[str, str | None]]:
+    """Contact bits as (display_text, url_or_None), in display order."""
+    entries: list[tuple[str, str | None]] = []
+    for field in ("email", "phone", "location"):
+        val = profile.get(field, "")
+        if val:
+            entries.append((val, None))
+    if not include_links:
+        return entries
+    for field in ("linkedin", "portfolio", "github"):
+        url = profile.get(field, "")
+        if not url:
+            continue
+        clean = re.sub(r"^https?://", "", url).rstrip("/")
+        if clean:
+            full_url = url if url.startswith("http") else f"https://{clean}"
+            entries.append((clean, full_url))
+    return entries
+
+
+def _add_letterhead_docx(doc, profile, s, content_width, *, include_links=True):
+    """Render the name + contact letterhead shared by resumes and cover letters.
+
+    Honors name alignment, small caps, the Banner band, and the name rule
+    (single / double / stub) so both documents in a pair look like one set.
+    """
+    body_font = s["body_font"]
+    body_size = s["body_size"]
+    contact_size = max(8.0, body_size - 1.5)
+    align = (WD_ALIGN_PARAGRAPH.CENTER if s["name_align"] == "center"
+             else WD_ALIGN_PARAGRAPH.LEFT)
+    banner = s["banner"]
+
+    def _shaded_spacer(height_pt):
+        """Padding inside the band — paragraph shading doesn't cover the
+        space before/after, so the band needs its own empty shaded lines."""
+        pad = doc.add_paragraph()
+        _set_paragraph_spacing(pad, before=0, after=0)
+        pad.paragraph_format.line_spacing = 1.0
+        _set_font(pad.add_run(""), name=body_font, size=height_pt)
+        _shade_paragraph(pad, s["accent"])
+
+    if banner:
+        _shaded_spacer(5)
+
+    name = profile.get("full_name", "")
+    if name:
+        name_para = doc.add_paragraph()
+        name_para.alignment = align
+        _set_paragraph_spacing(name_para, before=0, after=2)
+        name_para.paragraph_format.line_spacing = 1.0
+        display_name = name.upper() if s["name_uppercase"] else name
+        name_run = name_para.add_run(display_name)
+        _set_font(name_run, name=s["name_font"], size=s["name_size"],
+                  bold=s["name_bold"], color=_rgb(s["name_color"]))
+        if s["name_small_caps"]:
+            name_run.font.small_caps = True
+        if s["name_letter_spacing"]:
+            name_run.font.letter_spacing = Pt(s["name_letter_spacing"])
+        if banner:
+            _shade_paragraph(name_para, s["accent"])
+
+    entries = _contact_entries(profile, include_links=include_links)
+    if entries:
+        # Compact runs the contact line onto the name paragraph itself.
+        inline = s["contact_inline"] and name
+        if inline:
+            contact_para = name_para
+            contact_para.add_run("   ")
+        else:
+            contact_para = doc.add_paragraph()
+            contact_para.alignment = align
+            _set_paragraph_spacing(contact_para, before=0, after=2)
+            contact_para.paragraph_format.line_spacing = 1.0
+
+        link_hex = s["accent_color"]
+        contact_color = _rgb(s["contact_color"])
+        for i, (text, url) in enumerate(entries):
+            if i > 0:
+                sep_run = contact_para.add_run(s["contact_separator"])
+                _set_font(sep_run, name=body_font, size=contact_size,
+                          color=contact_color)
+            if url and s["hyperlinks"] and not banner:
+                _add_hyperlink(contact_para, url, text, body_font,
+                               contact_size, link_hex)
+            else:
+                run = contact_para.add_run(text)
+                _set_font(run, name=body_font, size=contact_size,
+                          color=contact_color)
+        if banner and not inline:
+            _shade_paragraph(contact_para, s["accent"])
+
+    if banner:
+        _shaded_spacer(6)
+        return
+
+    if s["name_rule"]:
+        rule_style = s["name_rule_style"]
+        if rule_style == "stub":
+            _add_stub_rule(doc, content_width, 0.55, s["name_rule_color"],
+                           s["name_rule_size"], before=3, after=6)
+        else:
+            rule_para = doc.add_paragraph()
+            _set_paragraph_spacing(rule_para, before=4, after=4)
+            _add_bottom_border(
+                rule_para, color=s["name_rule_color"], size=s["name_rule_size"],
+                val="double" if rule_style == "double" else "single",
+            )
+
+
 def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | None = None) -> str:
     """
     Create a professional, ATS-friendly resume DOCX from AI-generated content.
 
-    config.application_honesty.resume_style controls the visual theme:
-      "standard" (default) — Calibri, accent blue headers
-      "minimal"            — Times New Roman, plain headers, maximum ATS compatibility
-      "modern"             — Aptos, navy accent, no header underlines, 1.15 line spacing
+    config.application_honesty.resume_style picks the visual theme:
+      "executive" — Georgia serif, centered small-caps name, double rule
+      "ledger"    — bold sans, accent stub bar, accent company names (default)
+      "banner"    — shaded ink band behind the name block
+      "compact"   — 9.5pt, tight margins, contact on the name line
+      "swiss"     — no rules, no color; spacing and weight only
+
+    config.application_honesty.resume_accent recolors the accent-driven styles.
+    Every style stays single-column real text — no images, tables or text boxes.
     Returns the file path to the generated document.
     """
     _ensure_dir()
 
-    resume_style = "standard"
-    if config:
-        resume_style = (
-            config.get("application_honesty", {}).get("resume_style", "standard").lower()
-        )
-    s = _STYLES.get(resume_style, _STYLES["standard"])
+    s = _resolve_resume_style(config)
 
-    _font_name    = s["body_font"]
-    _name_font    = s["name_font"]
-    _accent_color = s["accent_color"]
-    _header_size  = s["header_size"]
-    _name_size    = s["name_size"]
+    _font_name   = s["body_font"]
+    _body_size   = s["body_size"]
+    _header_size = s["header_size"]
+    _accent_hex  = s["accent_color"]
+    _dates_size  = max(8.0, _body_size - 0.5)
 
     doc = Document()
 
@@ -520,10 +790,12 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
         section.left_margin   = Inches(left_m)
         section.right_margin  = Inches(right_m)
 
+    content_w = 8.5 - left_m - right_m
+
     # -- Set default paragraph style --
     style = doc.styles['Normal']
     style.font.name = _font_name
-    style.font.size = Pt(11)
+    style.font.size = Pt(_body_size)
     style.font.color.rgb = COLOR_DARK
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(2)
@@ -533,55 +805,7 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
     # ==========================================
     # HEADER — Name and contact info
     # ==========================================
-    name = profile.get("full_name", "")
-    if name:
-        name_para = doc.add_paragraph()
-        name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_paragraph_spacing(name_para, before=0, after=2)
-        display_name = name.upper() if s["name_uppercase"] else name
-        name_run = name_para.add_run(display_name)
-        _set_font(name_run, name=_name_font, size=_name_size, bold=True, color=s["name_color"])
-        if s["name_letter_spacing"]:
-            name_run.font.letter_spacing = Pt(s["name_letter_spacing"])
-
-    # Contact line: email | phone | location | linkedin | portfolio | github
-    # Each entry is (display_text, url_or_None) — urls become clickable when style enables it.
-    contact_entries: list[tuple[str, str | None]] = []
-    for field in ["email", "phone", "location"]:
-        val = profile.get(field, "")
-        if val:
-            contact_entries.append((val, None))
-
-    for field in ["linkedin", "portfolio", "github"]:
-        url = profile.get(field, "")
-        if not url:
-            continue
-        clean = re.sub(r"^https?://", "", url).rstrip("/")
-        if clean:
-            full_url = url if url.startswith("http") else f"https://{clean}"
-            contact_entries.append((clean, full_url))
-
-    if contact_entries:
-        contact_para = doc.add_paragraph()
-        contact_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_paragraph_spacing(contact_para, before=0, after=2)
-        separator = "  |  "
-        link_color_hex = "{:02X}{:02X}{:02X}".format(*s["accent_color"])
-        for i, (text, url) in enumerate(contact_entries):
-            if i > 0:
-                sep_run = contact_para.add_run(separator)
-                _set_font(sep_run, name=_font_name, size=9, color=COLOR_GRAY)
-            if url and s["hyperlinks"]:
-                _add_hyperlink(contact_para, url, text, _font_name, 9, link_color_hex)
-            else:
-                run = contact_para.add_run(text)
-                _set_font(run, name=_font_name, size=9, color=COLOR_GRAY)
-
-    # Rule under header
-    if s["name_rule"]:
-        rule_para = doc.add_paragraph()
-        _set_paragraph_spacing(rule_para, before=4, after=4)
-        _add_bottom_border(rule_para, color=s["name_rule_color"], size=s["name_rule_size"])
+    _add_letterhead_docx(doc, profile, s, content_w, include_links=True)
 
     # ==========================================
     # PARSE AI CONTENT
@@ -591,14 +815,30 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
     def _section_header(title: str):
         """Add a section header respecting the chosen style."""
         para = doc.add_paragraph()
-        _set_paragraph_spacing(para, before=10, after=3)
-        run = para.add_run(title.upper())
-        _set_font(run, name=_font_name, size=_header_size, bold=True, color=s["header_color"])
-        run.font.all_caps = True
+        _set_paragraph_spacing(para, before=s["section_gap"], after=3)
+        # Small caps keeps the mixed-case text and renders it as caps; the
+        # other styles upper-case the text outright.
+        run = para.add_run(title if s["header_small_caps"] else title.upper())
+        _set_font(run, name=_font_name, size=_header_size, bold=True,
+                  color=_rgb(s["header_color"]))
+        if s["header_small_caps"]:
+            run.font.small_caps = True
+        else:
+            run.font.all_caps = True
         if s["header_letter_spacing"]:
             run.font.letter_spacing = Pt(s["header_letter_spacing"])
+        # Never leave a header stranded at the foot of a page.
+        para.paragraph_format.keep_with_next = True
         if s["header_underline"]:
-            _add_bottom_border(para, color=s["header_underline_color"], size=s["header_underline_size"])
+            if s["header_rule_style"] == "stub":
+                stub = _add_stub_rule(doc, content_w, 0.30,
+                                      s["header_underline_color"],
+                                      s["header_underline_size"],
+                                      before=1, after=4)
+                stub.paragraph_format.keep_with_next = True
+            else:
+                _add_bottom_border(para, color=s["header_underline_color"],
+                                   size=s["header_underline_size"])
         return para
 
     # ==========================================
@@ -612,7 +852,7 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
         # Clean up any stray markdown
         clean_summary = re.sub(r'\*\*(.+?)\*\*', r'\1', summary_text).strip()
         run = p.add_run(clean_summary)
-        _set_font(run, name=_font_name, size=10.5, color=COLOR_DARK)
+        _set_font(run, name=_font_name, size=_body_size, color=COLOR_DARK)
 
     # ==========================================
     # SKILLS
@@ -638,21 +878,21 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
                 if ":" in line:
                     category, skills = line.split(":", 1)
                     cat_run = p.add_run(category.strip() + ": ")
-                    _set_font(cat_run, name=_font_name, size=10.5, bold=True, color=COLOR_DARK)
+                    _set_font(cat_run, name=_font_name, size=_body_size, bold=True, color=COLOR_DARK)
                     skills_run = p.add_run(skills.strip())
-                    _set_font(skills_run, name=_font_name, size=10.5, color=COLOR_DARK)
+                    _set_font(skills_run, name=_font_name, size=_body_size, color=COLOR_DARK)
                 else:
                     run = p.add_run(line)
-                    _set_font(run, name=_font_name, size=10.5, color=COLOR_DARK)
+                    _set_font(run, name=_font_name, size=_body_size, color=COLOR_DARK)
         else:
-            # Join all into one comma-separated line
-            all_skills = []
+            # Join all onto one line with the style's separator
+            all_skills: list[str] = []
             for line in skill_lines:
-                all_skills.extend(s.strip() for s in line.split(",") if s.strip())
+                all_skills.extend(sk.strip() for sk in line.split(",") if sk.strip())
             p = doc.add_paragraph()
             _set_paragraph_spacing(p, before=2, after=4)
-            run = p.add_run(", ".join(all_skills))
-            _set_font(run, name=_font_name, size=10.5, color=COLOR_DARK)
+            run = p.add_run(s["skills_separator"].join(all_skills))
+            _set_font(run, name=_font_name, size=_body_size, color=COLOR_DARK)
 
     # ==========================================
     # EXPERIENCE
@@ -663,23 +903,38 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
         entries = _parse_experience_entries(exp_text)
 
         # Inline layout uses full text-width tab; stacked keeps the legacy 6.1" stop.
-        inline_right_tab = Inches(8.5 - left_m - right_m)
+        inline_right_tab = Inches(content_w)
         stacked_right_tab = Inches(6.1)
+        title_size = _body_size + 0.5
+        company_accent = s["company_style"] == "accent"
+        marker_color = _rgb(s["bullet_marker_color"])
+
+        def _add_company_run(para):
+            """Title/company separator + company name, per the style's
+            company_style token."""
+            sep_run = para.add_run(s["entry_separator"])
+            _set_font(sep_run, name=_font_name, size=_body_size,
+                      color=_rgb(_accent_hex) if company_accent else COLOR_GRAY)
+            company_run = para.add_run(entry["company"])
+            _set_font(
+                company_run, name=_font_name, size=_body_size,
+                bold=company_accent,
+                italic=s["company_style"] == "italic",
+                color=_rgb(_accent_hex) if company_accent else COLOR_DARK,
+            )
 
         for entry in entries:
             if s["entry_layout"] == "inline":
                 # One-line header: "Title  ·  Company                Dates"
                 head = doc.add_paragraph()
                 _set_paragraph_spacing(head, before=6, after=2)
+                head.paragraph_format.keep_with_next = True
 
                 title_run = head.add_run(entry["title"])
-                _set_font(title_run, name=_font_name, size=11, bold=True, color=COLOR_BLACK)
+                _set_font(title_run, name=_font_name, size=title_size, bold=True, color=COLOR_BLACK)
 
                 if entry["company"]:
-                    sep_run = head.add_run("  ·  ")
-                    _set_font(sep_run, name=_font_name, size=10.5, color=s["accent_color"])
-                    company_run = head.add_run(entry["company"])
-                    _set_font(company_run, name=_font_name, size=10.5, color=COLOR_DARK)
+                    _add_company_run(head)
 
                 if entry["dates"]:
                     head.paragraph_format.tab_stops.add_tab_stop(
@@ -687,14 +942,15 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
                     )
                     head.add_run("\t")
                     dates_run = head.add_run(entry["dates"])
-                    _set_font(dates_run, name=_font_name, size=10, italic=True, color=COLOR_GRAY)
+                    _set_font(dates_run, name=_font_name, size=_dates_size, italic=True, color=COLOR_GRAY)
             else:
                 # Stacked: title/dates on line 1, company in italic on line 2
                 title_para = doc.add_paragraph()
                 _set_paragraph_spacing(title_para, before=6, after=0)
+                title_para.paragraph_format.keep_with_next = True
 
                 title_run = title_para.add_run(entry["title"])
-                _set_font(title_run, name=_font_name, size=11, bold=True, color=COLOR_BLACK)
+                _set_font(title_run, name=_font_name, size=title_size, bold=True, color=COLOR_BLACK)
 
                 if entry["dates"]:
                     title_para.paragraph_format.tab_stops.add_tab_stop(
@@ -702,13 +958,14 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
                     )
                     title_para.add_run("\t")
                     dates_run = title_para.add_run(entry["dates"])
-                    _set_font(dates_run, name=_font_name, size=10, italic=True, color=COLOR_GRAY)
+                    _set_font(dates_run, name=_font_name, size=_dates_size, italic=True, color=COLOR_GRAY)
 
                 if entry["company"]:
                     company_para = doc.add_paragraph()
                     _set_paragraph_spacing(company_para, before=0, after=2)
+                    company_para.paragraph_format.keep_with_next = True
                     company_run = company_para.add_run(entry["company"])
-                    _set_font(company_run, name=_font_name, size=10.5, italic=True, color=COLOR_GRAY)
+                    _set_font(company_run, name=_font_name, size=_body_size, italic=True, color=COLOR_GRAY)
 
             # Bullets — marker glyph and color come from the style preset
             for bullet in entry["bullets"]:
@@ -718,9 +975,9 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
                 bullet_para.paragraph_format.first_line_indent = Inches(-0.2)
 
                 marker_run = bullet_para.add_run(s["bullet_marker"])
-                _set_font(marker_run, name=_font_name, size=s["bullet_marker_size"], color=s["bullet_marker_color"])
+                _set_font(marker_run, name=_font_name, size=s["bullet_marker_size"], color=marker_color)
                 text_run = bullet_para.add_run(bullet)
-                _set_font(text_run, name=_font_name, size=10.5, color=COLOR_DARK)
+                _set_font(text_run, name=_font_name, size=_body_size, color=COLOR_DARK)
 
     # ==========================================
     # EDUCATION
@@ -735,17 +992,17 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
             _set_paragraph_spacing(edu_para, before=3, after=1)
 
             degree_run = edu_para.add_run(entry["degree"])
-            _set_font(degree_run, name=_font_name, size=10.5, bold=True, color=COLOR_BLACK)
+            _set_font(degree_run, name=_font_name, size=_body_size, bold=True, color=COLOR_BLACK)
 
             if entry["school"]:
                 school_text = f"  —  {entry['school']}"
                 if entry["year"]:
                     school_text += f"  ({entry['year']})"
                 school_run = edu_para.add_run(school_text)
-                _set_font(school_run, name=_font_name, size=10.5, color=COLOR_GRAY)
+                _set_font(school_run, name=_font_name, size=_body_size, color=COLOR_GRAY)
             elif entry["year"]:
                 year_run = edu_para.add_run(f"  ({entry['year']})")
-                _set_font(year_run, name=_font_name, size=10.5, color=COLOR_GRAY)
+                _set_font(year_run, name=_font_name, size=_body_size, color=COLOR_GRAY)
 
     # ==========================================
     # CERTIFICATIONS
@@ -765,9 +1022,9 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
                 p.paragraph_format.left_indent = Inches(0.25)
                 p.paragraph_format.first_line_indent = Inches(-0.2)
                 marker_run = p.add_run(s["bullet_marker"])
-                _set_font(marker_run, name=_font_name, size=s["bullet_marker_size"], color=s["bullet_marker_color"])
+                _set_font(marker_run, name=_font_name, size=s["bullet_marker_size"], color=_rgb(s["bullet_marker_color"]))
                 run = p.add_run(clean)
-                _set_font(run, name=_font_name, size=10.5, color=COLOR_DARK)
+                _set_font(run, name=_font_name, size=_body_size, color=COLOR_DARK)
 
     # ==========================================
     # REFERENCES — appended verbatim from profile, never sent to AI
@@ -780,11 +1037,11 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
             name_para = doc.add_paragraph()
             _set_paragraph_spacing(name_para, before=4, after=1)
             name_run = name_para.add_run(ref.get("name", "").strip())
-            _set_font(name_run, name=_font_name, size=10.5, bold=True, color=COLOR_BLACK)
+            _set_font(name_run, name=_font_name, size=_body_size, bold=True, color=COLOR_BLACK)
             position = (ref.get("position") or "").strip()
             if position:
                 pos_run = name_para.add_run(f"  —  {position}")
-                _set_font(pos_run, name=_font_name, size=10.5, italic=True, color=COLOR_GRAY)
+                _set_font(pos_run, name=_font_name, size=_body_size, italic=True, color=COLOR_GRAY)
 
             contact_bits = []
             email = (ref.get("email") or "").strip()
@@ -796,8 +1053,8 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
             if contact_bits:
                 contact_para = doc.add_paragraph()
                 _set_paragraph_spacing(contact_para, before=0, after=2)
-                run = contact_para.add_run("  |  ".join(contact_bits))
-                _set_font(run, name=_font_name, size=10, color=COLOR_DARK)
+                run = contact_para.add_run(s["contact_separator"].join(contact_bits))
+                _set_font(run, name=_font_name, size=_dates_size, color=COLOR_DARK)
 
     # -- Save --
     job_id = job.get("id", "unknown")
@@ -807,64 +1064,50 @@ def generate_resume_docx(content: str, profile: dict, job: dict, config: dict | 
     return str(file_path)
 
 
-def generate_cover_letter_docx(content: str, profile: dict, job: dict) -> str:
+def generate_cover_letter_docx(content: str, profile: dict, job: dict, config: dict | None = None) -> str:
     """
-    Create a professional cover letter DOCX.
+    Create a professional cover letter DOCX in the same visual style as the
+    resume, so a recruiter opening both files sees one matched set.
     Returns the file path to the generated document.
     """
     _ensure_dir()
+    s = _resolve_resume_style(config)
+    body_font = s["body_font"]
     doc = Document()
 
+    # A letter always breathes more than a resume — 1" margins regardless of
+    # the preset's tighter resume margins.
+    left_m = right_m = 1.0
     for section in doc.sections:
-        section.top_margin = Inches(1)
+        section.top_margin = Inches(0.8 if s["banner"] else 1.0)
         section.bottom_margin = Inches(1)
-        section.left_margin = Inches(1)
-        section.right_margin = Inches(1)
+        section.left_margin = Inches(left_m)
+        section.right_margin = Inches(right_m)
+
+    content_w = 8.5 - left_m - right_m
 
     # Default style
     style = doc.styles['Normal']
-    style.font.name = 'Calibri'
+    style.font.name = body_font
     style.font.size = Pt(11)
     style.font.color.rgb = COLOR_DARK
+    if s["line_spacing"]:
+        style.paragraph_format.line_spacing = s["line_spacing"]
 
-    # Candidate header — same style as resume for brand consistency
-    name = profile.get("full_name", "")
-    if name:
-        name_para = doc.add_paragraph()
-        name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_paragraph_spacing(name_para, before=0, after=2)
-        name_run = name_para.add_run(name.upper())
-        _set_font(name_run, size=16, bold=True, color=COLOR_BLACK)
-        name_run.font.letter_spacing = Pt(1.5)
-
-    contact_parts = []
-    for field in ["email", "phone", "location"]:
-        val = profile.get(field, "")
-        if val:
-            contact_parts.append(val)
-    if contact_parts:
-        contact_para = doc.add_paragraph()
-        contact_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_paragraph_spacing(contact_para, before=0, after=2)
-        contact_run = contact_para.add_run("  |  ".join(contact_parts))
-        _set_font(contact_run, size=9, color=COLOR_GRAY)
-
-    # Accent rule
-    rule_para = doc.add_paragraph()
-    _set_paragraph_spacing(rule_para, before=4, after=8)
-    _add_bottom_border(rule_para, color="2B5797", size="6")
+    # Candidate letterhead — identical treatment to the resume
+    _add_letterhead_docx(doc, profile, s, content_w, include_links=False)
 
     # Date
     date_para = doc.add_paragraph()
-    _set_paragraph_spacing(date_para, before=6, after=12)
+    _set_paragraph_spacing(date_para, before=10, after=12)
     date_run = date_para.add_run(datetime.now().strftime("%B %d, %Y"))
-    _set_font(date_run, size=11, color=COLOR_DARK)
+    _set_font(date_run, name=body_font, size=11, color=COLOR_GRAY)
 
     # Role reference
     ref_para = doc.add_paragraph()
     _set_paragraph_spacing(ref_para, before=0, after=12)
     ref_run = ref_para.add_run(f"Re: {job.get('title', '')} at {job.get('company', '')}")
-    _set_font(ref_run, size=11, bold=True, color=COLOR_BLACK)
+    _set_font(ref_run, name=body_font, size=11, bold=True, color=COLOR_BLACK)
 
     # Body paragraphs
     # Clean up any markdown the AI might have included
@@ -875,31 +1118,25 @@ def generate_cover_letter_docx(content: str, profile: dict, job: dict) -> str:
         paragraph = paragraph.strip()
         if not paragraph:
             continue
-        # Skip lines that look like headers or salutations already in the AI content
-        if paragraph.lower().startswith(("dear ", "to whom")):
-            p = doc.add_paragraph()
-            _set_paragraph_spacing(p, before=0, after=6)
-            run = p.add_run(paragraph)
-            _set_font(run, size=11, color=COLOR_DARK)
-        elif paragraph.lower().startswith(("sincerely", "best regards", "regards", "thank you")):
-            continue  # We add our own closing
-        else:
-            p = doc.add_paragraph()
-            _set_paragraph_spacing(p, before=0, after=6)
-            run = p.add_run(paragraph)
-            _set_font(run, size=11, color=COLOR_DARK)
+        # Skip closings the AI added — we add our own
+        if paragraph.lower().startswith(("sincerely", "best regards", "regards", "thank you")):
+            continue
+        p = doc.add_paragraph()
+        _set_paragraph_spacing(p, before=0, after=6)
+        run = p.add_run(paragraph)
+        _set_font(run, name=body_font, size=11, color=COLOR_DARK)
 
     # Closing
     doc.add_paragraph()
     closing = doc.add_paragraph()
     _set_paragraph_spacing(closing, before=6, after=2)
     run = closing.add_run("Sincerely,")
-    _set_font(run, size=11, color=COLOR_DARK)
+    _set_font(run, name=body_font, size=11, color=COLOR_DARK)
 
     name_para = doc.add_paragraph()
     _set_paragraph_spacing(name_para, before=2, after=0)
     run = name_para.add_run(profile.get("full_name", ""))
-    _set_font(run, size=11, bold=True, color=COLOR_BLACK)
+    _set_font(run, name=body_font, size=11, bold=True, color=COLOR_BLACK)
 
     # Save
     job_id = job.get("id", "unknown")
@@ -918,16 +1155,6 @@ def generate_cover_letter_docx(content: str, profile: dict, job: dict) -> str:
 # ===========================================================================
 
 
-def _resolve_resume_style(config: dict | None) -> dict:
-    """Pick the _STYLES preset from config — shared by the DOCX/PDF paths."""
-    resume_style = "standard"
-    if config:
-        resume_style = (
-            config.get("application_honesty", {}).get("resume_style", "standard").lower()
-        )
-    return _STYLES.get(resume_style, _STYLES["standard"])
-
-
 def _document_format(config: dict | None) -> str:
     """Return the configured output format: 'pdf' or 'docx' (default)."""
     if not config:
@@ -941,23 +1168,115 @@ def _pdf_esc(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-_PDF_SAFE_BULLET = "•"  # • — present in ReportLab's built-in WinAnsi fonts
+_PDF_SAFE_BULLET = "•"
+# Glyphs the built-in WinAnsi fonts (and our embedded faces) can all render.
+_PDF_SAFE_MARKS = {"•", "–", "—", "·"}
 
 
 def _pdf_bullet(marker: str) -> str:
-    """The built-in PDF fonts can't render decorative glyphs like ▸/▪/‣ —
-    they show up as a .notdef box. Map any non-ASCII marker char to a plain
-    round bullet; keep ASCII markers (e.g. '- ') and the • bullet as-is."""
+    """Decorative glyphs like ▸/▪/‣ render as a .notdef box in the built-in
+    PDF fonts. Keep ASCII and the known-safe marks; map anything else to a
+    plain round bullet."""
     return "".join(
-        ch if (ch.isascii() or ch == _PDF_SAFE_BULLET) else _PDF_SAFE_BULLET
+        ch if (ch.isascii() or ch in _PDF_SAFE_MARKS) else _PDF_SAFE_BULLET
         for ch in marker
     )
 
 
+# -- Embedded PDF typefaces (OFL) -------------------------------------------
+# ReportLab's built-in fonts are Helvetica/Times only, which is why PDFs used
+# to look dated next to the DOCX. We ship Lato (sans) and PT Serif (serif) and
+# register them on first use. Embedded TTFs keep the text fully extractable —
+# ATS parsing is unaffected. If the files are missing (or ReportLab rejects
+# them) every style silently falls back to the built-ins.
+FONTS_DIR = Path(__file__).resolve().parent / "fonts"
+
+_EMBEDDED_FAMILIES: dict[str, dict[str, str]] = {
+    "JobsmithSans":  {
+        "normal": "Lato-Regular", "bold": "Lato-Bold",
+        "italic": "Lato-Italic", "boldItalic": "Lato-BoldItalic",
+    },
+    "JobsmithSerif": {
+        "normal": "PTSerif-Regular", "bold": "PTSerif-Bold",
+        "italic": "PTSerif-Italic", "boldItalic": "PTSerif-BoldItalic",
+    },
+}
+
+_embedded_fonts_ready: bool | None = None  # None = not attempted yet
+
+
+def _register_embedded_fonts() -> bool:
+    """Register the bundled TTFs with ReportLab once. Returns True when the
+    embedded families are available."""
+    global _embedded_fonts_ready
+    if _embedded_fonts_ready is not None:
+        return _embedded_fonts_ready
+
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.fonts import addMapping
+
+        for family, faces in _EMBEDDED_FAMILIES.items():
+            for variant, stem in faces.items():
+                path = FONTS_DIR / f"{stem}.ttf"
+                if not path.exists():
+                    raise FileNotFoundError(path)
+                face = family if variant == "normal" else f"{family}-{variant}"
+                pdfmetrics.registerFont(TTFont(face, str(path)))
+            # Teach ReportLab which face to use for <b>/<i> markup.
+            pdfmetrics.registerFontFamily(
+                family,
+                normal=family,
+                bold=f"{family}-bold",
+                italic=f"{family}-italic",
+                boldItalic=f"{family}-boldItalic",
+            )
+            for bold, italic, variant in (
+                (0, 0, "normal"), (1, 0, "bold"),
+                (0, 1, "italic"), (1, 1, "boldItalic"),
+            ):
+                face = family if variant == "normal" else f"{family}-{variant}"
+                addMapping(family, bold, italic, face)
+
+        _embedded_fonts_ready = True
+        logger.info("Embedded PDF fonts registered (Lato, PT Serif)")
+    except Exception:
+        _embedded_fonts_ready = False
+        logger.warning(
+            "Embedded PDF fonts unavailable — falling back to built-in "
+            "Helvetica/Times", exc_info=True,
+        )
+    return _embedded_fonts_ready
+
+
 def _pdf_font(style_font: str, bold: bool = False, italic: bool = False) -> str:
-    """Map a preset font name to a built-in ReportLab font (no font files
-    needed — keeps PDFs dependency-free and ATS-safe)."""
-    if "times" in style_font.lower():
+    """Map a preset font name to a concrete PDF face.
+
+    Swiss deliberately renders in Helvetica — the built-in grotesque *is* the
+    design — so its Arial token maps straight to the built-in. Everything else
+    prefers the embedded families and degrades to the built-ins.
+    """
+    font = style_font.lower()
+
+    if "arial" in font or "helvetica" in font:
+        family = None  # force built-in
+    elif "georgia" in font or "times" in font or "serif" in font:
+        family = "JobsmithSerif"
+    else:
+        family = "JobsmithSans"
+
+    if family and _register_embedded_fonts():
+        if bold and italic:
+            return f"{family}-boldItalic"
+        if bold:
+            return f"{family}-bold"
+        if italic:
+            return f"{family}-italic"
+        return family
+
+    # Built-in fallback
+    if family == "JobsmithSerif" or "times" in font or "georgia" in font:
         if bold and italic:
             return "Times-BoldItalic"
         if bold:
@@ -994,21 +1313,139 @@ def _border_pt(eighths: str) -> float:
         return 0.75
 
 
+def _pdf_para(text, font, size, color, *, align=None, bold=False, italic=False,
+              sb=0, sa=2, leading=None, left_indent=0, first_indent=0,
+              keep=False, line_spacing=None):
+    """One Paragraph in the resolved style's typeface."""
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph
+
+    st = ParagraphStyle(
+        "x", fontName=_pdf_font(font, bold, italic), fontSize=size,
+        leading=leading or size * 1.18 * (line_spacing or 1.0),
+        textColor=color, alignment=TA_LEFT if align is None else align,
+        spaceBefore=sb, spaceAfter=sa, leftIndent=left_indent,
+        firstLineIndent=first_indent, keepWithNext=1 if keep else 0,
+    )
+    return Paragraph(text, st)
+
+
+def _letterhead_story(profile: dict, s: dict, avail_w: float, *,
+                      include_links: bool) -> list:
+    """Name + contact letterhead flowables — shared by the resume and cover
+    letter PDF paths so a generated pair looks like one set."""
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Table, TableStyle, HRFlowable, Spacer
+
+    align = TA_CENTER if s["name_align"] == "center" else TA_LEFT
+    body = s["body_font"]
+    body_size = s["body_size"]
+    contact_size = max(8.0, body_size - 1.5)
+    banner = s["banner"]
+    story: list = []
+
+    name = profile.get("full_name", "")
+    name_flow = None
+    if name:
+        # Small caps has no PDF equivalent in the built-in markup — upper-case
+        # with the preset's letter-spacing reads the same at a glance.
+        disp = name.upper() if (s["name_uppercase"] or s["name_small_caps"]) else name
+        name_flow = _pdf_para(
+            _pdf_esc(disp), s["name_font"], s["name_size"],
+            _rl_hex(s["name_color"]), align=align, bold=s["name_bold"], sa=2,
+        )
+
+    contact_bits: list[str] = []
+    link_hex = "#" + s["accent_color"]
+    for text, url in _contact_entries(profile, include_links=include_links):
+        if url and s["hyperlinks"] and not banner:
+            contact_bits.append(
+                f'<a href="{_pdf_esc(url)}" color="{link_hex}">{_pdf_esc(text)}</a>'
+            )
+        else:
+            contact_bits.append(_pdf_esc(text))
+
+    contact_flow = None
+    if contact_bits:
+        contact_flow = _pdf_para(
+            s["contact_separator"].join(contact_bits), body, contact_size,
+            _rl_hex(s["contact_color"]), align=align, sa=2,
+        )
+
+    # Compact puts the contact line on the name line itself.
+    if s["contact_inline"] and name_flow is not None and contact_bits:
+        merged = (
+            f'<font size="{s["name_size"]}" color="#{s["name_color"]}">'
+            f'<b>{_pdf_esc(name)}</b></font>'
+            f'<font size="{contact_size}" color="#{s["contact_color"]}">'
+            f'   {s["contact_separator"].join(contact_bits)}</font>'
+        )
+        story.append(_pdf_para(merged, s["name_font"], s["name_size"],
+                               _rl_hex(s["name_color"]), align=align, sa=2))
+        name_flow = contact_flow = None
+
+    if banner:
+        # The band: a single-cell table with a solid background. Text inside is
+        # ordinary text — extraction and ATS parsing are unaffected.
+        rows = [[f] for f in (name_flow, contact_flow) if f is not None]
+        if rows:
+            t = Table(rows, colWidths=[avail_w])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), _rl_hex(s["accent"])),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (0, 0), 12),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, -1), (-1, -1), 12),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 10))
+        return story
+
+    for flow in (name_flow, contact_flow):
+        if flow is not None:
+            story.append(flow)
+
+    if s["name_rule"]:
+        rule_style = s["name_rule_style"]
+        thickness = _border_pt(s["name_rule_size"])
+        color = _rl_hex(s["name_rule_color"])
+        if rule_style == "stub":
+            story.append(HRFlowable(
+                width=0.55 * inch, thickness=thickness, color=color,
+                hAlign="LEFT", spaceBefore=4, spaceAfter=7,
+            ))
+        elif rule_style == "double":
+            story.append(HRFlowable(width="100%", thickness=thickness,
+                                    color=color, spaceBefore=5, spaceAfter=1.5))
+            story.append(HRFlowable(width="100%", thickness=thickness,
+                                    color=color, spaceBefore=0, spaceAfter=5))
+        else:
+            story.append(HRFlowable(width="100%", thickness=thickness,
+                                    color=color, spaceBefore=4, spaceAfter=4))
+    return story
+
+
 def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | None = None) -> str:
     """Render the resume to a styled, ATS-friendly PDF mirroring the DOCX
     layout. Returns the PDF file path."""
     from reportlab.lib.pagesizes import LETTER
     from reportlab.lib.units import inch
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_RIGHT
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+        SimpleDocTemplate, Table, TableStyle, HRFlowable,
     )
 
     _ensure_dir()
     s = _resolve_resume_style(config)
     bullet_marker = _pdf_bullet(s["bullet_marker"])
     body = s["body_font"]
+    body_size = s["body_size"]
+    dates_size = max(8.0, body_size - 0.5)
+    ls = s["line_spacing"]
     top_m, bot_m, left_m, right_m = s["margins"]
 
     job_id = job.get("id", "unknown")
@@ -1022,71 +1459,32 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
     )
     avail_w = LETTER[0] - (left_m + right_m) * inch
 
-    accent = _rl_color(s["accent_color"])
+    accent_hex = "#" + s["accent_color"]
     c_dark = _rl_color(COLOR_DARK)
     c_gray = _rl_color(COLOR_GRAY)
     c_black = _rl_color(COLOR_BLACK)
     story: list = []
 
-    def para(text, font, size, color, *, align=TA_LEFT, bold=False,
-             italic=False, sb=0, sa=2, leading=None, left_indent=0,
-             first_indent=0):
-        st = ParagraphStyle(
-            "x", fontName=_pdf_font(font, bold, italic), fontSize=size,
-            leading=leading or size * 1.2, textColor=color, alignment=align,
-            spaceBefore=sb, spaceAfter=sa, leftIndent=left_indent,
-            firstLineIndent=first_indent,
-        )
-        return Paragraph(text, st)
+    def para(text, font, size, color, **kw):
+        kw.setdefault("line_spacing", ls)
+        return _pdf_para(text, font, size, color, **kw)
 
-    # -- Header: name --
-    name = profile.get("full_name", "")
-    if name:
-        disp = name.upper() if s["name_uppercase"] else name
-        story.append(para(_pdf_esc(disp), s["name_font"], s["name_size"],
-                          _rl_color(s["name_color"]), align=TA_CENTER,
-                          bold=True, sa=2))
-
-    # -- Header: contact line (clickable links when the preset enables them) --
-    contact_bits: list[str] = []
-    for field in ("email", "phone", "location"):
-        val = profile.get(field, "")
-        if val:
-            contact_bits.append(_pdf_esc(val))
-    link_hex = "#%02X%02X%02X" % tuple(s["accent_color"])
-    for field in ("linkedin", "portfolio", "github"):
-        url = profile.get(field, "")
-        if not url:
-            continue
-        clean = re.sub(r"^https?://", "", url).rstrip("/")
-        if not clean:
-            continue
-        full = url if url.startswith("http") else f"https://{clean}"
-        if s["hyperlinks"]:
-            contact_bits.append(
-                f'<a href="{_pdf_esc(full)}" color="{link_hex}">{_pdf_esc(clean)}</a>'
-            )
-        else:
-            contact_bits.append(_pdf_esc(clean))
-    if contact_bits:
-        story.append(para("  |  ".join(contact_bits), body, 9, c_gray,
-                          align=TA_CENTER, sa=2))
-
-    if s["name_rule"]:
-        story.append(HRFlowable(
-            width="100%", thickness=_border_pt(s["name_rule_size"]),
-            color=_rl_hex(s["name_rule_color"]), spaceBefore=4, spaceAfter=4,
-        ))
+    # -- Letterhead (name, contact, rule/band) --
+    story.extend(_letterhead_story(profile, s, avail_w, include_links=True))
 
     sections = _parse_resume_sections(content)
 
     def section_header(title: str):
-        story.append(para(_pdf_esc(title.upper()), body, s["header_size"],
-                          _rl_color(s["header_color"]), bold=True, sb=10, sa=3))
+        story.append(para(
+            _pdf_esc(title.upper()), body, s["header_size"],
+            _rl_hex(s["header_color"]), bold=True,
+            sb=s["section_gap"], sa=3, keep=True,
+        ))
         if s["header_underline"]:
+            width = (0.30 * inch if s["header_rule_style"] == "stub" else "100%")
             story.append(HRFlowable(
-                width="100%", thickness=_border_pt(s["header_underline_size"]),
-                color=_rl_hex(s["header_underline_color"]),
+                width=width, thickness=_border_pt(s["header_underline_size"]),
+                color=_rl_hex(s["header_underline_color"]), hAlign="LEFT",
                 spaceBefore=1, spaceAfter=4,
             ))
 
@@ -1095,7 +1493,7 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
     if summary_text:
         section_header("Summary")
         clean = re.sub(r"\*\*(.+?)\*\*", r"\1", summary_text).strip()
-        story.append(para(_pdf_esc(clean), body, 10.5, c_dark, sb=2, sa=4))
+        story.append(para(_pdf_esc(clean), body, body_size, c_dark, sb=2, sa=4))
 
     # -- Skills --
     skills_text = sections.get("skills", "")
@@ -1111,13 +1509,15 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
                     txt = f"<b>{_pdf_esc(cat.strip())}:</b> {_pdf_esc(sk.strip())}"
                 else:
                     txt = _pdf_esc(ln)
-                story.append(para(txt, body, 10.5, c_dark, sb=1, sa=1))
+                story.append(para(txt, body, body_size, c_dark, sb=1, sa=1))
         else:
             all_skills: list[str] = []
             for ln in skill_lines:
                 all_skills.extend(p.strip() for p in ln.split(",") if p.strip())
-            story.append(para(_pdf_esc(", ".join(all_skills)), body, 10.5,
-                              c_dark, sb=2, sa=4))
+            joined = _pdf_esc(s["skills_separator"]).join(
+                _pdf_esc(sk) for sk in all_skills
+            )
+            story.append(para(joined, body, body_size, c_dark, sb=2, sa=4))
 
     def _no_border_table(left_flow, right_flow, right_w):
         t = Table([[left_flow, right_flow]],
@@ -1136,38 +1536,46 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
     if exp_text:
         section_header("Professional Experience")
         right_w = 1.7 * inch
+        title_size = body_size + 0.5
+        company_accent = s["company_style"] == "accent"
+        sep = _pdf_esc(s["entry_separator"])
         for entry in _parse_experience_entries(exp_text):
             if s["entry_layout"] == "inline":
                 left = f'<b>{_pdf_esc(entry["title"])}</b>'
                 if entry["company"]:
-                    sep_hex = "#%02X%02X%02X" % tuple(s["accent_color"])
-                    left += (f'<font color="{sep_hex}">  ·  </font>'
-                             f'{_pdf_esc(entry["company"])}')
-                left_p = para(left, body, 11, c_black, sb=6, sa=2)
+                    company = _pdf_esc(entry["company"])
+                    if company_accent:
+                        left += (f'<font color="{accent_hex}">{sep}'
+                                 f'<b>{company}</b></font>')
+                    elif s["company_style"] == "italic":
+                        left += f'<font color="#666666">{sep}</font><i>{company}</i>'
+                    else:
+                        left += f'<font color="#666666">{sep}</font>{company}'
+                left_p = para(left, body, title_size, c_black, sb=6, sa=2, keep=True)
                 if entry["dates"]:
-                    right_p = para(_pdf_esc(entry["dates"]), body, 10, c_gray,
-                                   align=TA_RIGHT, italic=True, sb=6, sa=2)
+                    right_p = para(_pdf_esc(entry["dates"]), body, dates_size,
+                                   c_gray, align=TA_RIGHT, italic=True, sb=6, sa=2)
                     story.append(_no_border_table(left_p, right_p, right_w))
                 else:
                     story.append(left_p)
             else:
-                title_p = para(f'<b>{_pdf_esc(entry["title"])}</b>', body, 11,
-                               c_black, sb=6, sa=0)
+                title_p = para(f'<b>{_pdf_esc(entry["title"])}</b>', body,
+                               title_size, c_black, sb=6, sa=0, keep=True)
                 if entry["dates"]:
-                    right_p = para(_pdf_esc(entry["dates"]), body, 10, c_gray,
-                                   align=TA_RIGHT, italic=True, sb=6, sa=0)
+                    right_p = para(_pdf_esc(entry["dates"]), body, dates_size,
+                                   c_gray, align=TA_RIGHT, italic=True, sb=6, sa=0)
                     story.append(_no_border_table(title_p, right_p, right_w))
                 else:
                     story.append(title_p)
                 if entry["company"]:
-                    story.append(para(_pdf_esc(entry["company"]), body, 10.5,
-                                      c_gray, italic=True, sb=0, sa=2))
-            marker_hex = "#%02X%02X%02X" % tuple(s["bullet_marker_color"])
+                    story.append(para(_pdf_esc(entry["company"]), body, body_size,
+                                      c_gray, italic=True, sb=0, sa=2, keep=True))
+            marker_hex = "#" + s["bullet_marker_color"]
             for bullet in entry["bullets"]:
                 txt = (f'<font color="{marker_hex}">'
                        f'{_pdf_esc(bullet_marker)}</font>'
                        f'{_pdf_esc(bullet)}')
-                story.append(para(txt, body, 10.5, c_dark, sb=1, sa=1,
+                story.append(para(txt, body, body_size, c_dark, sb=1, sa=1,
                                   left_indent=18, first_indent=-12))
 
     # -- Education --
@@ -1183,20 +1591,20 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
                 txt += f'<font color="#666666">{_pdf_esc(tail)}</font>'
             elif entry["year"]:
                 txt += f'<font color="#666666">  ({_pdf_esc(entry["year"])})</font>'
-            story.append(para(txt, body, 10.5, c_black, sb=3, sa=1))
+            story.append(para(txt, body, body_size, c_black, sb=3, sa=1))
 
     # -- Certifications --
     cert_text = sections.get("certifications", "")
     if cert_text:
         section_header("Certifications")
-        marker_hex = "#%02X%02X%02X" % tuple(s["bullet_marker_color"])
+        marker_hex = "#" + s["bullet_marker_color"]
         for line in cert_text.split("\n"):
             line = re.sub(r"\*\*(.+?)\*\*", r"\1", line.strip())
             clean = line.lstrip("-*•– ").strip()
             if clean:
                 txt = (f'<font color="{marker_hex}">'
                        f'{_pdf_esc(bullet_marker)}</font>{_pdf_esc(clean)}')
-                story.append(para(txt, body, 10.5, c_dark, sb=1, sa=1,
+                story.append(para(txt, body, body_size, c_dark, sb=1, sa=1,
                                   left_indent=18, first_indent=-12))
 
     # -- References (verbatim from profile, never AI-touched) --
@@ -1209,64 +1617,59 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
             position = (ref.get("position") or "").strip()
             if position:
                 line += f'<i><font color="#666666">  —  {_pdf_esc(position)}</font></i>'
-            story.append(para(line, body, 10.5, c_black, sb=4, sa=1))
+            story.append(para(line, body, body_size, c_black, sb=4, sa=1))
             bits = [b for b in ((ref.get("email") or "").strip(),
                                 (ref.get("phone") or "").strip()) if b]
             if bits:
-                story.append(para(_pdf_esc("  |  ".join(bits)), body, 10,
-                                  c_dark, sb=0, sa=2))
+                story.append(para(
+                    _pdf_esc(s["contact_separator"].join(bits)), body,
+                    dates_size, c_dark, sb=0, sa=2,
+                ))
 
     doc.build(story)
     logger.info("Resume PDF saved to %s", file_path)
     return str(file_path)
 
 
-def _render_cover_letter_pdf(content: str, profile: dict, job: dict) -> str:
-    """Render the cover letter to PDF, mirroring generate_cover_letter_docx."""
+def _render_cover_letter_pdf(content: str, profile: dict, job: dict,
+                             config: dict | None = None) -> str:
+    """Render the cover letter to PDF in the resume's visual style, mirroring
+    generate_cover_letter_docx."""
     from reportlab.lib.pagesizes import LETTER
     from reportlab.lib.units import inch
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, HRFlowable,
-    )
+    from reportlab.platypus import SimpleDocTemplate, Spacer
 
     _ensure_dir()
+    s = _resolve_resume_style(config)
+    body = s["body_font"]
+    ls = s["line_spacing"]
+
     job_id = job.get("id", "unknown")
     file_path = RESUMES_DIR / f"{job_id}_cover_letter.pdf"
 
+    top_m = 0.8 if s["banner"] else 1.0
     doc = SimpleDocTemplate(
         str(file_path), pagesize=LETTER,
-        topMargin=inch, bottomMargin=inch, leftMargin=inch, rightMargin=inch,
+        topMargin=top_m * inch, bottomMargin=inch,
+        leftMargin=inch, rightMargin=inch,
         title=f"{profile.get('full_name', 'Cover Letter')} — Cover Letter",
     )
+    avail_w = LETTER[0] - 2 * inch
+
     c_dark = _rl_color(COLOR_DARK)
     c_gray = _rl_color(COLOR_GRAY)
     c_black = _rl_color(COLOR_BLACK)
     story: list = []
 
-    def para(text, size, color, *, align=TA_LEFT, bold=False, sb=0, sa=6):
-        st = ParagraphStyle(
-            "x", fontName=_pdf_font("Calibri", bold), fontSize=size,
-            leading=size * 1.3, textColor=color, alignment=align,
-            spaceBefore=sb, spaceAfter=sa,
-        )
-        return Paragraph(text, st)
+    def para(text, size, color, **kw):
+        kw.setdefault("line_spacing", ls)
+        kw.setdefault("sa", 6)
+        return _pdf_para(text, body, size, color, **kw)
 
-    name = profile.get("full_name", "")
-    if name:
-        story.append(para(_pdf_esc(name.upper()), 16, c_black,
-                          align=TA_CENTER, bold=True, sa=2))
-    contact_parts = [profile.get(f, "") for f in ("email", "phone", "location")]
-    contact_parts = [_pdf_esc(p) for p in contact_parts if p]
-    if contact_parts:
-        story.append(para("  |  ".join(contact_parts), 9, c_gray,
-                          align=TA_CENTER, sa=2))
-    story.append(HRFlowable(width="100%", thickness=0.75,
-                            color=_rl_hex("2B5797"), spaceBefore=4, spaceAfter=8))
+    story.extend(_letterhead_story(profile, s, avail_w, include_links=False))
 
     story.append(para(_pdf_esc(datetime.now().strftime("%B %d, %Y")), 11,
-                      c_dark, sb=6, sa=12))
+                      c_gray, sb=10, sa=12))
     story.append(para(
         f'<b>Re: {_pdf_esc(job.get("title", ""))} at '
         f'{_pdf_esc(job.get("company", ""))}</b>', 11, c_black, sa=12))
@@ -1322,10 +1725,10 @@ def generate_cover_letter(content: str, profile: dict, job: dict, config: dict |
     Always writes the DOCX; additionally renders a PDF when configured,
     falling back to the DOCX if PDF rendering fails.
     """
-    docx_path = generate_cover_letter_docx(content, profile, job)
+    docx_path = generate_cover_letter_docx(content, profile, job, config)
     if _document_format(config) == "pdf":
         try:
-            return _render_cover_letter_pdf(content, profile, job)
+            return _render_cover_letter_pdf(content, profile, job, config)
         except Exception:
             logger.warning(
                 "Cover letter PDF rendering failed — serving DOCX instead",

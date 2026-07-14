@@ -55,6 +55,9 @@ Thumbs.db
 .claude/
 
 # Local session notes
+MONETIZATION_PLAN.md
+RESUME_STYLES_NOTES.md
+FUTURE_IDEAS.md
 SESSION_CHANGES.md
 AUTO_APPLY_RELIABILITY_REPORT.md
 GLM *.md

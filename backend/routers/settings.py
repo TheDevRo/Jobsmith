@@ -73,7 +73,11 @@ class HonestyLevelUpdate(BaseModel):
 
 
 class ResumeStyleUpdate(BaseModel):
-    resume_style: str  # standard | minimal | modern
+    resume_style: str  # executive | ledger | banner | compact | swiss
+
+
+class ResumeAccentUpdate(BaseModel):
+    resume_accent: str  # default | navy | burgundy | forest | plum | charcoal
 
 
 class DocumentFormatUpdate(BaseModel):
@@ -492,7 +496,11 @@ async def set_honesty_level(body: HonestyLevelUpdate):
 @router.get("/api/settings/resume-style")
 async def get_resume_style():
     cfg = state.load_config()
-    style = cfg.get("application_honesty", {}).get("resume_style", "standard")
+    style = str(cfg.get("application_honesty", {}).get("resume_style", "ledger")).lower()
+    # Configs written before the current lineup carry retired style names.
+    style = state.LEGACY_RESUME_STYLES.get(style, style)
+    if style not in state.VALID_RESUME_STYLES:
+        style = "ledger"
     return {"resume_style": style}
 
 
@@ -509,6 +517,30 @@ async def set_resume_style(body: ResumeStyleUpdate):
     cfg["application_honesty"]["resume_style"] = body.resume_style
     state.save_config(cfg)
     return {"resume_style": body.resume_style}
+
+
+@router.get("/api/settings/resume-accent")
+async def get_resume_accent():
+    cfg = state.load_config()
+    accent = str(cfg.get("application_honesty", {}).get("resume_accent", "default")).lower()
+    if accent not in state.VALID_RESUME_ACCENTS:
+        accent = "default"
+    return {"resume_accent": accent}
+
+
+@router.put("/api/settings/resume-accent")
+async def set_resume_accent(body: ResumeAccentUpdate):
+    if body.resume_accent not in state.VALID_RESUME_ACCENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"resume_accent must be one of: {sorted(state.VALID_RESUME_ACCENTS)}",
+        )
+    cfg = state.load_config()
+    if "application_honesty" not in cfg:
+        cfg["application_honesty"] = {}
+    cfg["application_honesty"]["resume_accent"] = body.resume_accent
+    state.save_config(cfg)
+    return {"resume_accent": body.resume_accent}
 
 
 @router.get("/api/settings/document-format")

@@ -1793,6 +1793,61 @@ main {
     outline-offset: -1px;
 }
 
+/* Resume accent color chips */
+.resume-accent-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.resume-accent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 11px 6px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.resume-accent-chip:hover:not(.active):not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.resume-accent-chip.active {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.resume-accent-row.accent-disabled {
+    opacity: 0.45;
+}
+
+.resume-accent-chip:disabled {
+    cursor: not-allowed;
+}
+
+.accent-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    flex-shrink: 0;
+}
+
+/* "Default" means "whatever the chosen style ships with" — show a neutral
+   split swatch rather than implying one specific color. */
+.accent-swatch-default {
+    background: linear-gradient(135deg, #1F3A5F 50%, #6D1F2C 50%);
+}
+
 .honesty-inline-warning {
     background: rgba(245, 166, 35, 0.07);
     border: 1px solid rgba(245, 166, 35, 0.35);

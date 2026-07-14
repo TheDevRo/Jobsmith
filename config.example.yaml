@@ -197,11 +197,19 @@ application_honesty:
   honesty_level: honest
   # Cover letter tone: professional | conversational | enthusiastic
   cover_letter_tone: professional
-  # Resume visual style:
-  #   standard — Calibri, accent blue, full-width section rules
-  #   minimal  — Times New Roman, no color, max ATS compat
-  #   modern   — Aptos, navy accent, no header rules, 1.15 line spacing (recommended)
-  resume_style: standard
+  # Resume visual style. Every style is single-column real text — no images,
+  # tables or text boxes — so all of them parse cleanly through an ATS.
+  #   executive — Georgia serif, centered small-caps name, double rule (monochrome)
+  #   ledger    — bold sans, accent stub bar, accent company names (recommended)
+  #   banner    — shaded ink band behind the name block; boldest look
+  #   compact   — 9.5pt, tight margins; fits a deep work history on one page
+  #   swiss     — no rules, no color; hierarchy from spacing alone (monochrome)
+  resume_style: ledger
+  # Accent color for the styles that use one (ledger, banner, compact).
+  # "default" keeps each style's own accent. Executive and Swiss are
+  # deliberately monochrome and ignore this setting.
+  #   default | navy | burgundy | forest | plum | charcoal
+  resume_accent: default
   # Output format for the generated resume & cover letter:
   #   docx — Microsoft Word (default)
   #   pdf  — PDF rendered in pure Python (ReportLab); a DOCX is also kept
