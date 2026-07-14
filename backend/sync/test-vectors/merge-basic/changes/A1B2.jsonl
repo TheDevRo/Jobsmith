@@ -2,4 +2,4 @@
 {"v":1,"entity":"job","id":"lever:200","updated_at":"2026-07-08T11:00:00.000Z","device":"A1B2","deleted":false,"data":{"title":"Platform Engineer","company":"Globex","status":"new"}}
 {"v":1,"entity":"application","id":"uuid-app-1","updated_at":"2026-07-08T10:30:00.000Z","device":"A1B2","deleted":false,"data":{"job_id":"greenhouse:100","status":"draft"}}
 {"v":1,"entity":"application","id":"uuid-app-1","updated_at":"2026-07-08T13:00:00.000Z","device":"A1B2","deleted":true}
-{"v":1,"entity":"profile","id":"me","updated_at":"2026-07-08T08:00:00.000Z","device":"A1B2","deleted":false,"data":{"name":"Deven","headline":"from device A"}}
+{"v":1,"entity":"profile","id":"me","updated_at":"2026-07-08T08:00:00.000Z","device":"A1B2","deleted":false,"data":{"name":"Alex Kim","headline":"from device A"}}

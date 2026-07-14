@@ -234,7 +234,7 @@ final class SyncEngineTests: XCTestCase {
 
         let dbA = try AppDatabase.inMemory()
         let profileA: [String: JSONValue] = [
-            "fullName": .string("Deven"), "email": .string("d@example.com"),
+            "fullName": .string("Alex Kim"), "email": .string("d@example.com"),
             "summary": .string("iOS dev"), "skills": .array([.string("Swift")]),
         ]
         let a = SyncEngine(db: dbA, deviceId: "A1B2", loadProfile: { profileA }, now: clock.now)
@@ -247,7 +247,7 @@ final class SyncEngineTests: XCTestCase {
                            loadProfile: { savedB }, saveProfile: { savedB = $0 }, now: clock.now)
         let imp = try b.importChanges(from: folder)
         XCTAssertTrue(imp.profileUpdated)
-        XCTAssertEqual(savedB["fullName"], .string("Deven"))
+        XCTAssertEqual(savedB["fullName"], .string("Alex Kim"))
         XCTAssertEqual(savedB["summary"], .string("iOS dev"))
         XCTAssertEqual(savedB["noticePeriod"], .string("2 weeks"))  // preserved
     }

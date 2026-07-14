@@ -17,7 +17,7 @@ class TestSsrfGuard:
         "http://169.254.169.254/latest/meta-data/",   # AWS/GCP/Azure metadata
         "http://[::1]/",
         "http://10.0.0.5/",
-        "http://192.168.1.7:1234/v1/models",
+        "http://192.168.1.100:1234/v1/models",
         "http://172.17.0.1/",                          # docker bridge gateway
         "http://0.0.0.0/",
     ])

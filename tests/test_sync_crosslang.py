@@ -86,7 +86,7 @@ async def test_swift_emitted_log_imports_into_desktop(tool, tmp_path, monkeypatc
     assert app == ("approved", "honest")
 
     # Profile merged in, desktop's local secret preserved, Swift's stripped.
-    assert saved["full_name"] == "Deven"
+    assert saved["full_name"] == "Alex Kim"
     assert saved["summary"] == "iOS developer"
     assert saved["ats_login_password"] == "DESKTOP-LOCAL-SECRET"
     assert "workday_password" not in saved

@@ -50,10 +50,10 @@ def test_get_config_returns_curated_shape(client):
 
 
 def test_post_config_persists_ai_change(client, config_path):
-    r = client.post("/api/config", json={"ai": {"base_url": "http://192.168.1.7:1234/v1"}})
+    r = client.post("/api/config", json={"ai": {"base_url": "http://192.0.2.7:1234/v1"}})
     assert r.status_code == 200
     saved = yaml.safe_load(config_path.read_text())
-    assert saved["ai"]["base_url"] == "http://192.168.1.7:1234/v1"
+    assert saved["ai"]["base_url"] == "http://192.0.2.7:1234/v1"
     # existing keys are merged, not clobbered
     assert saved["ai"]["api_key"] == "old-key"
 

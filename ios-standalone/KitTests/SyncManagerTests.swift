@@ -6,7 +6,7 @@ final class SyncManagerTests: XCTestCase {
 
     private func sampleProfile() -> Profile {
         Profile(
-            fullName: "Deven Rouse", email: "d@example.com", phone: "555-1212",
+            fullName: "Alex Kim", email: "d@example.com", phone: "555-1212",
             location: "Denver, CO", summary: "iOS + backend engineer.",
             skills: ["Swift", "Python", "GRDB"],
             certifications: ["AWS SA"]
@@ -26,7 +26,7 @@ final class SyncManagerTests: XCTestCase {
         let canonical = SyncEntities.profileIOSToCanonical(iosDict)
         let backDict = iosDict.merging(SyncEntities.profileCanonicalToIOS(canonical)) { _, new in new }
         let back = SyncManager.dictToProfile(backDict)
-        XCTAssertEqual(back.fullName, "Deven Rouse")
+        XCTAssertEqual(back.fullName, "Alex Kim")
         XCTAssertEqual(back.email, "d@example.com")
         XCTAssertEqual(back.skills, ["Swift", "Python", "GRDB"])
         XCTAssertEqual(back.certifications, ["AWS SA"])
@@ -35,7 +35,7 @@ final class SyncManagerTests: XCTestCase {
 
     func testCanonicalHasSnakeCaseKeys() {
         let canonical = SyncEntities.profileIOSToCanonical(SyncManager.profileToDict(sampleProfile()))
-        XCTAssertEqual(canonical["full_name"], .string("Deven Rouse"))
+        XCTAssertEqual(canonical["full_name"], .string("Alex Kim"))
         XCTAssertNil(canonical["fullName"])  // mapped, not passed through
     }
 

@@ -39,7 +39,7 @@ case "emit":
     ]
     // A secret must be stripped by the mapper even though the iOS dict carries it.
     let profileIOS: [String: JSONValue] = [
-        "fullName": .string("Deven"), "email": .string("d@example.com"),
+        "fullName": .string("Alex Kim"), "email": .string("d@example.com"),
         "summary": .string("iOS developer"), "skills": .array([.string("Swift")]),
         "workday_password": .string("SECRET-should-never-sync"),
     ]
