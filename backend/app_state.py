@@ -126,7 +126,16 @@ def save_config(cfg: dict) -> None:
     # Write-then-rename so a crash/kill mid-write can't truncate config.yaml
     # (a truncated file makes load_config() return {} → backend silently runs
     # on defaults). os.replace() is atomic on the same filesystem.
-    tmp = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    #
+    # Resolve symlinks first. In Docker, /app/config.yaml is a symlink into the
+    # bind-mounted ./config directory; renaming onto the symlink path would
+    # *replace the symlink* with a regular file in the container layer, so every
+    # save would stop reaching the mounted file and the next boot's `ln -sf`
+    # would wipe the user's settings. Renaming onto the resolved target writes
+    # through the link instead, and keeping the temp file beside that target
+    # keeps the rename atomic and on one filesystem.
+    target = Path(os.path.realpath(CONFIG_PATH))
+    tmp = target.with_name(target.name + ".tmp")
     with open(tmp, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         f.flush()
@@ -138,7 +147,7 @@ def save_config(cfg: dict) -> None:
         os.chmod(tmp, 0o600)
     except OSError:  # best effort (e.g. a filesystem without POSIX modes)
         pass
-    os.replace(tmp, CONFIG_PATH)
+    os.replace(tmp, target)
 
 
 def is_loopback_request(request) -> bool:

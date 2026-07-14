@@ -25,8 +25,12 @@ services:
     # .env exists alongside this compose file, Compose auto-reads it and
     # those values win via the ${VAR:-default} substitution.
     environment:
-      JOBSMITH_AI_BASE_URL: ${JOBSMITH_AI_BASE_URL:-http://host.docker.internal:1234/v1}
-      JOBSMITH_AI_API_KEY: ${JOBSMITH_AI_API_KEY:-lm-studio}
+      # Empty by default on purpose: a non-empty JOBSMITH_AI_* env var overrides
+      # config.yaml on every load, which would make the AI endpoint/key fields in
+      # Settings look like they save but do nothing. Leave these unset and edit
+      # the endpoint in the UI; set them in .env only if you want env to win.
+      JOBSMITH_AI_BASE_URL: ${JOBSMITH_AI_BASE_URL:-}
+      JOBSMITH_AI_API_KEY: ${JOBSMITH_AI_API_KEY:-}
       JOBSMITH_FLARESOLVERR_URL: ${JOBSMITH_FLARESOLVERR_URL:-}
       BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
       VNC_PASSWORD: ${VNC_PASSWORD:-}
@@ -62,5 +66,7 @@ services:
       # set `sync.enabled: true` and `sync.folder: /app/sync-folder` in
       # config/config.yaml. Without this mount the container would write its
       # sync docs into /app/data, which syncs nowhere. Defaults to ./sync-folder
-      # so the mount is inert until you actually enable sync.
+      # so the mount is inert until you actually enable sync. Note that
+      # ./sync-folder is still created on the host even when sync is off — an
+      # empty, unused directory, safe to ignore.
       - ${JOBSMITH_SYNC_FOLDER:-./sync-folder}:/app/sync-folder

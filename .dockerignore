@@ -9,26 +9,27 @@ venv
 node_modules
 **/node_modules
 extension/dist
-.browser-profile
-sessions
-data
-resumes
-failed_screenshots
+# Anchored to the build context root: these are the user's runtime state dirs,
+# not a rule against any directory that happens to share the name.
+/.browser-profile
+/sessions
+/data
+/resumes
+/failed_screenshots
+/sync-folder
 *.log
 n8n
 
 # Dev-only — never shipped in the runtime image (PKG-07)
 tests
 pytest.ini
-debug_apply.py
-linkedin_login.py
-test_navigator.py
+/scripts/dev
 
 .env
 .env.local
-config.yaml
-config.yaml.local
-config
+/config.yaml
+/config.yaml.local
+/config
 .DS_Store
 src-tauri
 packaging

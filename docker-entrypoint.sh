@@ -14,9 +14,28 @@ set -e
 
 mkdir -p /app/config
 
+# On Linux, a bind-mount directory the engine had to create itself is owned by
+# root, while we run as pwuser (uid 1000) — every write below then fails with a
+# bare "Permission denied" and `set -e` turns it into a crash loop. Say what to
+# do instead.
+if [ ! -w /app/config ]; then
+    echo "[entrypoint] ==============================================================="
+    echo "[entrypoint] /app/config is not writable by this container's user (uid $(id -u))."
+    echo "[entrypoint] On Linux, Docker creates missing bind-mount directories as root."
+    echo "[entrypoint] Fix from the directory holding docker-compose.yml:"
+    echo "[entrypoint]     sudo chown -R 1000:1000 config data resumes sessions \\"
+    echo "[entrypoint]         failed_screenshots .browser-profile sync-folder"
+    echo "[entrypoint] (Creating them yourself before the first 'docker compose up'"
+    echo "[entrypoint]  avoids this entirely — see the Docker quickstart in README.)"
+    echo "[entrypoint] ==============================================================="
+    exit 1
+fi
+
 if [ ! -e /app/config/config.yaml ]; then
     echo "[entrypoint] No config/config.yaml found, seeding from config.example.yaml."
     cp /app/config.example.yaml /app/config/config.yaml
+    # It will hold API keys and ATS passwords the moment the user saves Settings.
+    chmod 600 /app/config/config.yaml
 fi
 
 # Re-link every boot so the symlink is always current even if the user

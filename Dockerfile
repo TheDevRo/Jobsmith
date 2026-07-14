@@ -59,8 +59,8 @@ COPY extension ./extension
 # Firefox XPI in extension/signed/ gets staged into the artifacts dir.
 RUN bash extension/scripts/build.sh
 
-# Runtime image ships no tests and no debug scripts (tests/, debug_apply.py,
-# linkedin_login.py, pytest.ini are dev-only — see .dockerignore).
+# Runtime image ships no tests and no debug scripts (tests/, scripts/dev/,
+# pytest.ini are dev-only — see .dockerignore).
 COPY config.example.yaml ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
