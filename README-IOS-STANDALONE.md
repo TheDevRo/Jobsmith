@@ -2,8 +2,7 @@
 
 A **fully standalone** native iOS version of Jobsmith: the entire pipeline —
 fetch, score, tailor, review, apply — runs on the phone. No FastAPI server,
-no Playwright, no Docker. (The thin server-connector app lives in `ios/`;
-this one is `ios-standalone/` and both can be installed side by side.)
+no Playwright, no Docker. This is the iOS app: it lives in `ios-standalone/`.
 
 The only thing that still lives off-device is the LLM itself: point the app
 at any OpenAI-compatible endpoint (LM Studio over LAN/Tailscale, Ollama,

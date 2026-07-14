@@ -14,8 +14,8 @@ Grab the [latest release](https://github.com/TheDevRo/Jobsmith/releases/latest):
   /Applications/Jobsmith.app`). First launch downloads Chromium (~150 MB).
 - **Browser extension** — `jobsmith-extension-{chrome,firefox}-v*.zip`,
   sideloaded (Chrome: Load unpacked; Firefox: Load Temporary Add-on).
-- **Windows / Linux / Intel macOS** — use Docker:
-  `docker pull ghcr.io/thedevro/jobsmith:latest` (see [Docker](#docker)).
+- **Windows / Linux / Intel macOS** — use Docker: `docker compose up -d`
+  (see [Docker](#docker)).
 - **iOS** — a fully standalone native app (no server needed); build it
   yourself or install via TestFlight. See
   [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md).
@@ -32,7 +32,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **Bring your own AI** — Any OpenAI-compatible endpoint works: LM Studio or Ollama for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
 - **Honesty levels** — Choose how much latitude the AI takes per job: `honest` / `tailored` / `embellished` / `fabricated`
 - **AI Edit** — Iteratively revise generated resumes and cover letters with natural-language instructions; per-edit honesty + model tier overrides
-- **Resume style presets** — `standard`, `minimal`, `modern` (Aptos / navy accent, ATS-friendly)
+- **Resume style presets** — `executive`, `ledger`, `banner`, `compact`, `swiss` (all ATS-friendly), each with a selectable accent color
 - **Smart role selection** — Cap resume length and let the local LLM pick the most relevant past roles for each job; pin roles to force-include
 - **References section** — Optional references appended verbatim to generated resumes; never sent to the AI
 - **Apply Assist (primary submit flow)** — Browser extension opens the job's ATS in a real browser, injects a sidebar with your tailored resume, cover letter, and pre-filled answers, and autofills standard fields. You stay in the loop and click Submit.
@@ -316,17 +316,42 @@ Open **http://localhost:8888** in your browser.
 
 ### Docker
 
-Instead of the local setup above, run the published image (multi-arch —
-works on Windows, Linux, and Intel macOS; the repo/registry is private, so
-`docker login ghcr.io` with a token first):
+Works on Windows, Linux, and Intel macOS.
 
 ```bash
-docker pull ghcr.io/thedevro/jobsmith:latest
-docker compose up -d        # uses the repo's docker-compose.yml
+git clone https://github.com/TheDevRo/Jobsmith.git && cd Jobsmith
+
+# Create the bind-mount dirs first. On Linux, Docker would otherwise create
+# them as root and the container (uid 1000) crash-loops on its first write.
+mkdir -p config data resumes sessions failed_screenshots .browser-profile sync-folder
+
+cp .env.example .env   # optional — every value has a working default
+
+docker compose up -d   # builds the image locally, then seeds
+                       # config/config.yaml from config.example.yaml
 ```
 
-Point it at LM Studio with `JOBSMITH_AI_BASE_URL` (see `docker-compose.yml`
-for the mounts and env overrides).
+Open **http://localhost:8888**, then go to **Settings → Integrations** and set
+your AI endpoint. If LM Studio (or Ollama) is running on the same machine as
+Docker, use `http://host.docker.internal:1234/v1` — from inside the container,
+plain `localhost` means the container itself, not your host.
+
+The app boots fine with no LLM configured (the healthcheck doesn't touch AI);
+only the AI features — scoring, tailoring, AI Edit — stay dormant until you
+point it at a server. Settings you save in the UI live in `./config/config.yaml`
+and survive `docker compose restart` / `up -d --build`.
+
+Everything is loopback-only by default: the dashboard is unauthenticated for
+local callers and `/api/config` can hand out your profile and API keys, so
+publishing it on `0.0.0.0` publishes those too. To reach it from another
+machine, set a Jobsmith API token in Settings first, then set
+`JOBSMITH_BIND=0.0.0.0` in `.env` — or, better, front it with a reverse proxy
+or Tailscale.
+
+> Setting `JOBSMITH_AI_BASE_URL` / `JOBSMITH_AI_API_KEY` in `.env` makes the
+> environment the source of truth: it is re-applied on every config load and
+> overrides whatever you type into Settings. Leave them commented out unless
+> that's what you want.
 
 ## Daily Workflow
 
@@ -402,13 +427,28 @@ Try a different browser type in Settings (Firefox/Chromium/WebKit). If issues pe
 Delete `data/jobsmith.db` and restart the server — tables are recreated automatically.
 
 **Debugging a specific apply URL**
-Run `.venv/bin/python debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
+Run `.venv/bin/python scripts/dev/debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
 
 **A prompt edit broke generation output**
 Custom prompts from Settings → Prompts are used verbatim — if generated resumes stop parsing (missing SUMMARY/EXPERIENCE headers, markdown creeping in), hit **Reset to Default** on the prompt you changed. Placeholders the app doesn't recognize are left as literal `{text}` and flagged when you save.
 
 **Tests**
 `.venv/bin/python -m pytest tests/ -v` — covers field mapping, honesty prompts, prompt registry/overrides, parsers, salary estimation, and the API layer.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test commands, and the
+versioning convention.
+
+## License
+
+Jobsmith is licensed under the [GNU AGPL-3.0](LICENSE). You are free to use,
+modify, and self-host it. If you run a modified version as a network service,
+the AGPL requires you to publish your changes under the same license.
+
+A hosted tier — where the AI inference endpoint and job-board API keys are set
+up and managed for you as a subscription — is planned. Self-hosting is, and
+will remain, fully functional and free.
 
 ## n8n Automation (Optional)
 
@@ -458,8 +498,6 @@ jobsmith/
 ├── ios-standalone/                # Fully standalone native iOS app (SwiftUI + GRDB; runs the
 │                                  #   whole pipeline on-device, syncs with desktop) —
 │                                  #   see README-IOS-STANDALONE.md
-├── ios/                           # Thin server-connector iOS app: SwiftUI shell + Safari Web
-│                                  #   Extension, needs a running backend (see README-IOS.md)
 ├── extension/                     # Apply Assist browser extension (Chrome/Firefox/Safari)
 ├── packaging/                     # PyInstaller spec + splash page for the desktop build
 ├── scripts/                       # build_desktop.sh (DMG) and other build helpers
