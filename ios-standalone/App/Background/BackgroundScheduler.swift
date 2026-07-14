@@ -251,9 +251,10 @@ enum BackgroundScheduler {
                                  includeLinkedIn: Bool,
                                  budget: Duration?) async -> FetchSummary {
         let config = await ConfigStore.shared.reload()
-        var sources = tierSources.filter { config.search.enabledSources.contains($0) }
-        if includeLinkedIn && config.search.enabledSources.contains("linkedin") {
-            sources.append("linkedin")
+        let enabled = Set(SourceRegistry.enabledIDs(for: config))
+        var sources = tierSources.filter { enabled.contains($0) }
+        if includeLinkedIn && enabled.contains(LinkedInSource.id) {
+            sources.append(LinkedInSource.id)
         }
         // An empty list means "every registered source" to FetchPipeline — not
         // what we want when this tier's sources are all disabled.

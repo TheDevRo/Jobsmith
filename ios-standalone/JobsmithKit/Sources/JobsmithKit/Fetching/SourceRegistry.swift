@@ -18,6 +18,19 @@ public enum SourceRegistry {
 
     public static var allIDs: [String] { all.map(\.id) }
 
+    /// Whether `id` may be fetched at all under this config, feature flags
+    /// included. Distinct from the user's per-source toggle: a source can be
+    /// switched on in `enabledSources` and still be off the table here.
+    public static func isAvailable(_ id: String, config: AppConfig) -> Bool {
+        id == LinkedInSource.id ? LinkedInFeature.isEnabled(config) : true
+    }
+
+    /// The sources a run should actually use: registered, switched on by the
+    /// user, and available. The single answer to "what are we about to fetch".
+    public static func enabledIDs(for config: AppConfig) -> [String] {
+        allIDs.filter { config.search.enabledSources.contains($0) && isAvailable($0, config: config) }
+    }
+
     public static func source(for id: String) -> (any JobSource)? {
         let key = id.lowercased()
         return all.first { $0.id == key }?.make()

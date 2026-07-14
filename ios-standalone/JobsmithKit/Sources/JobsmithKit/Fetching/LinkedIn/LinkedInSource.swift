@@ -36,8 +36,12 @@ struct LinkedInCursor: Codable, Sendable, Equatable {
     }
 }
 
-/// LinkedIn public guest job search (no login required) — port of
-/// `job_sources/linkedin.py`. Two phases: guest-API search with proper
+/// LinkedIn job search — port of `job_sources/linkedin.py`. Runs as the
+/// signed-in user when they have connected their account (`LinkedInFeature`),
+/// and falls back to the public guest endpoints when they haven't; the request
+/// shape is the same either way, only the session cookie differs.
+///
+/// Two phases: search with proper
 /// filter parameters, then a detail-page fetch per new job to extract the
 /// full description, salary information, and criteria tags. Jobs already in
 /// the DB (`knownExternalIDs`) skip the detail fetch — it's the slowest,
@@ -72,9 +76,17 @@ public struct LinkedInSource: JobSource {
     /// single page fetch.
     static let detailCheckpointSize = 5
 
-    /// Desktop Chrome headers, no cookies (the shared preset matches the
-    /// Python header dict exactly).
-    static var headers: [String: String] { HTTPClient.browserHeaders }
+    /// Desktop Chrome headers (the shared preset matches the Python header dict
+    /// exactly), carrying the user's own `li_at` session when they have signed
+    /// in. Signed in is the preferred mode: LinkedIn serves a real logged-in
+    /// user more of its own pages than it serves an anonymous one, and it is
+    /// the mode a user can revoke at any time from their own account. Without a
+    /// cookie these are the guest headers, unchanged — the fallback.
+    static func headers(cookie: String?) -> [String: String] {
+        var headers = HTTPClient.browserHeaders
+        if let cookie, !cookie.isEmpty { headers["Cookie"] = "li_at=\(cookie)" }
+        return headers
+    }
 
     private let database: AppDatabase?
 
@@ -99,6 +111,7 @@ public struct LinkedInSource: JobSource {
         let excludePatterns = JobFilters.compileExcludes(config.search.excludeKeywords)
         let maxAgeDays = config.search.maxAgeDays ?? 7
 
+        let headers = Self.headers(cookie: LinkedInFeature.cookie(config))
         let timeFilter = LinkedInGuestAPI.timeFilter(maxAgeDays: maxAgeDays)
         let hasRemote = locations.contains {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "remote"
@@ -137,7 +150,7 @@ public struct LinkedInSource: JobSource {
                     if searchBudget.isExpired { break queryLoop }
 
                     let locNormalized = GeoIDResolver.normalize(location)
-                    let geoID = await resolver.resolve(location, headers: Self.headers)
+                    let geoID = await resolver.resolve(location, headers: headers)
 
                     let comboKey = query + "\u{1F}" + (geoID.isEmpty ? locNormalized : geoID)
                     if !seenQueryGeo.insert(comboKey).inserted { continue }
@@ -161,7 +174,7 @@ public struct LinkedInSource: JobSource {
                         // Throttle search requests to avoid 429s.
                         await searchThrottler.wait()
                         guard let html = try await Self.fetchWithLinkedInRetries(
-                            pageURL, timeout: 30, throttler: nil) else { break }
+                            pageURL, timeout: 30, headers: headers, throttler: nil) else { break }
 
                         guard let cards = LinkedInGuestAPI.parseSearchPage(html: html) else {
                             // No <li> elements — possible auth redirect or empty page.
@@ -269,7 +282,8 @@ public struct LinkedInSource: JobSource {
                         var detail: LinkedInDetailParser.Detail?
                         if !detailBudget.isExpired {
                             detail = await Self.fetchJobDetail(
-                                urlString: url, throttler: throttler, budget: detailBudget)
+                                urlString: url, headers: headers,
+                                throttler: throttler, budget: detailBudget)
                         }
                         await limiter.release()
                         return (index, detail)
@@ -329,13 +343,15 @@ public struct LinkedInSource: JobSource {
     /// Unlike the search phase this never throws: a detail page we couldn't get
     /// leaves the job stored with an empty description, which is precisely the
     /// marker that puts it back on the worklist next run.
-    static func fetchJobDetail(urlString: String, throttler: LinkedInThrottler,
+    static func fetchJobDetail(urlString: String, headers: [String: String],
+                               throttler: LinkedInThrottler,
                                budget: TimeBudget) async -> LinkedInDetailParser.Detail? {
         guard !urlString.isEmpty, let url = URL(string: urlString) else { return nil }
         for attempt in 0...maxRetries {
             await throttler.wait()
             if budget.isExpired { return nil }
-            guard let (status, retryAfter, body) = try? await fetchOnce(url, timeout: 20) else {
+            guard let (status, retryAfter, body) = try? await fetchOnce(
+                url, timeout: 20, headers: headers) else {
                 return nil
             }
             if status == 429 {
@@ -362,9 +378,11 @@ public struct LinkedInSource: JobSource {
     /// into nil, as this used to, made a killed socket indistinguishable from
     /// "LinkedIn has no more results" and silently truncated the search.
     static func fetchWithLinkedInRetries(_ url: URL, timeout: TimeInterval,
+                                         headers: [String: String],
                                          throttler: LinkedInThrottler?) async throws -> String? {
         for attempt in 0...maxRetries {
-            guard let (status, retryAfter, body) = try await fetchOnce(url, timeout: timeout) else {
+            guard let (status, retryAfter, body) = try await fetchOnce(
+                url, timeout: timeout, headers: headers) else {
                 return nil
             }
             if status == 429 {
@@ -390,7 +408,7 @@ public struct LinkedInSource: JobSource {
     ///
     /// Throws `SourceInterruptedError` on a transient failure (suspension,
     /// cancellation, lost connection); returns nil on a fatal one.
-    private static func fetchOnce(_ url: URL, timeout: TimeInterval)
+    private static func fetchOnce(_ url: URL, timeout: TimeInterval, headers: [String: String])
         async throws -> (status: Int, retryAfter: Double, body: String)? {
         var request = URLRequest(url: url, timeoutInterval: timeout)
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }

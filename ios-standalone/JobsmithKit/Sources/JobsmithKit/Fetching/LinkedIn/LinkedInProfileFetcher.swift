@@ -54,13 +54,16 @@ public enum LinkedInProfileFetcher {
         return URL(string: "https://www.linkedin.com/in/\(encoded)")
     }
 
-    /// Fetch and reduce a public profile. Throws `BadURLError`,
-    /// `AuthwallError`, or a transport error.
-    public static func fetchPublicProfile(_ input: String) async throws -> String {
+    /// Fetch and reduce a profile. With the user's `li_at` cookie it reads the
+    /// page as they see it themselves — which is why signing in is the path the
+    /// wizard offers first, and why the authwall below is mostly a guest
+    /// problem. Throws `BadURLError`, `AuthwallError`, or a transport error.
+    public static func fetchPublicProfile(_ input: String,
+                                          cookie: String? = nil) async throws -> String {
         guard let url = normalizeProfileURL(input) else { throw BadURLError() }
 
         var request = URLRequest(url: url, timeoutInterval: 30)
-        for (key, value) in HTTPClient.browserHeaders {
+        for (key, value) in LinkedInSource.headers(cookie: cookie) {
             request.setValue(value, forHTTPHeaderField: key)
         }
         let (data, response) = try await HTTPClient.session.data(for: request)

@@ -1,0 +1,16 @@
+// Code-signing identity is per-developer, so it is not committed.
+//
+// Simulator builds and CI (CODE_SIGNING_ALLOWED=NO) need no team at all — the
+// empty default below is theirs. To build on a device or archive for
+// TestFlight, put your own team id in Local.xcconfig, which is git-ignored:
+//
+//     echo 'DEVELOPMENT_TEAM = ABCDE12345' > ios-standalone/Local.xcconfig
+//
+// This file is referenced from project.yml (`configFiles`), so `xcodegen
+// generate` keeps the team wired up instead of wiping it — the reason the
+// value used to be committed in the first place.
+DEVELOPMENT_TEAM =
+
+// Optional include: silently skipped when the file doesn't exist, so a fresh
+// clone builds for the simulator with no setup.
+#include? "Local.xcconfig"

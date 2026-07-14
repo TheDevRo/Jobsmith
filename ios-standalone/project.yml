@@ -26,6 +26,15 @@ options:
 packages:
   JobsmithKit:
     path: JobsmithKit
+# DEVELOPMENT_TEAM lives here rather than in `settings` below: a per-developer
+# signing identity has no business in a tracked file, and settings written into
+# the project would override the xcconfig anyway. Signing.xcconfig optionally
+# includes the git-ignored Local.xcconfig, so `xcodegen generate` still
+# preserves the team for headless archiving (regenerating used to wipe a
+# GUI-set team and break the TestFlight archive on both app + Share ext).
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -33,10 +42,6 @@ settings:
     MARKETING_VERSION: 0.2.4
     CURRENT_PROJECT_VERSION: 13
     CODE_SIGN_STYLE: Automatic
-    # Team is declared here so `xcodegen generate` preserves signing config for
-    # headless archiving — regenerating from this file otherwise wipes a
-    # GUI-set team and breaks the TestFlight archive (both app + Share ext).
-    DEVELOPMENT_TEAM: 37R25GNY5A
     GENERATE_INFOPLIST_FILE: NO
 
 targets:
@@ -45,6 +50,13 @@ targets:
     platform: iOS
     sources:
       - path: App
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # Apple's required-reason API manifest. Declared explicitly so it is
+      # unambiguously a resource in the built product — an undeclared one is an
+      # ITMS-91053 rejection at upload.
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: JobsmithKit
       - target: JobsmithShare
@@ -95,6 +107,13 @@ targets:
     platform: iOS
     sources:
       - path: ShareExt
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # The extension links JobsmithKit, so its binary carries the same
+      # required-reason API symbols (UserDefaults, system boot time) as the
+      # app's — and Apple scans each binary separately.
+      - path: ShareExt/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: JobsmithKit
     entitlements:

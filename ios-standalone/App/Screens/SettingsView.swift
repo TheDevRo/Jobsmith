@@ -260,6 +260,7 @@ struct SearchSettingsView: View {
             } footer: {
                 Text("Most sources just work. Adzuna and USAJobs need a free API key — fields appear below when you turn them on.")
             }
+            LinkedInSettingsSection()
             // All the credentialed sources' keys, in one place (UX-05).
             SourceKeysSettingsView(adzunaAppID: $adzunaAppID,
                                    adzunaAppKey: $adzunaAppKey,
@@ -308,12 +309,15 @@ struct SearchSettingsView: View {
         .onDisappear { save() }
     }
 
+    /// LinkedIn is deliberately not here — it gets its own section, because its
+    /// switch also decides whether the source exists at all (`LinkedInFeature`)
+    /// and because that's where the account connection belongs.
     private var sourceList: [(String, String)] {
         [("remoteok", "RemoteOK"), ("weworkremotely", "WeWorkRemotely"),
          ("arbeitnow", "Arbeitnow"), ("greenhouse", "Greenhouse & Lever boards"),
          ("ashby", "Ashby boards"), ("workable", "Workable"),
          ("recruitee", "Recruitee"), ("adzuna", "Adzuna (API key)"),
-         ("usajobs", "USAJobs (API key)"), ("linkedin", "LinkedIn")]
+         ("usajobs", "USAJobs (API key)")]
     }
 
     private func split(_ text: String) -> [String] {
@@ -352,6 +356,64 @@ struct SearchSettingsView: View {
             config.apiKeys.usajobsEmail = uEmail
             config.apiKeys.usajobsAPIKey = uKey
             config.apiKeys.blsRegistrationKey = bls
+        }
+    }
+}
+
+/// LinkedIn's own section: the switch that decides whether the source exists
+/// for this user at all, plus the account connection that makes it work
+/// properly. A build compiled without the feature (`JOBSMITH_NO_LINKEDIN`)
+/// renders nothing here.
+struct LinkedInSettingsSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var showSignIn = false
+
+    private var isOn: Bool { LinkedInFeature.isEnabled(model.config) }
+    private var isConnected: Bool { LinkedInFeature.isAuthenticated(model.config) }
+
+    var body: some View {
+        if LinkedInFeature.isBuildEnabled {
+            Section {
+                Toggle("LinkedIn", isOn: Binding(
+                    get: { isOn },
+                    set: { on in
+                        model.saveConfig { config in
+                            config.search.linkedInEnabled = on
+                            if on { config.search.enabledSources.insert(LinkedInSource.id) }
+                            else { config.search.enabledSources.remove(LinkedInSource.id) }
+                        }
+                    }
+                ))
+                if isOn {
+                    if isConnected {
+                        Label("Account connected", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.secondary)
+                        Button("Disconnect account", role: .destructive) {
+                            model.saveConfig { $0.apiKeys.linkedInCookie = "" }
+                        }
+                    } else {
+                        Button {
+                            showSignIn = true
+                        } label: {
+                            Label("Connect your account for best results",
+                                  systemImage: "person.crop.circle.badge.checkmark")
+                        }
+                    }
+                }
+            } header: {
+                Eyebrow(text: "LinkedIn")
+            } footer: {
+                Text(isConnected
+                     ? "Jobsmith searches LinkedIn as you. Your session stays in this device's Keychain and is never sent anywhere else — sign out here to remove it."
+                     : "Signed in, Jobsmith searches LinkedIn as you — more results, far fewer rate limits. Without an account it falls back to LinkedIn's public pages. Turn LinkedIn off and Jobsmith never contacts it at all.")
+            }
+            .sheet(isPresented: $showSignIn) {
+                LinkedInSignInSheet { _, cookie in
+                    if let cookie, !cookie.isEmpty {
+                        model.saveConfig { $0.apiKeys.linkedInCookie = cookie }
+                    }
+                }
+            }
         }
     }
 }

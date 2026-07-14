@@ -102,7 +102,15 @@ struct RootTabView: View {
         .task {
             // Give ConfigStore a beat to load, then gate on an empty profile.
             try? await Task.sleep(for: .milliseconds(300))
-            if model.config.profile.isEmpty && !CommandLine.arguments.contains("-SkipOnboarding") {
+            // -SkipOnboarding is a UI-test hook, and the UI tests run against
+            // the Debug build — a shipped binary always shows the wizard on a
+            // fresh profile.
+            #if DEBUG
+            let skipOnboarding = CommandLine.arguments.contains("-SkipOnboarding")
+            #else
+            let skipOnboarding = false
+            #endif
+            if model.config.profile.isEmpty && !skipOnboarding {
                 showOnboarding = true
             }
         }

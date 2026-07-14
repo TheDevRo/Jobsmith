@@ -65,14 +65,19 @@ final class AppModel {
         configStore = ConfigStore.shared
         config = AppConfig()
         try? AnswerBankMatcher(store: answerBank).seedIfEmpty()
+        #if DEBUG
         if CommandLine.arguments.contains("-SeedDemoData") {
             seedDemoData()
         }
+        #endif
         Task {
             config = await configStore.load()
+            #if DEBUG
             // Test-only: "-E2EKeywords a,b,c" / "-E2ESources x,y" inject
             // search config in-memory so walkthrough tests can exercise a
-            // real fetch without persisting config.
+            // real fetch without persisting config. DEBUG-only — the UI tests
+            // run against the Debug build, and a shipped binary has no business
+            // reading its search config off the command line.
             if let idx = CommandLine.arguments.firstIndex(of: "-E2EKeywords"),
                CommandLine.arguments.indices.contains(idx + 1) {
                 config.search.keywords = CommandLine.arguments[idx + 1]
@@ -83,10 +88,12 @@ final class AppModel {
                 config.search.enabledSources = Set(
                     CommandLine.arguments[idx + 1].split(separator: ",").map(String.init))
             }
+            #endif
         }
         refresh()
     }
 
+    #if DEBUG
     /// Deterministic state for UI tests (-SeedDemoData): wipe the jobs and
     /// applications tables and the persisted config so every run starts with
     /// exactly two untriaged demo jobs and a default (empty-profile) config,
@@ -138,6 +145,7 @@ final class AppModel {
             }
         }
     }
+    #endif
 
     func refresh() {
         inbox = (try? jobStore.inbox()) ?? []
@@ -622,7 +630,7 @@ final class AppModel {
     func fetchJobs() async {
         guard !isFetching else { return }
         guard let run = try? searchRunStore.begin(
-            sources: SourceRegistry.allIDs.filter { config.search.enabledSources.contains($0) })
+            sources: SourceRegistry.enabledIDs(for: config))
         else { return }
         await runSearch(run)
     }

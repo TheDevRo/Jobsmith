@@ -63,6 +63,11 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     public var recruiteeCompanies: [String]
     /// Which sources are enabled for fetching.
     public var enabledSources: Set<String>
+    /// Master switch for LinkedIn sourcing — see `LinkedInFeature`. Separate
+    /// from `enabledSources` because it's the one source whose availability is
+    /// a policy question, not a preference: turning it off here takes it out of
+    /// the sources list and out of every fetch, foreground or background.
+    public var linkedInEnabled: Bool
 
     public init(keywords: [String] = [], locations: [String] = ["Remote"],
                 excludeKeywords: [String] = [], minSalary: Int? = nil,
@@ -70,7 +75,8 @@ public struct SearchConfig: Codable, Equatable, Sendable {
                 greenhouseBoards: [String] = [], leverCompanies: [String] = [],
                 ashbyBoards: [String] = [], workableAccounts: [String] = [],
                 recruiteeCompanies: [String] = [],
-                enabledSources: Set<String> = ["remoteok", "weworkremotely", "arbeitnow", "greenhouse"]) {
+                enabledSources: Set<String> = ["remoteok", "weworkremotely", "arbeitnow", "greenhouse"],
+                linkedInEnabled: Bool = true) {
         self.keywords = keywords; self.locations = locations
         self.excludeKeywords = excludeKeywords; self.minSalary = minSalary
         self.maxAgeDays = maxAgeDays; self.remoteOnly = remoteOnly
@@ -78,6 +84,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         self.ashbyBoards = ashbyBoards; self.workableAccounts = workableAccounts
         self.recruiteeCompanies = recruiteeCompanies
         self.enabledSources = enabledSources
+        self.linkedInEnabled = linkedInEnabled
     }
 
     // Tolerant decoding — a watchlist added in a later build must not reset the
@@ -101,12 +108,13 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         workableAccounts = c.lenient([String].self, .workableAccounts, [])
         recruiteeCompanies = c.lenient([String].self, .recruiteeCompanies, [])
         enabledSources = c.lenient(Set<String>.self, .enabledSources, d.enabledSources)
+        linkedInEnabled = c.lenient(Bool.self, .linkedInEnabled, d.linkedInEnabled)
     }
 
     enum CodingKeys: String, CodingKey {
         case keywords, locations, excludeKeywords, minSalary, maxAgeDays, remoteOnly
         case greenhouseBoards, leverCompanies, ashbyBoards, workableAccounts
-        case recruiteeCompanies, enabledSources
+        case recruiteeCompanies, enabledSources, linkedInEnabled
     }
 }
 
@@ -349,9 +357,10 @@ public struct APIKeys: Codable, Equatable, Sendable {
     public var usajobsEmail: String
     public var usajobsAPIKey: String
     public var blsRegistrationKey: String
-    /// LinkedIn `li_at` session cookie captured by the in-app sign-in.
-    /// Stored for future authenticated features; the job scraper stays on
-    /// the guest API so the user's account is never used for scraping.
+    /// LinkedIn `li_at` session cookie captured by the in-app sign-in. When it
+    /// is set, the LinkedIn source and profile import run as the signed-in user
+    /// — the preferred mode (`LinkedInFeature`). Guest scraping is what runs
+    /// when it is empty.
     ///
     /// Unlike every other field here, this one is a live credential (it is
     /// account takeover if it leaks), so `ConfigStore` round-trips it through

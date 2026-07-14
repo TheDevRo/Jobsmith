@@ -181,19 +181,21 @@ struct OnboardingFlow: View {
     }
 }
 
-/// Import a resume file (PDF/DOCX/TXT), pasted resume text, or pasted
-/// LinkedIn profile text; the AI extracts a profile for review. Skippable —
-/// manual entry always works.
+/// Import a profile: sign in to LinkedIn (the default — one tap, and it leaves
+/// the user in the authenticated LinkedIn mode the job search prefers), or a
+/// resume file / pasted text, one segment away. The AI extracts a profile for
+/// review either way. Skippable — manual entry always works.
 struct ResumeImportStep: View {
     @Environment(AppModel.self) private var model
     let onDone: () -> Void
 
+    /// Order is the order of the segmented picker: LinkedIn leads.
     enum ImportKind: String, CaseIterable {
-        case resume = "Resume"
         case linkedin = "LinkedIn profile"
+        case resume = "Resume"
     }
 
-    @State private var kind: ImportKind = .resume
+    @State private var kind: ImportKind = .linkedin
     @State private var showFilePicker = false
     @State private var showLinkedInSignIn = false
     @State private var pastedText = ""
@@ -207,9 +209,9 @@ struct ResumeImportStep: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Import your profile")
                     .font(.title3.weight(.semibold))
-                Text(kind == .resume
-                     ? "The AI reads your resume and fills in your profile — nothing is fabricated, and the file never leaves your devices."
-                     : "Sign in once and your profile is read automatically, or paste your public profile link.")
+                Text(kind == .linkedin
+                     ? "Sign in once and the AI reads your profile for you — nothing is fabricated, and your LinkedIn session stays in this device's Keychain. Or paste your public profile link."
+                     : "The AI reads your resume and fills in your profile — nothing is fabricated, and the file never leaves your devices.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -357,7 +359,8 @@ struct ResumeImportStep: View {
         defer { parsing = false }
         errorMessage = nil
         do {
-            let text = try await LinkedInProfileFetcher.fetchPublicProfile(profileLink)
+            let text = try await LinkedInProfileFetcher.fetchPublicProfile(
+                profileLink, cookie: LinkedInFeature.cookie(model.config))
             await parse(text: text)
         } catch {
             errorMessage = error.localizedDescription

@@ -144,7 +144,15 @@ public actor FetchPipeline {
                     runID: String? = nil,
                     cursors: [String: String] = [:]) async -> FetchSummary {
         let requested = Set(sources.map { $0.lowercased() })
-        let ids = SourceRegistry.allIDs.filter { requested.isEmpty || requested.contains($0) }
+        // The feature-flag check belongs here, on `ids` rather than on
+        // `requested`: this is the one gate every fetch passes through —
+        // manual, scheduled, resumed, or driven by a stale run record — and an
+        // empty `requested` means "everything", so filtering it there would
+        // widen the run instead of narrowing it.
+        let ids = SourceRegistry.allIDs.filter {
+            (requested.isEmpty || requested.contains($0))
+                && SourceRegistry.isAvailable($0, config: config)
+        }
         sourcesTotal = ids.count
 
         emit("Fetching from \(ids.count) sources in parallel (\(ids.joined(separator: ", ")))...")

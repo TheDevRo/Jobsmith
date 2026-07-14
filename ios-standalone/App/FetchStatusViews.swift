@@ -4,7 +4,7 @@ import JobsmithKit
 /// A friendly, honest upper bound on how long a fetch will take, derived from
 /// the slowest enabled source's timeout (sources run in parallel).
 func fetchEstimateText(for config: AppConfig) -> String {
-    let duration = SourceRegistry.estimatedDuration(for: Array(config.search.enabledSources))
+    let duration = SourceRegistry.estimatedDuration(for: SourceRegistry.enabledIDs(for: config))
     let seconds = Int(duration.components.seconds)
     if seconds <= 90 { return "up to a minute" }
     let minutes = Int((Double(seconds) / 60).rounded(.up))
