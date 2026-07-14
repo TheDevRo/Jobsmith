@@ -8,11 +8,13 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
+from .. import resume_generator
 from .. import resume_parser
 from .. import linkedin_profile_import
 from ..auto_apply import has_linkedin_session
@@ -541,6 +543,47 @@ async def set_resume_accent(body: ResumeAccentUpdate):
     cfg["application_honesty"]["resume_accent"] = body.resume_accent
     state.save_config(cfg)
     return {"resume_accent": body.resume_accent}
+
+
+@router.get("/api/settings/resume-style/preview")
+async def preview_resume_style(
+    style: str = Query(...),
+    accent: str = Query("default"),
+):
+    """Render the sample resume in the requested style and return it as a PDF.
+
+    The style picker shows this so choosing a style isn't a blind guess. It
+    renders through the same code that produces a real resume, so it cannot
+    drift from what the user actually gets, and it neither reads nor writes
+    the user's config or files.
+    """
+    style = state.LEGACY_RESUME_STYLES.get(style.lower(), style.lower())
+    if style not in state.VALID_RESUME_STYLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"style must be one of: {sorted(state.VALID_RESUME_STYLES)}",
+        )
+    if accent.lower() not in state.VALID_RESUME_ACCENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"accent must be one of: {sorted(state.VALID_RESUME_ACCENTS)}",
+        )
+
+    try:
+        pdf = await asyncio.to_thread(
+            resume_generator.render_style_preview, style, accent.lower()
+        )
+    except Exception:
+        logger.warning("Style preview rendering failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not render the preview")
+
+    # The sample content is fixed, so a given style+accent is always the same
+    # page — let the browser keep it rather than re-render on every click back.
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/api/settings/document-format")

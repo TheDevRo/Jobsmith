@@ -51,7 +51,6 @@ struct SettingsView: View {
                     formatPicker
                     honestyPicker
                     stylePicker
-                    accentPicker
                     experienceLimit
                 } header: {
                     Eyebrow(text: "Documents")
@@ -163,42 +162,28 @@ struct SettingsView: View {
         }
     }
 
+    /// Style and accent used to be two menu rows that showed the user nothing.
+    /// They're one row now, opening a picker with the sample resume on it; the
+    /// row carries the resolved accent so the current choice is readable here.
     private var stylePicker: some View {
-        Picker(selection: Binding(
-            get: { model.config.honesty.resumeStyle },
-            set: { style in model.saveConfig { $0.honesty.resumeStyle = style } }
-        )) {
-            ForEach(HonestyConfig.Style.allCases, id: \.self) { style in
-                Text(style.label).tag(style)
-            }
-        } label: {
-            row("Resume style", system: "doc.richtext", detail: nil)
-        }
-    }
-
-    /// Recolors the accent bars, section headers, and company names. Executive
-    /// and Swiss are monochrome by design — the setting does nothing for them,
-    /// so it's disabled rather than silently ignored (mirrors the web UI).
-    @ViewBuilder
-    private var accentPicker: some View {
         let style = model.config.honesty.resumeStyle
-        Picker(selection: Binding(
-            get: { model.config.honesty.resumeAccent },
-            set: { accent in model.saveConfig { $0.honesty.resumeAccent = accent } }
-        )) {
-            ForEach(HonestyConfig.ResumeAccent.allCases, id: \.self) { accent in
-                Text(accent.label).tag(accent)
-            }
+        let accent = model.config.honesty.resumeAccent
+        return NavigationLink {
+            ResumeStyleView()
         } label: {
-            row("Accent color", system: "paintpalette", detail: nil)
-        }
-        .disabled(style.isMonochrome)
-        .foregroundStyle(style.isMonochrome ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-
-        if style.isMonochrome {
-            Text("\(style.label) is monochrome by design — it ignores the accent color.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                Label("Resume style", systemImage: "doc.richtext")
+                Spacer()
+                if !style.isMonochrome, let hex = accent.hex {
+                    Circle()
+                        .fill(Color(hex6: hex))
+                        .frame(width: 11, height: 11)
+                        .overlay(Circle().strokeBorder(Color.black.opacity(0.15)))
+                }
+                Text(style.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

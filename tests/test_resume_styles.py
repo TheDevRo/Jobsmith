@@ -246,3 +246,47 @@ def test_dispatcher_passes_style_through_to_the_cover_letter(tmp_path, monkeypat
     rg.generate_cover_letter(LETTER_CONTENT, PROFILE, JOB, _cfg("executive"))
     xml = _document_xml(tmp_path / "t1_cover_letter.docx")
     assert "Georgia" in xml  # executive's serif reached the letter
+
+
+# ---------------------------------------------------------------------------
+# Style preview (the settings picker)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("style", STYLES)
+def test_preview_renders_every_style_to_a_pdf(style):
+    pdf = rg.render_style_preview(style)
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 1000        # a real page, not an empty document
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_preview_writes_nothing_to_disk(style, tmp_path, monkeypatch):
+    """The preview is a look, not a document — it must not touch user files."""
+    monkeypatch.setattr(rg, "RESUMES_DIR", tmp_path)
+    rg.render_style_preview(style, "burgundy")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_preview_honors_accent_and_the_monochrome_lock():
+    """The picker must not imply an accent applies where the style ignores it."""
+    def accent_of(style, accent):
+        cfg = {"application_honesty": {
+            "resume_style": style, "resume_accent": accent,
+        }}
+        return rg._resolve_resume_style(cfg)["accent_color"]
+
+    # Accent-bearing styles take the user's choice...
+    assert accent_of("ledger", "burgundy") == rg.ACCENT_CHOICES["burgundy"]
+    assert accent_of("banner", "forest") == rg.ACCENT_CHOICES["forest"]
+    # ...and the accent_locked ones ignore it entirely.
+    for style in ("executive", "swiss"):
+        assert accent_of(style, "burgundy") == accent_of(style, "default")
+
+
+def test_preview_sample_exercises_every_section_the_styles_render():
+    """A specimen that skipped a section would hide that section's styling."""
+    sections = rg._parse_resume_sections(rg.PREVIEW_CONTENT)
+    assert {"summary", "skills", "experience", "education", "certifications"} <= set(sections)
+    entries = rg._parse_experience_entries(sections["experience"])
+    assert len(entries) >= 2                      # entry spacing is visible
+    assert all(e["bullets"] for e in entries)     # bullet markers are visible
+    assert all(e["dates"] for e in entries)       # right-aligned dates are visible

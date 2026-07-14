@@ -58,6 +58,13 @@ extension Color {
                   opacity: 1)
     }
 
+    /// 6-char hex, the storage format of the resume accent palette
+    /// (`HonestyConfig.ResumeAccent.hex`). Unparseable input falls back to
+    /// black rather than trapping — a bad swatch beats a crash.
+    init(hex6: String) {
+        self.init(hex: UInt32(hex6, radix: 16) ?? 0)
+    }
+
     /// WCAG relative luminance (0 = black, 1 = white), used to choose a
     /// foreground that stays legible across the heat ramp.
     var relativeLuminance: Double {

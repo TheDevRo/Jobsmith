@@ -1793,6 +1793,138 @@ main {
     outline-offset: -1px;
 }
 
+/* Resume style studio — picker on the left, sample resume on the right, so
+   choosing a style isn't a blind guess.
+
+   The card spans the whole settings grid: the sample page needs real width,
+   and a 350px grid cell would squeeze it to nothing. */
+.section-card-wide {
+    grid-column: 1 / -1;
+}
+
+/* Wraps on its own when the card is narrow. Deliberately not a viewport media
+   query — this sits inside a responsive card grid, so the *container* width is
+   what matters and the viewport says nothing useful about it. */
+.style-studio {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 18px;
+    align-items: flex-start;
+}
+
+.style-studio-controls {
+    flex: 1 1 290px;
+    min-width: 260px;
+}
+
+.style-studio-preview {
+    flex: 2 1 340px;
+    min-width: 280px;
+}
+
+.style-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.style-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.style-row:hover:not(.active) {
+    background: var(--bg-hover);
+}
+
+.style-row.active {
+    background: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.style-row-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.style-row-blurb {
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
+.style-mono-flag {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+
+.style-accent-heading {
+    margin: 22px 0 0;
+    font-size: 14px;
+}
+
+.style-preview-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.style-preview-cap {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.style-preview-sub {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+
+/* US Letter — keep the frame's shape so the page never renders distorted. */
+.style-preview-frame {
+    aspect-ratio: 8.5 / 11;
+    width: 100%;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.35);
+}
+
+.style-preview-frame iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}
+
+.style-preview-foot {
+    margin-top: 8px;
+}
+
 /* Resume accent color chips */
 .resume-accent-row {
     display: flex;

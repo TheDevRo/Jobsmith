@@ -252,6 +252,39 @@ final class DocumentTests: XCTestCase {
             XCTAssertTrue(text.contains("Built things"), "\(style) lost a bullet")
         }
     }
+
+    // MARK: - Style preview (the settings picker)
+
+    func testStylePreviewRendersEveryStyle() throws {
+        for style in HonestyConfig.Style.allCases {
+            for accent in HonestyConfig.ResumeAccent.allCases {
+                let data = StylePreviewSample.pdf(style: style, accent: accent)
+                XCTAssertTrue(data.starts(with: Array("%PDF".utf8)),
+                              "\(style)/\(accent) is not a PDF")
+                XCTAssertGreaterThan(data.count, 1000,
+                                     "\(style)/\(accent) rendered an empty page")
+            }
+        }
+    }
+
+    /// A specimen that skipped a section would hide that section's styling, so
+    /// the sample has to exercise everything a style can touch.
+    ///
+    /// Note the date assertion is a substring, not "2021 - Present": this
+    /// renderer paints right-tabbed dates so that they extract *detached* from
+    /// their entry, at the end of the text stream. That's a pre-existing quirk
+    /// of DocxPDFRenderer (the desktop ReportLab path keeps them inline), not
+    /// something the preview introduced — asserting adjacency here would be
+    /// asserting on a bug that lives elsewhere.
+    func testStylePreviewSampleShowsEverySection() throws {
+        let data = StylePreviewSample.pdf(style: .ledger)
+        let text = try ResumeTextExtractor.extract(filename: "resume.pdf", data: data)
+        XCTAssertTrue(text.contains("Morgan Reyes"))        // letterhead
+        XCTAssertTrue(text.contains("Northwind Logistics")) // accent company name
+        XCTAssertTrue(text.contains("Present"))             // right-aligned dates
+        XCTAssertTrue(text.contains("Oregon State"))        // education
+        XCTAssertTrue(text.contains("Tableau"))             // skills + certifications
+    }
     #endif
 
     func testDocumentFormatDefaultsToPDF() {

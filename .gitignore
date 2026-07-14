@@ -9,8 +9,10 @@ node_modules/
 
 # Desktop build (Tauri + PyInstaller)
 /build/
+/dist/
 src-tauri/target/
 src-tauri/binaries/
+src-tauri/binaries-build/
 src-tauri/gen/schemas/
 
 # Docker seeded config dir

@@ -122,6 +122,9 @@ async function loadSettings() {
         _applyResumeAccent(ra.resume_accent || 'default');
     } catch (e) { /* non-fatal */ }
 
+    // Draw once both halves are known, rather than twice as each lands.
+    _refreshStylePreview();
+
     try {
         const df = await api('/api/settings/document-format');
         _applyDocumentFormat(df.document_format || 'docx');
@@ -846,9 +849,41 @@ async function setHonestyLevel(level) {
 // nothing for them, so it's disabled rather than silently ignored.
 const MONOCHROME_STYLES = ['executive', 'swiss'];
 
+// The preview needs both halves of the choice, and they load independently.
+let _resumeStyle = 'ledger';
+let _resumeAccent = 'default';
+
+const _titleCase = (s) => `${s[0].toUpperCase()}${s.slice(1)}`;
+
+// The sample resume rendered in the current style. The backend renders it
+// through the same code that writes a real resume, so this can't drift from
+// what the user actually gets.
+function _refreshStylePreview() {
+    const frame = document.getElementById('style-preview');
+    if (!frame) return;
+
+    const monochrome = MONOCHROME_STYLES.includes(_resumeStyle);
+    const accent = monochrome ? 'default' : _resumeAccent;
+    // #toolbar=0 hides the viewer chrome so the page reads as a document.
+    const src = `/api/settings/resume-style/preview`
+        + `?style=${encodeURIComponent(_resumeStyle)}`
+        + `&accent=${encodeURIComponent(accent)}#toolbar=0&navpanes=0&view=FitH`;
+    if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
+
+    const sub = document.getElementById('style-preview-sub');
+    if (sub) {
+        sub.textContent = monochrome
+            ? _titleCase(_resumeStyle)
+            : `${_titleCase(_resumeStyle)} · ${_titleCase(_resumeAccent)} accent`;
+    }
+}
+
 function _applyResumeStyle(style) {
-    document.querySelectorAll('.resume-style-stop').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.style === style);
+    _resumeStyle = style;
+    document.querySelectorAll('.style-row').forEach(btn => {
+        const on = btn.dataset.style === style;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     const monochrome = MONOCHROME_STYLES.includes(style);
     const accentRow = document.getElementById('resume-accent-row');
@@ -861,7 +896,7 @@ function _applyResumeStyle(style) {
     const note = document.getElementById('resume-accent-note');
     if (note) {
         note.textContent = monochrome
-            ? `${style[0].toUpperCase()}${style.slice(1)} is monochrome by design — it ignores the accent color.`
+            ? `${_titleCase(style)} is monochrome by design — it ignores the accent color.`
             : '';
     }
 }
@@ -873,6 +908,7 @@ async function setResumeStyle(style) {
             body: JSON.stringify({ resume_style: style }),
         });
         _applyResumeStyle(style);
+        _refreshStylePreview();
         toast(`Resume style set to "${style}"`, 'success');
     } catch (e) {
         toast('Failed to update resume style', 'error');
@@ -882,6 +918,7 @@ async function setResumeStyle(style) {
 // ---- Resume Accent ----
 
 function _applyResumeAccent(accent) {
+    _resumeAccent = accent;
     document.querySelectorAll('.resume-accent-chip').forEach(chip => {
         const on = chip.dataset.accent === accent;
         chip.classList.toggle('active', on);
@@ -896,6 +933,7 @@ async function setResumeAccent(accent) {
             body: JSON.stringify({ resume_accent: accent }),
         });
         _applyResumeAccent(accent);
+        _refreshStylePreview();
         toast(`Accent color set to "${accent}"`, 'success');
     } catch (e) {
         toast('Failed to update accent color', 'error');

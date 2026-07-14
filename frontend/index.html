@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=39">
+    <link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -833,35 +833,58 @@
                             </div>
                         </div>
 
-                        <div class="section-card">
+                        <div class="section-card section-card-wide">
                             <h2>Resume Visual Style</h2>
                             <p class="section-hint">Controls fonts, colors, and layout of the generated resume &mdash; and the matching cover letter. Every style stays single-column real text, so all of them parse cleanly through an ATS.</p>
-                            <div class="honesty-segmented" role="group" aria-label="Resume Style">
-                                <button class="honesty-stop resume-style-stop" data-style="executive" onclick="setResumeStyle('executive')">Executive</button>
-                                <button class="honesty-stop resume-style-stop" data-style="ledger" onclick="setResumeStyle('ledger')">Ledger</button>
-                                <button class="honesty-stop resume-style-stop" data-style="banner" onclick="setResumeStyle('banner')">Banner</button>
-                                <button class="honesty-stop resume-style-stop" data-style="compact" onclick="setResumeStyle('compact')">Compact</button>
-                                <button class="honesty-stop resume-style-stop" data-style="swiss" onclick="setResumeStyle('swiss')">Swiss</button>
-                            </div>
-                            <div class="section-hint" style="margin-top:16px">
-                                <strong>Executive</strong> — Georgia serif, centered small-caps name over a double rule; monochrome.<br>
-                                <strong>Ledger</strong> — bold sans, accent stub bar, accent company names (recommended).<br>
-                                <strong>Banner</strong> — a solid ink band behind your name; the boldest look here.<br>
-                                <strong>Compact</strong> — 9.5pt and tight margins; fits a deep work history on one page.<br>
-                                <strong>Swiss</strong> — no rules, no color; hierarchy from spacing and weight alone; monochrome.
-                            </div>
 
-                            <h3 style="margin-top:22px;font-size:14px">Accent Color</h3>
-                            <p class="section-hint">Recolors the accent bars, section headers, and company names.</p>
-                            <div id="resume-accent-row" class="resume-accent-row" role="group" aria-label="Accent Color">
-                                <button class="resume-accent-chip" data-accent="default" aria-pressed="false" title="Style default" onclick="setResumeAccent('default')"><span class="accent-swatch accent-swatch-default"></span>Default</button>
-                                <button class="resume-accent-chip" data-accent="navy" aria-pressed="false" title="Navy" onclick="setResumeAccent('navy')"><span class="accent-swatch" style="background:#1F3A5F"></span>Navy</button>
-                                <button class="resume-accent-chip" data-accent="burgundy" aria-pressed="false" title="Burgundy" onclick="setResumeAccent('burgundy')"><span class="accent-swatch" style="background:#6D1F2C"></span>Burgundy</button>
-                                <button class="resume-accent-chip" data-accent="forest" aria-pressed="false" title="Forest" onclick="setResumeAccent('forest')"><span class="accent-swatch" style="background:#1F4D3A"></span>Forest</button>
-                                <button class="resume-accent-chip" data-accent="plum" aria-pressed="false" title="Plum" onclick="setResumeAccent('plum')"><span class="accent-swatch" style="background:#3D3A4F"></span>Plum</button>
-                                <button class="resume-accent-chip" data-accent="charcoal" aria-pressed="false" title="Charcoal" onclick="setResumeAccent('charcoal')"><span class="accent-swatch" style="background:#37404A"></span>Charcoal</button>
+                            <div class="style-studio">
+                                <div class="style-studio-controls">
+                                    <div class="style-list" role="group" aria-label="Resume Style">
+                                        <button class="style-row" data-style="executive" aria-pressed="false" onclick="setResumeStyle('executive')">
+                                            <span class="style-row-name">Executive <span class="style-mono-flag">Mono</span></span>
+                                            <span class="style-row-blurb">Georgia serif. Centered small-caps name over a double rule.</span>
+                                        </button>
+                                        <button class="style-row" data-style="ledger" aria-pressed="false" onclick="setResumeStyle('ledger')">
+                                            <span class="style-row-name">Ledger</span>
+                                            <span class="style-row-blurb">Bold sans with accent stub bars and accent company names.</span>
+                                        </button>
+                                        <button class="style-row" data-style="banner" aria-pressed="false" onclick="setResumeStyle('banner')">
+                                            <span class="style-row-name">Banner</span>
+                                            <span class="style-row-blurb">A solid ink band behind your name. The boldest look here.</span>
+                                        </button>
+                                        <button class="style-row" data-style="compact" aria-pressed="false" onclick="setResumeStyle('compact')">
+                                            <span class="style-row-name">Compact</span>
+                                            <span class="style-row-blurb">9.5pt and tight margins. Fits a deep history on one page.</span>
+                                        </button>
+                                        <button class="style-row" data-style="swiss" aria-pressed="false" onclick="setResumeStyle('swiss')">
+                                            <span class="style-row-name">Swiss <span class="style-mono-flag">Mono</span></span>
+                                            <span class="style-row-blurb">No rules, no color. Hierarchy from spacing and weight alone.</span>
+                                        </button>
+                                    </div>
+
+                                    <h3 class="style-accent-heading">Accent Color</h3>
+                                    <div id="resume-accent-row" class="resume-accent-row" role="group" aria-label="Accent Color">
+                                        <button class="resume-accent-chip" data-accent="default" aria-pressed="false" title="Style default" onclick="setResumeAccent('default')"><span class="accent-swatch accent-swatch-default"></span>Default</button>
+                                        <button class="resume-accent-chip" data-accent="navy" aria-pressed="false" title="Navy" onclick="setResumeAccent('navy')"><span class="accent-swatch" style="background:#1F3A5F"></span>Navy</button>
+                                        <button class="resume-accent-chip" data-accent="burgundy" aria-pressed="false" title="Burgundy" onclick="setResumeAccent('burgundy')"><span class="accent-swatch" style="background:#6D1F2C"></span>Burgundy</button>
+                                        <button class="resume-accent-chip" data-accent="forest" aria-pressed="false" title="Forest" onclick="setResumeAccent('forest')"><span class="accent-swatch" style="background:#1F4D3A"></span>Forest</button>
+                                        <button class="resume-accent-chip" data-accent="plum" aria-pressed="false" title="Plum" onclick="setResumeAccent('plum')"><span class="accent-swatch" style="background:#3D3A4F"></span>Plum</button>
+                                        <button class="resume-accent-chip" data-accent="charcoal" aria-pressed="false" title="Charcoal" onclick="setResumeAccent('charcoal')"><span class="accent-swatch" style="background:#37404A"></span>Charcoal</button>
+                                    </div>
+                                    <div id="resume-accent-note" class="section-hint" style="margin-top:8px"></div>
+                                </div>
+
+                                <div class="style-studio-preview">
+                                    <div class="style-preview-head">
+                                        <span class="style-preview-cap">Sample resume</span>
+                                        <span class="style-preview-sub" id="style-preview-sub"></span>
+                                    </div>
+                                    <div class="style-preview-frame">
+                                        <iframe id="style-preview" title="Sample resume in the selected style"></iframe>
+                                    </div>
+                                    <p class="section-hint style-preview-foot">Sample content, not your resume. Rendered by the same code that writes your real files.</p>
+                                </div>
                             </div>
-                            <div id="resume-accent-note" class="section-hint" style="margin-top:8px"></div>
                         </div>
 
                         <div class="section-card">
@@ -1298,7 +1321,7 @@
     <script src="js/dashboard.js?v=36"></script>
     <script src="js/jobs.js?v=39"></script>
     <script src="js/review.js?v=39"></script>
-    <script src="js/settings.js?v=43"></script>
+    <script src="js/settings.js?v=44"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=37"></script>

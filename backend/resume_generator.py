@@ -4,6 +4,7 @@ resume_generator.py — Generate professional DOCX resume and cover letter files
 Uses python-docx to create clean, ATS-friendly formatted documents.
 """
 
+import io
 import logging
 import re
 from datetime import datetime
@@ -1429,9 +1430,15 @@ def _letterhead_story(profile: dict, s: dict, avail_w: float, *,
     return story
 
 
-def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | None = None) -> str:
+def _render_resume_pdf(content: str, profile: dict, job: dict,
+                       config: dict | None = None, *, dest=None) -> str:
     """Render the resume to a styled, ATS-friendly PDF mirroring the DOCX
-    layout. Returns the PDF file path."""
+    layout. Returns the PDF file path.
+
+    `dest` is a writable binary stream. When given, the PDF is built into it
+    instead of the resumes directory and "" is returned — the style preview
+    renders that way so it never touches a user's files.
+    """
     from reportlab.lib.pagesizes import LETTER
     from reportlab.lib.units import inch
     from reportlab.lib.enums import TA_RIGHT
@@ -1439,7 +1446,6 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
         SimpleDocTemplate, Table, TableStyle, HRFlowable,
     )
 
-    _ensure_dir()
     s = _resolve_resume_style(config)
     bullet_marker = _pdf_bullet(s["bullet_marker"])
     body = s["body_font"]
@@ -1448,11 +1454,17 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
     ls = s["line_spacing"]
     top_m, bot_m, left_m, right_m = s["margins"]
 
-    job_id = job.get("id", "unknown")
-    file_path = RESUMES_DIR / f"{job_id}_resume.pdf"
+    if dest is None:
+        _ensure_dir()
+        job_id = job.get("id", "unknown")
+        file_path: Path | None = RESUMES_DIR / f"{job_id}_resume.pdf"
+        target = str(file_path)
+    else:
+        file_path = None
+        target = dest
 
     doc = SimpleDocTemplate(
-        str(file_path), pagesize=LETTER,
+        target, pagesize=LETTER,
         topMargin=top_m * inch, bottomMargin=bot_m * inch,
         leftMargin=left_m * inch, rightMargin=right_m * inch,
         title=f"{profile.get('full_name', 'Resume')} — Resume",
@@ -1627,6 +1639,8 @@ def _render_resume_pdf(content: str, profile: dict, job: dict, config: dict | No
                 ))
 
     doc.build(story)
+    if file_path is None:
+        return ""
     logger.info("Resume PDF saved to %s", file_path)
     return str(file_path)
 
@@ -1735,3 +1749,64 @@ def generate_cover_letter(content: str, profile: dict, job: dict, config: dict |
                 exc_info=True,
             )
     return docx_path
+
+
+# ---------------------------------------------------------------------------
+# Style preview — a fixed sample resume, rendered through the real PDF path
+# ---------------------------------------------------------------------------
+
+# Invented person, invented history. Never the user's own data: the preview is
+# about the *look*, and real content would make the page hard to read as a
+# specimen. Exercises every element a style can touch — a two-line name rule,
+# an accent company name, right-aligned dates, bullets, and each section type.
+PREVIEW_PROFILE: dict = {
+    "full_name": "Morgan Reyes",
+    "email": "morgan.reyes@example.com",
+    "phone": "(503) 555-0142",
+    "location": "Portland, OR",
+    "linkedin": "linkedin.com/in/morganreyes",
+}
+
+PREVIEW_CONTENT = """SUMMARY
+Data analyst who turns messy operational data into decisions leaders act on.
+
+TECHNICAL SKILLS
+SQL, Python, dbt, Snowflake, Tableau
+
+PROFESSIONAL EXPERIENCE
+Title: Senior Data Analyst
+Company: Northwind Logistics
+Dates: 2021 - Present
+- Cut freight spend 12% ($2.1M annually) across 14 distribution centers.
+- Built the demand model that now sets staffing for every West Coast hub.
+
+Title: Data Analyst
+Company: Cascade Retail Group
+Dates: 2018 - 2021
+- Replaced a 40-hour manual close with a dbt pipeline that runs in nine minutes.
+
+EDUCATION
+Degree: B.S. Statistics
+School: Oregon State University
+Year: 2016
+
+CERTIFICATIONS
+- Tableau Desktop Certified Professional
+"""
+
+
+def render_style_preview(style: str, accent: str = "default") -> bytes:
+    """Render the sample resume in one style/accent and return the PDF bytes.
+
+    Goes through _render_resume_pdf — the same code that produces a real
+    resume — so the preview cannot drift from what the user actually gets.
+    Renders to memory; nothing is written to the resumes directory.
+    """
+    config = {"application_honesty": {
+        "resume_style": style, "resume_accent": accent,
+    }}
+    buf = io.BytesIO()
+    _render_resume_pdf(
+        PREVIEW_CONTENT, PREVIEW_PROFILE, {"id": "preview"}, config, dest=buf,
+    )
+    return buf.getvalue()
