@@ -48,6 +48,7 @@ import aiosqlite
 
 from . import merge as mergelib
 from . import profile_map as pm
+from . import settings_registry as sr
 from .documents import DocumentStore
 from .entities import DeferRecord, db_adapters
 
@@ -62,10 +63,17 @@ RECORD_VERSION = 1
 # marker held in sync_meta, distinct from RECORD_VERSION (the per-record wire
 # `v`, which stays 1 in lockstep with the Swift ChangeRecord default). Keep in
 # sync with SyncEngine.syncFormatVersion on the iOS side.
-SYNC_FORMAT_VERSION = 3
+#
+# v4: adds the config-backed `setting` entity (per-key settings sync). A client
+# that predates v4 receives `setting` records it has no adapter for and MUST skip
+# them on import rather than error (both engines do — see the unknown-entity
+# regression tests). Bumping forces a one-shot re-export so each upgraded device
+# broadcasts its settings once.
+SYNC_FORMAT_VERSION = 4
 
 PROFILE_ENTITY = "profile"
 PROFILE_ID = "me"
+SETTING_ENTITY = "setting"
 
 
 def _now() -> datetime:
@@ -106,6 +114,7 @@ class ImportStats:
     deletes: int = 0
     deferred: int = 0
     profile_updated: bool = False
+    settings_updated: int = 0
     deferred_keys: list = field(default_factory=list)
 
 
@@ -117,6 +126,8 @@ class SyncEngine:
         *,
         load_profile: Optional[Callable[[], Optional[dict]]] = None,
         save_profile: Optional[Callable[[dict], None]] = None,
+        load_settings: Optional[Callable[[], Optional[dict]]] = None,
+        save_settings: Optional[Callable[[dict], None]] = None,
         docs_dir: Optional[str | Path] = None,
         now_fn: Callable[[], datetime] = _now,
     ) -> None:
@@ -124,8 +135,22 @@ class SyncEngine:
         self.device_id = device_id
         self._load_profile = load_profile
         self._save_profile = save_profile
+        # Config-backed `setting` bridge (per-key LWW). load_settings returns the
+        # whole config dict; save_settings persists it. Category gating is read
+        # from that same dict, so the Profile toggle also gates the profile
+        # bridge above (both derive from enabled_categories(cfg)).
+        self._load_settings = load_settings
+        self._save_settings = save_settings
         self._docs_dir = docs_dir
         self._now = now_fn
+
+    def _enabled_categories(self) -> frozenset[str]:
+        if self._load_settings is None:
+            # No settings bridge wired: preserve pre-feature behavior — the
+            # profile bridge stays unconditionally on.
+            return frozenset({"profile"})
+        cfg = self._load_settings() or {}
+        return sr.enabled_categories(cfg)
 
     def _adapters(self, folder: Path):
         """Entity adapters for a run against `folder`, wired to its document
@@ -272,7 +297,12 @@ class SyncEngine:
                         await self._put_snapshot(conn, adapter.entity, sid, ts, True, None)
                         stats.tombstones += 1
 
-            if self._load_profile is not None:
+            enabled = self._enabled_categories()
+
+            # Profile bridge — GATED by the `profile` category. When off we skip
+            # export entirely (and, crucially, never tombstone profile/me), so
+            # turning it off just keeps a device-specific profile.
+            if self._load_profile is not None and "profile" in enabled:
                 prof = self._load_profile()
                 if prof is not None:
                     canon_prof = pm.desktop_to_canonical(prof)
@@ -287,6 +317,32 @@ class SyncEngine:
                             conn, PROFILE_ENTITY, PROFILE_ID, ts, False, cj
                         )
                         stats.live += 1
+
+            # Settings bridge — one record per enabled canonical path. Export is
+            # category-gated inside export_settings; a path only tombstones when
+            # its category is still on (a genuine removal), never merely because
+            # the category was switched off.
+            if self._load_settings is not None:
+                cfg = self._load_settings()
+                if cfg is not None:
+                    current = sr.export_settings(cfg)
+                    snap = await self._load_snapshot(conn, SETTING_ENTITY)
+                    for path, data in current.items():
+                        cj = _canon(data)
+                        prev = snap.get(path)
+                        if force or prev is None or prev["deleted"] or prev["data_json"] != cj:
+                            records.append(self._live_record(SETTING_ENTITY, path, ts, data))
+                            await self._put_snapshot(conn, SETTING_ENTITY, path, ts, False, cj)
+                            stats.live += 1
+                    for path, prev in snap.items():
+                        if prev["deleted"] or path in current:
+                            continue
+                        cat = sr.category_for_path(path)
+                        if cat is None or cat not in enabled:
+                            continue  # category off / unknown: don't broadcast a delete
+                        records.append(self._tombstone_record(SETTING_ENTITY, path, ts))
+                        await self._put_snapshot(conn, SETTING_ENTITY, path, ts, True, None)
+                        stats.tombstones += 1
 
             if records:
                 self._append_log(folder, records)
@@ -363,18 +419,44 @@ class SyncEngine:
                         await adapter.apply_tombstone(conn, sid)
                         stats.deletes += 1
 
-            # Profile.
+            enabled = self._enabled_categories()
+
+            # Profile — GATED by the `profile` category (symmetric with export).
             prof_winner = winners.get((PROFILE_ENTITY, PROFILE_ID))
             if (
                 prof_winner
                 and not prof_winner.get("deleted")
                 and self._load_profile is not None
                 and self._save_profile is not None
+                and "profile" in enabled
             ):
                 base = self._load_profile() or {}
                 merged = pm.canonical_to_desktop(prof_winner["data"], base=base)
                 self._save_profile(merged)
                 stats.profile_updated = True
+
+            # Settings — apply each winning `setting/<path>` record whose category
+            # is enabled here (import gating). Unknown/disabled paths are skipped;
+            # a key absent from the registry is never written (apply_setting no-ops).
+            if self._load_settings is not None and self._save_settings is not None:
+                setting_winners = {
+                    k: r for k, r in winners.items() if k[0] == SETTING_ENTITY
+                }
+                if setting_winners:
+                    cfg = self._load_settings() or {}
+                    changed = 0
+                    for (_, path), rec in setting_winners.items():
+                        cat = sr.category_for_path(path)
+                        if cat is None or cat not in enabled:
+                            continue
+                        if rec.get("deleted"):
+                            sr.remove_setting(cfg, path)
+                        else:
+                            sr.apply_setting(cfg, path, (rec.get("data") or {}).get("value"))
+                        changed += 1
+                    if changed:
+                        self._save_settings(cfg)
+                        stats.settings_updated = changed
 
             await self._rebuild_snapshot(conn, winners, adapters_by_entity, deferred)
 
@@ -403,12 +485,38 @@ class SyncEngine:
         for entity, adapter in adapters_by_entity.items():
             reread[entity] = await adapter.snapshot(conn)
 
+        # Re-read the settings we'd emit next so a subsequent export is a no-op;
+        # only records whose category is enabled were actually applied.
+        settings_reread: dict[str, dict] = {}
+        settings_enabled: frozenset[str] = frozenset()
+        if self._load_settings is not None and any(
+            e == SETTING_ENTITY for (e, _) in winners
+        ):
+            cfg = self._load_settings() or {}
+            settings_enabled = sr.enabled_categories(cfg)
+            settings_reread = sr.export_settings(cfg)
+
         for (entity, sid), rec in winners.items():
             if rec.get("deleted"):
+                if entity == SETTING_ENTITY and (
+                    sr.category_for_path(sid) is None
+                    or sr.category_for_path(sid) not in settings_enabled
+                ):
+                    continue  # disabled/unknown: we never touched it, leave snapshot
                 await self._put_snapshot(conn, entity, sid, rec["updated_at"], True, None)
                 continue
             if (entity, sid) in deferred:
                 continue  # not applied; leave it to retry on a later import
+            if entity == SETTING_ENTITY:
+                # Skip categories we didn't apply so re-enabling later still
+                # exports our local value (diff vs an untouched snapshot).
+                cat = sr.category_for_path(sid)
+                if cat is None or cat not in settings_enabled:
+                    continue
+                data = settings_reread.get(sid)
+                data_json = _canon(data) if data is not None else _canon(rec.get("data", {}))
+                await self._put_snapshot(conn, entity, sid, rec["updated_at"], False, data_json)
+                continue
             if entity == PROFILE_ENTITY:
                 # What we'd emit next is desktop_to_canonical(saved config);
                 # store that so an export right after import is a no-op.

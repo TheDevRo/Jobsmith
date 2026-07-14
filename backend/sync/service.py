@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .engine import SyncEngine
+from .settings_registry import CATEGORIES, CATEGORY_KEYS, category_defaults
 from .transport import SyncFolder
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,8 @@ class SyncService:
     def update_config(self, *, enabled: Optional[bool] = None,
                       folder: Optional[str] = None,
                       device_label: Optional[str] = None,
-                      interval_seconds: Optional[int] = None) -> dict:
+                      interval_seconds: Optional[int] = None,
+                      settings: Optional[dict] = None) -> dict:
         cfg = self._load_config()
         section = self._sync_cfg(cfg)
         if enabled is not None:
@@ -101,9 +103,31 @@ class SyncService:
             section["device_label"] = device_label
         if interval_seconds is not None:
             section["interval_seconds"] = interval_seconds
+        if settings is not None:
+            # Per-category sync toggles (sync.settings.<key>), validated against
+            # the registry's category keys so an unknown key can't be persisted.
+            current = section.get("settings")
+            current = dict(current) if isinstance(current, dict) else {}
+            for key, val in settings.items():
+                if key in CATEGORY_KEYS:
+                    current[key] = bool(val)
+            section["settings"] = current
         cfg["sync"] = section
         self._save_config(cfg)
         return self.status()
+
+    def settings_state(self, cfg: dict) -> dict:
+        """Per-category toggle state, seeded from category_defaults() so an absent
+        key reads as its default (profile ON, everything else OFF) rather than
+        false."""
+        section = self._sync_cfg(cfg)
+        stored = section.get("settings")
+        stored = stored if isinstance(stored, dict) else {}
+        out = category_defaults()
+        for key in CATEGORY_KEYS:
+            if key in stored:
+                out[key] = bool(stored[key])
+        return out
 
     def status(self) -> dict:
         cfg = self._load_config()
@@ -119,6 +143,11 @@ class SyncService:
             "device_label": section.get("device_label"),
             "interval_seconds": self.interval_seconds,
             "known_devices": devices,
+            "settings": self.settings_state(cfg),
+            "settings_categories": [
+                {"key": c.key, "label": c.label, "default": c.default}
+                for c in CATEGORIES
+            ],
             "last_result": self.last_result,
             "last_error": self.last_error,
         }
@@ -134,10 +163,20 @@ class SyncService:
             cfg["profile"] = p
             self._save_config(cfg)
 
+        # Config-backed `setting` bridge: the engine reads the whole config to
+        # export enabled paths and writes it back after applying imports. Category
+        # gating (incl. the Profile toggle) is derived from this same dict.
+        def load_settings():
+            return self._load_config()
+
+        def save_settings(cfg):
+            self._save_config(cfg)
+
         self._docs_dir.mkdir(parents=True, exist_ok=True)
         return SyncEngine(
             self._db_path_fn(), device_id,
             load_profile=load_profile, save_profile=save_profile,
+            load_settings=load_settings, save_settings=save_settings,
             docs_dir=self._docs_dir,
         )
 
@@ -171,7 +210,8 @@ class SyncService:
                 result = {
                     "skipped": False,
                     "imported": {"upserts": imp.upserts, "deletes": imp.deletes,
-                                 "deferred": imp.deferred, "profile": imp.profile_updated},
+                                 "deferred": imp.deferred, "profile": imp.profile_updated,
+                                 "settings": imp.settings_updated},
                     "exported": {"live": exp.live, "tombstones": exp.tombstones},
                     "compacted": dropped,
                 }

@@ -1,0 +1,3 @@
+{"v":1,"entity":"setting","id":"application_honesty.resume_style","updated_at":"2026-07-08T12:00:00.000Z","device":"C3D4","deleted":false,"data":{"value":"swiss"}}
+{"v":1,"entity":"setting","id":"ai.api_key","updated_at":"2026-07-08T11:00:00.000Z","device":"C3D4","deleted":false,"data":{"value":"sk-shared"}}
+{"v":1,"entity":"setting","id":"prompts.junk","updated_at":"2026-07-08T13:00:00.000Z","device":"C3D4","deleted":true}

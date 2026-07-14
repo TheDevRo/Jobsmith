@@ -42,7 +42,8 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def tool(tmp_path_factory):
     out = tmp_path_factory.mktemp("swifttool") / "sync-crosslang"
-    sources = [str(SYNC_SRC / f) for f in ("JSONValue.swift", "SyncMerge.swift", "SyncEntities.swift")]
+    sources = [str(SYNC_SRC / f) for f in
+               ("JSONValue.swift", "SyncMerge.swift", "SyncEntities.swift", "SettingsSync.swift")]
     subprocess.run(["swiftc", "-O", *sources, str(TOOL_SRC), "-o", str(out)], check=True)
     return out
 
@@ -114,3 +115,53 @@ async def test_swift_merge_matches_python_oracle(tool, tmp_path, monkeypatch):
     python_merged = mergelib.merge_folder(folder)
 
     assert swift_merged == python_merged
+
+
+def test_registry_canonical_ids_match(tool):
+    """Registry parity: the Swift `registry` canonical-id list must equal the
+    Python `syncable()` canonical-id list, or the two mappers have drifted."""
+    from backend.sync import settings_registry as sr
+    out = subprocess.run([str(tool), "registry", "/unused"], check=True,
+                         capture_output=True, text=True)
+    swift_ids = json.loads(out.stdout)
+    assert swift_ids == sr.syncable_canonical_ids()
+
+
+@pytest.mark.asyncio
+async def test_swift_emitted_settings_import_into_desktop(tool, tmp_path, monkeypatch):
+    """The iOS SettingsSync mapper's `setting` records import cleanly into the
+    desktop engine: enums normalize, enabled_sources unfolds, the AI key syncs,
+    the on-device sentinel never arrives, and a folder-strip secret is absent."""
+    import copy
+    folder = tmp_path / "sync"
+    subprocess.run([str(tool), "emit-settings", str(folder)], check=True)
+
+    db = tmp_path / "desktop.db"
+    await _init_db(db, monkeypatch)
+
+    box = {"cfg": {"sync": {"settings": {"documents": True, "postings": True,
+                                         "ai_connection": True, "prompts": True}}}}
+    engine = SyncEngine(
+        db, "MAC1",
+        load_settings=lambda: copy.deepcopy(box["cfg"]),
+        save_settings=lambda c: box.__setitem__("cfg", copy.deepcopy(c)),
+    )
+    imp = await engine.import_changes(folder)
+    assert imp.settings_updated > 0
+
+    cfg = box["cfg"]
+    ah = cfg["application_honesty"]
+    assert ah["resume_style"] == "ledger"          # 'modern' alias normalized
+    assert ah["honesty_level"] == "tailored"
+    assert cfg["search"]["min_salary"] is None      # explicit null preserved
+    assert cfg["ai"]["api_key"] == "sk-shared"      # AI key syncs through the folder
+    assert cfg["ai"]["models"]["strong"]["model"] == "big-model"
+    # The 'fast' tier held the on-device sentinel on iOS, so it was never emitted.
+    assert cfg.get("ai", {}).get("models", {}).get("fast", {}).get("model") is None
+    assert cfg["prompts"]["score"] == "my score prompt"
+    # enabled_sources unfolded to per-source bools; linkedin folded in from the flag.
+    from backend.sync import settings_registry as sr
+    folded = sr.fold_enabled_sources(cfg)
+    assert set(folded) >= {"greenhouse", "remoteok", "linkedin"}
+    # A folder-strip secret (adzuna) is not a registry row, so it never travelled.
+    assert "adzuna_app_key" not in cfg.get("api_keys", {})

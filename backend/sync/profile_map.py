@@ -56,8 +56,18 @@ IOS_OWNED_CANON_KEYS = (
     | {"experience", "education", "references"}
 )
 
-# Desktop-only keys that must never enter a change record.
-SECRET_KEYS = {"workday_email", "workday_password", "ats_login_password"}
+# Desktop-only keys that must never enter a change record. Derived from the
+# canonical settings registry (the single source of truth that replaced the two
+# disagreeing secret lists): the profile-scoped folder-strip secrets, with the
+# `profile.` prefix removed since this filter runs over the profile sub-dict. A
+# guard test pins that every member is in settings_registry.secret_canonical_keys.
+from . import settings_registry as _sr  # noqa: E402
+
+SECRET_KEYS = frozenset(
+    k[len("profile."):]
+    for k in _sr.secret_canonical_keys()
+    if k.startswith("profile.")
+)
 
 
 def _map_items(items, mapping):

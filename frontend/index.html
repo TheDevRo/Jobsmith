@@ -1074,6 +1074,12 @@
                                 </select>
                                 <span class="hint">How often this device checks the shared folder for changes and pushes its own. Lower is more responsive; higher is lighter on the folder provider.</span>
                             </div>
+                            <div class="form-group" style="margin-top:4px">
+                                <label>Sync these across devices</label>
+                                <span class="hint">Pick which groups of settings ride the same folder. A group only syncs when it's on here <em>and</em> on your other device. Turn on a group on both devices to share it.</span>
+                                <div id="sync-categories" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+                                <span class="hint" style="margin-top:8px;display:block"><strong>AI Connection includes your AI API key</strong> — it travels in your sync folder with the endpoint and model choices, so a phone off the inference box works without re-entering anything. It is still hidden from off-machine API callers. <strong>Never synced:</strong> ATS/Workday login passwords, the LinkedIn cookie, Adzuna/USAJobs/BLS keys, the extension token, server ports, and the sync folder itself.</span>
+                            </div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
                                 <button class="btn btn-primary btn-sm" id="sync-now-btn" onclick="runSyncNow()">Sync now</button>
                                 <button class="btn btn-secondary btn-sm" onclick="loadSyncSettings()">Refresh status</button>

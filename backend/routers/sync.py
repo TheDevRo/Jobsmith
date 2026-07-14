@@ -23,6 +23,9 @@ class SyncConfigUpdate(BaseModel):
     folder: Optional[str] = None
     device_label: Optional[str] = None
     interval_seconds: Optional[int] = None
+    # Per-category sync toggles (sync.settings.<key>). Unknown keys are ignored
+    # by the service (validated against the registry's category keys).
+    settings: Optional[dict] = None
 
 
 @router.get("/api/sync/status")
@@ -39,6 +42,7 @@ async def sync_config(update: SyncConfigUpdate):
         folder=update.folder,
         device_label=update.device_label,
         interval_seconds=update.interval_seconds,
+        settings=update.settings,
     )
 
 

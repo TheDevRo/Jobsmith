@@ -1,0 +1,30 @@
+{
+  "_comment": "Per-key LWW over the config-backed `setting` entity. Each syncable key is its own record (id = canonical dotted path), so resume_style (C3D4 @ 12:00) overrides A1B2's 10:00 without touching prompts.score. A deleted prompt override tombstones. enabled_sources rides as its canonical sorted list. A conforming merge must reproduce this exactly.",
+  "live": {
+    "setting": {
+      "application_honesty.resume_style": {
+        "value": "swiss",
+        "_won_from": "C3D4 @ 12:00 (newer than A1B2 @ 10:00)"
+      },
+      "search.enabled_sources": {
+        "value": ["greenhouse", "linkedin", "remoteok"],
+        "_won_from": "A1B2 @ 10:00 (only version) — canonical sorted list"
+      },
+      "prompts.score": {
+        "value": "A score prompt",
+        "_won_from": "A1B2 @ 10:00 (only version) — per-prompt record, untouched"
+      },
+      "ai.api_key": {
+        "value": "sk-shared",
+        "_won_from": "C3D4 @ 11:00 — the AI key syncs through the user-owned folder"
+      }
+    }
+  },
+  "tombstones": {
+    "setting": {
+      "prompts.junk": {
+        "_won_from": "C3D4 @ 13:00 delete (newer than A1B2's 10:00 create)"
+      }
+    }
+  }
+}

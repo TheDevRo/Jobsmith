@@ -16,32 +16,52 @@ public final class SyncEngine {
     public struct ExportStats: Equatable { public var live = 0; public var tombstones = 0
         public var total: Int { live + tombstones } }
     public struct ImportStats: Equatable { public var upserts = 0; public var deletes = 0
-        public var deferred = 0; public var profileUpdated = false }
+        public var deferred = 0; public var profileUpdated = false; public var settingsUpdated = 0 }
 
     enum Kind { case text, int, double, bool, json }
 
     /// Bumped when the canonical wire format changes in a way that makes this
     /// device's previously-emitted records wrong (v2: fold triage into status;
-    /// v3: split job facts from the `triage` decision entity). A device whose
-    /// stored `sync_format` is older force-re-exports once.
-    static let syncFormatVersion = 3
+    /// v3: split job facts from the `triage` decision entity; v4: add the config-
+    /// backed `setting` entity). A device whose stored `sync_format` is older
+    /// force-re-exports once. A client predating an entity MUST skip records it
+    /// has no handler for on import (it does — see SyncConformanceTests).
+    /// Keep in lockstep with backend/sync/engine.py:SYNC_FORMAT_VERSION.
+    static let syncFormatVersion = 4
 
     let db: AppDatabase
     let deviceId: String
     let loadProfile: () -> [String: JSONValue]?
     let saveProfile: ([String: JSONValue]) -> Void
+    /// Config-backed `setting` bridge (per-key LWW). loadSettings hands back the
+    /// iOS-native config dict (camelCase, nested honesty/search/ai/promptOverrides)
+    /// snapshotted before the run; saveSettings writes the merged result after.
+    /// `settingsEnabled` is the set of category keys this device syncs (device-
+    /// local UserDefaults flags), and also gates the profile bridge via
+    /// `.contains("profile")`.
+    let loadSettings: () -> [String: JSONValue]?
+    let saveSettings: ([String: JSONValue]) -> Void
+    let settingsEnabled: Set<String>
     let docsLocalDir: URL?
     let now: () -> Date
+
+    private var profileEnabled: Bool { settingsEnabled.contains("profile") }
 
     public init(db: AppDatabase, deviceId: String,
                 loadProfile: @escaping () -> [String: JSONValue]? = { nil },
                 saveProfile: @escaping ([String: JSONValue]) -> Void = { _ in },
+                loadSettings: @escaping () -> [String: JSONValue]? = { nil },
+                saveSettings: @escaping ([String: JSONValue]) -> Void = { _ in },
+                settingsEnabled: Set<String> = ["profile"],
                 docsLocalDir: URL? = nil,
                 now: @escaping () -> Date = { Date() }) {
         self.db = db
         self.deviceId = deviceId
         self.loadProfile = loadProfile
         self.saveProfile = saveProfile
+        self.loadSettings = loadSettings
+        self.saveSettings = saveSettings
+        self.settingsEnabled = settingsEnabled
         self.docsLocalDir = docsLocalDir
         self.now = now
     }
@@ -398,7 +418,10 @@ public final class SyncEngine {
             try diff(entity: "application_event", current: try appEventSnapshot(dbc))
             try diff(entity: "application_schedule", current: try scheduleSnapshot(dbc))
 
-            if let iosProfile = loadProfile() {
+            // Profile bridge — GATED by the `profile` category. Off ⇒ skip export
+            // entirely (and never tombstone profile/me), keeping a device-specific
+            // profile.
+            if profileEnabled, let iosProfile = loadProfile() {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
                 let cj = canon(canonProfile)
                 let snap = try loadSnapshot(dbc, "profile")["me"]
@@ -407,6 +430,33 @@ public final class SyncEngine {
                                                 device: deviceId, deleted: false, data: canonProfile))
                     try putSnapshot(dbc, "profile", "me", ts, false, cj)
                     stats.live += 1
+                }
+            }
+
+            // Settings bridge — one record per enabled canonical path. Only
+            // modeled paths ever enter the snapshot, so an unmodeled path a peer
+            // sent (pipeline.*) is never tombstoned from here.
+            if let cfg = loadSettings() {
+                let current = SettingsSync.export(cfg, enabled: settingsEnabled)
+                let snap = try loadSnapshot(dbc, "setting")
+                for (path, data) in current {
+                    let cj = canon(data)
+                    let prev = snap[path]
+                    if force || prev == nil || prev!.deleted || prev!.dataJSON != cj {
+                        records.append(ChangeRecord(entity: "setting", id: path, updatedAt: ts,
+                                                    device: deviceId, deleted: false, data: data))
+                        try putSnapshot(dbc, "setting", path, ts, false, cj)
+                        stats.live += 1
+                    }
+                }
+                for (path, prev) in snap where !prev.deleted && current[path] == nil {
+                    guard SettingsSync.isModeled(path),
+                          let cat = SettingsSync.category(for: path), settingsEnabled.contains(cat)
+                    else { continue }
+                    records.append(ChangeRecord(entity: "setting", id: path, updatedAt: ts,
+                                                device: deviceId, deleted: true, data: nil))
+                    try putSnapshot(dbc, "setting", path, ts, true, nil)
+                    stats.tombstones += 1
                 }
             }
 
@@ -486,15 +536,37 @@ public final class SyncEngine {
             for (key, rec) in winners where key.entity == "job" && rec.deleted {
                 try deleteJob(dbc, key.id); stats.deletes += 1
             }
-            // Profile.
-            if let rec = winners[SyncMerge.Key(entity: "profile", id: "me")], !rec.deleted {
+            // Profile — GATED by the `profile` category (symmetric with export).
+            if profileEnabled,
+               let rec = winners[SyncMerge.Key(entity: "profile", id: "me")], !rec.deleted {
                 let base = loadProfile() ?? [:]
                 let merged = base.merging(SyncEntities.profileCanonicalToIOS(rec.data ?? [:])) { _, new in new }
                 saveProfile(merged)
                 stats.profileUpdated = true
             }
 
-            try rebuildSnapshot(dbc, winners, deferred, store)
+            // Settings — apply each winning `setting/<path>` whose category is
+            // enabled here. loadSettings hands back a pre-run snapshot, so we
+            // thread the merged dict straight into rebuildSnapshot rather than
+            // re-loading (the closure wouldn't yet see the write-back).
+            var settingsCfg = loadSettings()
+            if settingsCfg != nil {
+                var changed = 0
+                for (key, rec) in winners where key.entity == "setting" {
+                    guard let cat = SettingsSync.category(for: key.id),
+                          settingsEnabled.contains(cat) else { continue }
+                    if rec.deleted {
+                        SettingsSync.removePrompt(&settingsCfg!, key.id)  // unmodeled: no-op
+                    } else {
+                        SettingsSync.apply(&settingsCfg!, path: key.id,
+                                           value: rec.data?["value"] ?? .null)
+                    }
+                    changed += 1
+                }
+                if changed > 0 { saveSettings(settingsCfg!); stats.settingsUpdated = changed }
+            }
+
+            try rebuildSnapshot(dbc, winners, deferred, store, settingsCfg)
             if let maxTS = winners.values.map(\.updatedAt).max() {
                 if let last = try meta(dbc, "last_ts"), last >= maxTS {} else { try setMeta(dbc, "last_ts", maxTS) }
             }
@@ -615,19 +687,34 @@ public final class SyncEngine {
     }
 
     private func rebuildSnapshot(_ dbc: Database, _ winners: [SyncMerge.Key: ChangeRecord],
-                                 _ deferred: Set<String>, _ store: DocumentStore?) throws {
+                                 _ deferred: Set<String>, _ store: DocumentStore?,
+                                 _ settingsCfg: [String: JSONValue]?) throws {
         let jobs = try jobSnapshot(dbc)
         let triage = try triageSnapshot(dbc)
         let apps = try appSnapshot(dbc, store)
         let appEvents = try appEventSnapshot(dbc)
         let schedules = try scheduleSnapshot(dbc)
+        // Re-read what we'd emit next for settings so a following export is a
+        // no-op; only modeled paths in an enabled category were applied.
+        let settingsExport = settingsCfg.map { SettingsSync.export($0, enabled: settingsEnabled) } ?? [:]
         for (key, rec) in winners {
             if rec.deleted {
+                if key.entity == "setting",
+                   !(SettingsSync.isModeled(key.id)
+                     && (SettingsSync.category(for: key.id).map(settingsEnabled.contains) ?? false)) {
+                    continue  // unmodeled / disabled: we never touched it
+                }
                 try putSnapshot(dbc, key.entity, key.id, rec.updatedAt, true, nil); continue
             }
             if deferred.contains("\(key.entity):\(key.id)") { continue }
             let dataJSON: String
             switch key.entity {
+            case "setting":
+                // Skip unmodeled / disabled paths so re-enabling later still
+                // exports our local value (diff vs an untouched snapshot).
+                guard let cat = SettingsSync.category(for: key.id), settingsEnabled.contains(cat),
+                      SettingsSync.isModeled(key.id), let data = settingsExport[key.id] else { continue }
+                dataJSON = canon(data)
             case "profile":
                 dataJSON = canon(SyncEntities.profileIOSToCanonical(loadProfile() ?? [:]))
             case "job":
