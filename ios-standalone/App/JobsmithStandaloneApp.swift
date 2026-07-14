@@ -67,8 +67,24 @@ struct RootTabView: View {
     @State private var showOnboarding = false
 
     var body: some View {
+        tabs
+            .onShake { model.requestUndo() }
+            // The system's own phrasing, and for the same reason: a shake is a
+            // gesture you can make without meaning to, so it asks rather than acts.
+            .alert("Undo?", isPresented: Binding(
+                get: { model.pendingUndo != nil },
+                set: { if !$0 { model.pendingUndo = nil } }
+            )) {
+                Button("Undo") { model.performUndo() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(model.pendingUndo?.label ?? "")
+            }
+    }
+
+    private var tabs: some View {
         @Bindable var model = model
-        TabView {
+        return TabView {
             InboxView()
                 .tabItem { Label("Inbox", systemImage: "tray.full") }
                 .badge(model.stats.newInInbox)

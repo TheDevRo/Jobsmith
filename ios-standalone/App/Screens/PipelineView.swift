@@ -113,7 +113,7 @@ struct PipelineView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Removes each posting and its tailored documents. This can't be undone.")
+                Text("Removes each posting and its tailored documents. Shake your phone straight after to undo it.")
             }
             .confirmationDialog("\(unscoredCount) unscored job\(unscoredCount == 1 ? "" : "s")",
                                 isPresented: $showScoreAllConfirm, titleVisibility: .visible) {

@@ -29,6 +29,8 @@ final class AppModel {
     /// and clears it. Before this, notifications wrote a `deepLink` into userInfo
     /// that nothing ever read, so a tap went nowhere.
     var deepLinkedJobId: String?
+    /// The action a shake is offering to take back; drives the undo prompt.
+    var pendingUndo: UndoableAction?
     /// Normalized (title, company) keys of roles already applied to — drives the
     /// "already applied" badge. See isAlreadyApplied.
     var appliedIdentities: Set<String> = []
@@ -169,6 +171,50 @@ final class AppModel {
         return appliedIdentities.contains(key)
     }
 
+    // MARK: - Undo (shake)
+
+    /// History behind the shake gesture. Not everything the app does belongs
+    /// here: tailoring a resume or running a search is deliberate, slow, and
+    /// visible, whereas a triage swipe is one careless flick away from throwing
+    /// out the job you wanted — those are the actions worth being able to take
+    /// back, so those are the ones that register.
+    let undoStack = UndoStack()
+
+    /// True while an undo closure is running, so the write it makes to put things
+    /// back doesn't land on the stack as an action of its own. Without it, a
+    /// reverted outcome would leave behind an "undo the undo" entry.
+    private var isUndoing = false
+
+    private func registerUndo(_ label: String, revert: @escaping () -> Void) {
+        guard !isUndoing else { return }
+        undoStack.register(label, revert: revert)
+    }
+
+    /// The user shook the phone. Offer the last undoable action — as a prompt,
+    /// never as an immediate revert: a shake is easy to set off by accident, in a
+    /// pocket or on a walk, and silently rolling back the user's last action
+    /// would be a worse bug than the one this feature exists to fix.
+    func requestUndo() {
+        guard pendingUndo == nil, let action = undoStack.top else { return }
+        pendingUndo = action
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    }
+
+    /// The user confirmed the prompt. Undoing by id rather than "whatever is on
+    /// top" keeps us honest if something landed on the stack while the prompt was
+    /// up — we take back exactly what the prompt named.
+    func performUndo() {
+        guard let action = pendingUndo else { return }
+        pendingUndo = nil
+        isUndoing = true
+        undoStack.undo(action.id)
+        isUndoing = false
+        activityStore.log("undone", action.label)
+        refresh()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Task { await syncNow() }
+    }
+
     // MARK: outcomes
 
     /// Record what the employer did after you applied. This is the whole point of
@@ -177,6 +223,7 @@ final class AppModel {
     func setOutcome(jobId: String, _ outcome: ApplicationOutcome) {
         guard let application = applicationsByJob[jobId],
               application.outcome != outcome.rawValue else { return }
+        let previous = ApplicationOutcome(rawValue: application.outcome)
         do {
             try applicationStore.recordOutcome(id: application.id, outcome: outcome)
         } catch {
@@ -185,6 +232,16 @@ final class AppModel {
         }
         let title = pipeline.first { $0.id == jobId }?.title ?? "application"
         activityStore.log("outcome", "\(outcome.label) — \(title)", jobId: jobId)
+        if let previous {
+            // The history is append-only — two devices merge it as a union — so
+            // taking an outcome back means recording the move *back*, not erasing
+            // the move forward. The detail screen's history shows both, which is
+            // what actually happened.
+            let applicationId = application.id
+            registerUndo("Marked \(title) as \(outcome.label).") { [weak self] in
+                try? self?.applicationStore.recordOutcome(id: applicationId, outcome: previous)
+            }
+        }
         refresh()
         Task { await syncNow() }
     }
@@ -273,6 +330,7 @@ final class AppModel {
     }
 
     func triage(_ job: Job, as triage: String) {
+        let previous = job.triage
         try? jobStore.setTriage(triage, jobId: job.id)
         withAnimation(.snappy) {
             inbox.removeAll { $0.id == job.id }
@@ -282,6 +340,13 @@ final class AppModel {
         }
         stats = (try? jobStore.stats()) ?? stats
         pipeline = (try? jobStore.jobs(triage: "shortlisted")) ?? pipeline
+        // The card is gone in one flick of a thumb, and the inbox is a deck you
+        // move through fast — this is the action shake-to-undo exists for.
+        registerUndo(triage == "shortlisted"
+                     ? "Shortlisted \(job.title) at \(job.company)."
+                     : "Passed on \(job.title) at \(job.company).") { [weak self] in
+            try? self?.jobStore.setTriage(previous, jobId: job.id)
+        }
     }
 
     /// AI engine for scoring/tailoring. Mock in UI tests; otherwise routes
@@ -751,16 +816,39 @@ final class AppModel {
 
     // MARK: - Deletion
 
-    /// Delete specific jobs (Pipeline multi-select). The FK cascade removes
-    /// each job's application row; document files are cleaned up separately.
+    /// Delete specific jobs (Pipeline multi-select). A soft delete — the row stays
+    /// and only its triage changes — so the application row survives (the FK
+    /// cascade is on a real DELETE, which this is not) and only the generated
+    /// document files actually go.
     func deleteJobs(_ ids: Set<String>) {
         guard !ids.isEmpty else { return }
+        // Capture each job's triage before the delete overwrites it: that value is
+        // the whole of what an undo has to put back.
+        let previousTriage: [(id: String, triage: String)] = ids.compactMap { id in
+            guard let job = try? jobStore.job(id: id) else { return nil }
+            return (id, job.triage)
+        }
         for id in ids {
             try? jobStore.delete(jobId: id)
             FileVault.deleteDocuments(jobId: id)
         }
         activityStore.log("deleted", "Deleted \(ids.count) posting\(ids.count == 1 ? "" : "s")")
         refresh()
+
+        let count = ids.count
+        registerUndo("Deleted \(count) posting\(count == 1 ? "" : "s").") { [weak self] in
+            guard let self else { return }
+            for (id, triage) in previousTriage {
+                try? self.jobStore.setTriage(triage, jobId: id)
+                // The DOCX/PDF files were really deleted, but they are derived —
+                // the application row holds the resume and cover-letter text they
+                // were rendered from, so restoring the job can rebuild them.
+                if let job = try? self.jobStore.job(id: id),
+                   let application = try? self.applicationStore.application(jobId: id) {
+                    try? self.regenerateDocuments(for: application, job: job)
+                }
+            }
+        }
     }
 
     /// Clear every tracked posting and its tailored documents, plus the fetch
@@ -770,6 +858,9 @@ final class AppModel {
         wipeTables(["applications", "jobs", "activity_log",
                     "source_stats", "geo_cache", "ai_cache"])
         try? FileManager.default.removeItem(at: AppGroup.documentsDirectory)
+        // These are hard deletes: every pending undo would be writing back to a
+        // row that no longer exists, so the offer has to go with the rows.
+        undoStack.clear()
         refresh()
     }
 
@@ -783,6 +874,7 @@ final class AppModel {
         try? FileManager.default.removeItem(at: AppGroup.importsDirectory)
         try? FileManager.default.removeItem(at: AppGroup.configURL)
         try? AnswerBankMatcher(store: answerBank).seedIfEmpty()
+        undoStack.clear()
         Task {
             config = await configStore.reload()
             refresh()
