@@ -105,8 +105,10 @@ jobsmith/
 ├── config.yaml                 # All user settings (profile, search, AI, auto_apply)
 ├── config.example.yaml         # Template config for new installs
 ├── start_server.sh             # One-command startup: venv + uvicorn :8888 --reload
-├── debug_apply.py              # CLI tool: test apply to a URL (never actually submits)
-└── AI_NAVIGATOR_PLAN.md        # Design doc for experimental AI nav loop
+└── scripts/dev/                # Developer one-offs (not shipped)
+    ├── debug_apply.py          # CLI tool: test apply to a URL (never actually submits)
+    ├── linkedin_login.py       # Create the persistent LinkedIn browser profile
+    └── test_navigator.py       # Smoke test for the AI navigator loop
 ```
 
 ---
@@ -510,7 +512,7 @@ The config is **read fresh on every background task** — you can change `config
 
 | Platform | Session Path | Notes |
 |----------|-------------|-------|
-| LinkedIn | `data/linkedin_chrome_profile/` | Persistent Chromium profile. Run `linkedin_login.py` to create. Sentinel: `login_success.json` |
+| LinkedIn | `data/linkedin_chrome_profile/` | Persistent Chromium profile. Run `scripts/dev/linkedin_login.py` to create. Sentinel: `login_success.json` |
 | Indeed | `data/indeed_chrome_profile/` | Persistent Chromium profile. Also injects `data/indeed_session/storage_state.json` cookies. |
 | Workday | `data/workday_session/` | Firefox profile. Uses `profile.workday_email` / `profile.workday_password` from config. |
 
@@ -561,7 +563,7 @@ tests/auto_apply/
 ```
 
 Run with: `venv/bin/python -m pytest tests/auto_apply/ -v`
-Debug a specific URL without submitting: `venv/bin/python debug_apply.py "https://..."`
+Debug a specific URL without submitting: `venv/bin/python scripts/dev/debug_apply.py "https://..."`
 
 ---
 

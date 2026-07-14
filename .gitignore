@@ -56,7 +56,15 @@ Thumbs.db
 # Claude Code local settings (may contain local paths)
 .claude/
 
+# iOS signing config (set your own DEVELOPMENT_TEAM here — see README-IOS-STANDALONE.md)
+ios-standalone/Local.xcconfig
+
+# Beta release kit (listing copy + screenshots) — local-only, never committed
+beta-release/
+
 # Local session notes
+PUBLIC_RELEASE_PLAN.md
+*_PLAN.md
 MONETIZATION_PLAN.md
 RESUME_STYLES_NOTES.md
 FUTURE_IDEAS.md
