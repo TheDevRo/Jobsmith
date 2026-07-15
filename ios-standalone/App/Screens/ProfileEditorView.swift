@@ -13,6 +13,8 @@ struct ProfileEditorView: View {
             Section {
                 TextField("Full name", text: $profile.fullName)
                     .textContentType(.name)
+                TextField("Middle name", text: $profile.middleName)
+                    .textContentType(.middleName)
                 TextField("Email", text: $profile.email)
                     .textContentType(.emailAddress)
                     .keyboardType(.emailAddress)
@@ -31,6 +33,8 @@ struct ProfileEditorView: View {
             Section {
                 TextField("Street address", text: $profile.streetAddress)
                     .textContentType(.streetAddressLine1)
+                TextField("Apt, suite, unit (optional)", text: $profile.streetAddress2)
+                    .textContentType(.streetAddressLine2)
                 TextField("City", text: $profile.city)
                     .textContentType(.addressCity)
                 TextField("State", text: $profile.state)
@@ -119,6 +123,17 @@ struct ProfileEditorView: View {
                 Eyebrow(text: "Application answers")
             } footer: {
                 Text("Used to autofill standard ATS questions. The answer bank in Apply Assist learns the rest.")
+            }
+
+            Section {
+                TextField("Gender", text: $profile.gender)
+                TextField("Race / ethnicity", text: $profile.raceEthnicity)
+                TextField("Veteran status", text: $profile.veteranStatus)
+                TextField("Disability status", text: $profile.disabilityStatus)
+            } header: {
+                Eyebrow(text: "Voluntary Self-Identification (EEO)")
+            } footer: {
+                Text("All optional. Used only to answer application EEO questions — leave any blank and Apply Assist declines that question for you.")
             }
         }
         .navigationTitle("Profile")

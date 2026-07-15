@@ -18,10 +18,12 @@ from __future__ import annotations
 # Scalar canonical(snake) -> iOS(camel). Domain = the canonical keys iOS models.
 CANON_TO_IOS_SCALAR = {
     "full_name": "fullName",
+    "middle_name": "middleName",
     "email": "email",
     "phone": "phone",
     "location": "location",
     "street_address": "streetAddress",
+    "street_address_2": "streetAddress2",
     "city": "city",
     "state": "state",
     "zip_code": "zipCode",
@@ -31,6 +33,10 @@ CANON_TO_IOS_SCALAR = {
     "desired_salary": "desiredSalary",
     "work_authorization": "workAuthorization",
     "sponsorship_required": "sponsorshipRequired",
+    "gender": "gender",
+    "race_ethnicity": "raceEthnicity",
+    "veteran_status": "veteranStatus",
+    "disability_status": "disabilityStatus",
     "available_start": "availableStart",
     "notice_period": "noticePeriod",
     "summary": "summary",
@@ -48,8 +54,9 @@ REF_CANON_TO_IOS = {
     "email": "email", "phone": "phone",
 }
 
-# Canonical keys iOS owns (emits on export). Everything else in canonical
-# (middle_name, street_address_2, the EEO block, ...) is preserved via base.
+# Canonical keys iOS owns (emits on export). middle_name, street_address_2 and
+# the EEO block are now iOS-owned scalars; only forward-compat keys iOS doesn't
+# yet model are preserved via base.
 IOS_OWNED_CANON_KEYS = (
     set(CANON_TO_IOS_SCALAR)
     | set(CANON_TO_IOS_LIST)

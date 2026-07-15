@@ -211,12 +211,52 @@ final class ProfileFieldMatcherTests: XCTestCase {
     }
 
     func testEEOFallsBackToDeclineOption() {
+        // The shared fixture leaves the EEO fields empty — every one must fall
+        // back to the decline option (or "Prefer not to answer" for free text).
         let gender = match(FieldDescriptor(fieldId: "g", label: "Gender", fieldType: "select",
                                            options: ["Male", "Female", "Prefer not to say"]))
         XCTAssertEqual(gender?.value, "Prefer not to say")
 
         let race = match(FieldDescriptor(fieldId: "r", label: "Race/Ethnicity", fieldType: "text"))
         XCTAssertEqual(race?.value, "Prefer not to answer")
+    }
+
+    func testEEOFromPopulatedProfile() {
+        let p = Profile(gender: "Female", raceEthnicity: "Two or more races",
+                        veteranStatus: "I am not a veteran", disabilityStatus: "No")
+        func m(_ f: FieldDescriptor) -> FieldValue? {
+            ProfileFieldMatcher.matchProfileFields(profile: p, fields: [f])[f.fieldId]
+        }
+        // Gender select resolves the profile value to the matching option.
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "g", label: "Gender", fieldType: "select",
+                                         options: ["Male", "Female", "Prefer not to say"]))?.value,
+                       "Female")
+        // A veteran sentence maps to the closest real option.
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "v", label: "Veteran status", fieldType: "select",
+                                         options: ["I am a protected veteran",
+                                                   "I am not a protected veteran"]))?.value,
+                       "I am not a protected veteran")
+        // Race as free text fills the profile value verbatim (no decline fallback).
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "r", label: "Race/Ethnicity",
+                                         fieldType: "text"))?.value, "Two or more races")
+        // Disability yes/no select.
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "d", label: "Do you have a disability?",
+                                         fieldType: "select",
+                                         options: ["Yes", "No", "Prefer not to answer"]))?.value, "No")
+    }
+
+    func testMiddleNameAndAddressLine2FromProfile() {
+        let p = Profile(middleName: "Quinn", streetAddress2: "Apt 5B")
+        func m(_ f: FieldDescriptor) -> FieldValue? {
+            ProfileFieldMatcher.matchProfileFields(profile: p, fields: [f])[f.fieldId]
+        }
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "mn", label: "Middle Name"))?.value, "Quinn")
+        XCTAssertEqual(m(FieldDescriptor(fieldId: "a2", label: "Apartment / Suite"))?.value, "Apt 5B")
+        // Empty middle name / line 2 must leave the field for the LLM, not fill blank.
+        let empty = ApplyFixtures.profile()
+        XCTAssertNil(ProfileFieldMatcher.matchProfileFields(
+            profile: empty,
+            fields: [FieldDescriptor(fieldId: "mn", label: "Middle Name")])["mn"])
     }
 
     func testEducationStartDateGuardBlocksAvailabilityMisfill() {

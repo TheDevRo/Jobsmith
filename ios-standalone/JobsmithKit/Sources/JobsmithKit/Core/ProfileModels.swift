@@ -4,10 +4,12 @@ import Foundation
 /// Mirrors the `profile:` section of the desktop config.yaml.
 public struct Profile: Codable, Equatable, Sendable {
     public var fullName: String
+    public var middleName: String
     public var email: String
     public var phone: String
     public var location: String
     public var streetAddress: String
+    public var streetAddress2: String
     public var city: String
     public var state: String
     public var zipCode: String
@@ -17,6 +19,12 @@ public struct Profile: Codable, Equatable, Sendable {
     public var desiredSalary: String
     public var workAuthorization: String
     public var sponsorshipRequired: String
+    /// Voluntary self-identification (EEO). Blank means "prefer not to answer";
+    /// Apply Assist declines the question when these are empty.
+    public var gender: String
+    public var raceEthnicity: String
+    public var veteranStatus: String
+    public var disabilityStatus: String
     public var availableStart: String
     public var noticePeriod: String
     public var summary: String
@@ -28,23 +36,30 @@ public struct Profile: Codable, Equatable, Sendable {
     public var references: [Reference]
 
     public init(
-        fullName: String = "", email: String = "", phone: String = "",
-        location: String = "", streetAddress: String = "", city: String = "",
+        fullName: String = "", middleName: String = "", email: String = "",
+        phone: String = "", location: String = "", streetAddress: String = "",
+        streetAddress2: String = "", city: String = "",
         state: String = "", zipCode: String = "", linkedin: String = "",
         github: String = "", portfolio: String = "", desiredSalary: String = "",
         workAuthorization: String = "", sponsorshipRequired: String = "",
+        gender: String = "", raceEthnicity: String = "", veteranStatus: String = "",
+        disabilityStatus: String = "",
         availableStart: String = "", noticePeriod: String = "",
         summary: String = "", skills: [String] = [],
         experience: [WorkExperience] = [], education: [Education] = [],
         certifications: [String] = [], references: [Reference] = []
     ) {
-        self.fullName = fullName; self.email = email; self.phone = phone
+        self.fullName = fullName; self.middleName = middleName; self.email = email
+        self.phone = phone
         self.location = location; self.streetAddress = streetAddress
+        self.streetAddress2 = streetAddress2
         self.city = city; self.state = state; self.zipCode = zipCode
         self.linkedin = linkedin; self.github = github; self.portfolio = portfolio
         self.desiredSalary = desiredSalary
         self.workAuthorization = workAuthorization
         self.sponsorshipRequired = sponsorshipRequired
+        self.gender = gender; self.raceEthnicity = raceEthnicity
+        self.veteranStatus = veteranStatus; self.disabilityStatus = disabilityStatus
         self.availableStart = availableStart; self.noticePeriod = noticePeriod
         self.summary = summary; self.skills = skills
         self.experience = experience; self.education = education
@@ -57,10 +72,12 @@ public struct Profile: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fullName = c.lenient(String.self, .fullName, "")
+        middleName = c.lenient(String.self, .middleName, "")
         email = c.lenient(String.self, .email, "")
         phone = c.lenient(String.self, .phone, "")
         location = c.lenient(String.self, .location, "")
         streetAddress = c.lenient(String.self, .streetAddress, "")
+        streetAddress2 = c.lenient(String.self, .streetAddress2, "")
         city = c.lenient(String.self, .city, "")
         state = c.lenient(String.self, .state, "")
         zipCode = c.lenient(String.self, .zipCode, "")
@@ -70,6 +87,10 @@ public struct Profile: Codable, Equatable, Sendable {
         desiredSalary = c.lenient(String.self, .desiredSalary, "")
         workAuthorization = c.lenient(String.self, .workAuthorization, "")
         sponsorshipRequired = c.lenient(String.self, .sponsorshipRequired, "")
+        gender = c.lenient(String.self, .gender, "")
+        raceEthnicity = c.lenient(String.self, .raceEthnicity, "")
+        veteranStatus = c.lenient(String.self, .veteranStatus, "")
+        disabilityStatus = c.lenient(String.self, .disabilityStatus, "")
         availableStart = c.lenient(String.self, .availableStart, "")
         noticePeriod = c.lenient(String.self, .noticePeriod, "")
         summary = c.lenient(String.self, .summary, "")
@@ -81,9 +102,11 @@ public struct Profile: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case fullName, email, phone, location, streetAddress, city, state, zipCode
+        case fullName, middleName, email, phone, location, streetAddress
+        case streetAddress2, city, state, zipCode
         case linkedin, github, portfolio, desiredSalary, workAuthorization
-        case sponsorshipRequired, availableStart, noticePeriod, summary, skills
+        case sponsorshipRequired, gender, raceEthnicity, veteranStatus
+        case disabilityStatus, availableStart, noticePeriod, summary, skills
         case experience, education, certifications, references
     }
 

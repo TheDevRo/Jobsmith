@@ -13,10 +13,12 @@ import Foundation
 ///   2. Ordered regex rules over a normalized haystack built from the field's
 ///      label, name, placeholder, id, autocomplete and extra_context.
 ///
-/// The iOS `Profile` model lacks a few desktop-only fields; those behave as
-/// the Python defaults: middle_name/street_address_2/EEO fields/ATS password
-/// are empty (EEO falls back to decline options), country is
-/// "United States", over_18 is "Yes".
+/// The iOS `Profile` now models the same middle_name / street_address_2 / EEO
+/// answers desktop does, so those getters read the profile directly. Fields the
+/// iOS profile still lacks behave as the Python defaults: the ATS password is
+/// empty, country is "United States", over_18 is "Yes". EEO getters still fall
+/// back to the decline option (or "Prefer not to answer") when the profile
+/// value is empty.
 public enum ProfileFieldMatcher {
 
     // Types a rule may apply to. "select" covers native selects AND combobox
@@ -305,6 +307,14 @@ public enum ProfileFieldMatcher {
         p.skills.isEmpty ? "" : p.skills.joined(separator: ", ")
     }
 
+    /// Hispanic/Latino yes-no derived from race_ethnicity — mirrors Python's
+    /// `_hispanic`. Empty when unset, so the EEO decline fallback kicks in.
+    static let hispanic: Getter = { p, _, _ in
+        let r = norm(p.raceEthnicity)
+        if r.isEmpty { return "" }
+        return (r.contains("hispanic") || r.contains("latin")) ? "Yes" : "No"
+    }
+
     static func attr(_ get: @escaping @Sendable (Profile) -> String) -> Getter {
         { p, _, _ in get(p) }
     }
@@ -342,9 +352,7 @@ public enum ProfileFieldMatcher {
         // --- Names (specific before generic "name") ---
         rule("first_name", #"\b(first name|given name|fname|forename)\b"#, firstName),
         rule("last_name", #"\b(last name|family name|surname|lname)\b"#, lastName),
-        // No middle name in the iOS profile — empty getter guards the field
-        // from a wrong deterministic fill (falls through to the LLM).
-        rule("middle_name", #"\bmiddle (name|initial)\b"#, const("")),
+        rule("middle_name", #"\bmiddle (name|initial)\b"#, attr { $0.middleName }),
         rule("preferred_name", #"\b(preferred name|nickname|goes by|known as)\b"#, firstName),
         rule("full_name",
              #"\b(full name|legal name|your name|candidate name|applicant name|complete name)\b|^name$"#,
@@ -360,7 +368,7 @@ public enum ProfileFieldMatcher {
 
         // --- Address ---
         rule("address_line2", #"\b(address line ?2|line ?2|apt|apartment|suite|unit number|unit)\b"#,
-             const("")),  // no street_address_2 in the iOS profile
+             attr { $0.streetAddress2 }),
         rule("street_address", #"\b(street address|address line ?1|home address|mailing address|street|address)\b"#,
              attr { $0.streetAddress }, negative: #"\b(email|line ?2|country|city|state|zip|postal|web)\b"#),
         rule("city", #"\b(city|town|municipality)\b"#, city),
@@ -421,15 +429,17 @@ public enum ProfileFieldMatcher {
         rule("agree_terms", #"\b(i (agree|certify|acknowledge|consent|confirm|accept)|terms (and|&) conditions|privacy (policy|notice)|certify that|acknowledge)\b"#,
              const("Yes"), types: ["checkbox"], confidence: 0.55),
 
-        // --- EEO / demographics (no EEO data in the iOS profile — the empty
-        // getters route every one of these to the decline-option fallback) ---
-        rule("hispanic", #"\b(hispanic|latino|latinx)\b"#, const(""), types: choice, eeo: true),
-        rule("gender", #"\bgender\b|\bsex\b"#, const(""),
+        // --- EEO / demographics. The profile now carries these answers; when a
+        // value is set it resolves against the field's options (or fills the
+        // text), and when it's empty `eeo: true` routes to the decline option
+        // ("Prefer not to answer" for free-text). ---
+        rule("hispanic", #"\b(hispanic|latino|latinx)\b"#, hispanic, types: choice, eeo: true),
+        rule("gender", #"\bgender\b|\bsex\b"#, attr { $0.gender },
              negative: #"\b(orientation|sexual)\b"#, types: choice, eeo: true),
-        rule("race", #"\b(race|ethnic)"#, const(""), types: choice, eeo: true),
+        rule("race", #"\b(race|ethnic)"#, attr { $0.raceEthnicity }, types: choice, eeo: true),
         rule("veteran", #"\b(veteran|military|armed forces|uniformed service)\b"#,
-             const(""), types: choice, eeo: true),
-        rule("disability", #"\bdisab"#, const(""), types: choice, eeo: true),
+             attr { $0.veteranStatus }, types: choice, eeo: true),
+        rule("disability", #"\bdisab"#, attr { $0.disabilityStatus }, types: choice, eeo: true),
         rule("eeo_decline_only", #"\b(sexual orientation|lgbtq|transgender|pronoun)\b"#,
              const(""), types: choice, eeo: true, optionsOnly: true),
 

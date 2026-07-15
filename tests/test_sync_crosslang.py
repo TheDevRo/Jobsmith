@@ -127,6 +127,17 @@ def test_registry_canonical_ids_match(tool):
     assert swift_ids == sr.syncable_canonical_ids()
 
 
+def test_profile_scalar_map_matches(tool):
+    """Profile parity: the Swift `profilemap` (SyncEntities.profileScalar) must
+    equal the Python profile_map.CANON_TO_IOS_SCALAR, or the two profile mappers
+    have drifted (e.g. one side added middle_name / an EEO field the other lacks)."""
+    from backend.sync.profile_map import CANON_TO_IOS_SCALAR
+    out = subprocess.run([str(tool), "profilemap", "/unused"], check=True,
+                         capture_output=True, text=True)
+    swift_map = json.loads(out.stdout)
+    assert swift_map == CANON_TO_IOS_SCALAR
+
+
 @pytest.mark.asyncio
 async def test_swift_emitted_settings_import_into_desktop(tool, tmp_path, monkeypatch):
     """The iOS SettingsSync mapper's `setting` records import cleanly into the
