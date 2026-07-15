@@ -40,7 +40,7 @@ settings:
     SWIFT_VERSION: "5.9"
     # Tracks package.json, the version source of truth for the whole repo.
     MARKETING_VERSION: 0.2.4
-    CURRENT_PROJECT_VERSION: 20
+    CURRENT_PROJECT_VERSION: 22
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: NO
 
@@ -156,11 +156,9 @@ targets:
     platform: iOS
     sources:
       - path: Widgets
-    entitlements:
-      path: Widgets/JobsmithWidgets.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.com.thedevro.jobsmith.standalone
+    # No entitlements: the Live Activity's data flows through ActivityKit, not
+    # the App Group container, and an unneeded App Group here forces a custom
+    # provisioning profile for the widget bundle id.
     info:
       path: Widgets/Info.plist
       properties:
