@@ -22,6 +22,12 @@ stays that way.
   discarded when the container restarted, because the config write replaced the
   symlink to your mounted config instead of writing through it. Fixed. Docker
   users should re-enter any settings that went missing.
+- **Settings sync across devices (opt-in).** Sync your app configuration —
+  search criteria, resume and honesty preferences, ranking weights, AI
+  connection, prompt overrides — across your devices and the iOS app, on top of
+  the same serverless folder sync your jobs and profile already use. It's
+  per-category and off by default (profile aside); machine-local values stay on
+  the device.
 - **Five resume styles** — `executive`, `ledger`, `banner`, `compact`, `swiss`,
   each with a selectable accent color and embedded PDF fonts, all still
   ATS-friendly. The style picker now shows you the resume each one produces.
