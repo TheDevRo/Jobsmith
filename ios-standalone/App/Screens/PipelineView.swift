@@ -65,12 +65,6 @@ struct PipelineView: View {
                                 withAnimation(.snappy) { showSearch = false }
                             }
                         }
-                        if model.isScoringAll {
-                            ScoreAllBanner(done: model.scoreAllDone, total: model.scoreAllTotal) {
-                                model.cancelScoreAll()
-                            }
-                            .padding(.vertical, 12)
-                        }
                         if filteredPipeline.isEmpty {
                             noMatchesState
                         } else {
@@ -89,6 +83,10 @@ struct PipelineView: View {
                         }
                     }
                 }
+            }
+            // Same strip as the Inbox — both tabs drive the same run state.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ActivityStrip()
             }
             .navigationTitle(isSelecting ? "\(selection.count) selected" : "Pipeline")
             .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)

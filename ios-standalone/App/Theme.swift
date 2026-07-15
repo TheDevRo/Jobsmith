@@ -104,31 +104,6 @@ struct Eyebrow: View {
     }
 }
 
-/// Live progress for a Score-all run, with the hard-stop button. Shared by the
-/// Inbox and Pipeline tabs, which both drive the same AppModel scoring state.
-struct ScoreAllBanner: View {
-    let done: Int
-    let total: Int
-    let onStop: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Scoring \(done) of \(total)…")
-                    .font(.subheadline.weight(.semibold))
-                ProgressView(value: Double(done), total: Double(max(total, 1)))
-                    .tint(Theme.ember)
-            }
-            Button(role: .destructive, action: onStop) {
-                Text("Stop")
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-        }
-        .padding(.horizontal, 24)
-    }
-}
-
 /// The heat chip: score rendered on the steel→ember ramp.
 ///
 /// The number is always drawn as text, so the ramp color is redundant

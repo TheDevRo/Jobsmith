@@ -57,9 +57,13 @@ targets:
       # ITMS-91053 rejection at upload.
       - path: App/PrivacyInfo.xcprivacy
         buildPhase: resources
+      # The Live Activity wire format + Stop intent, compiled into both the
+      # app and the widget extension (the two processes must agree on it).
+      - path: Widgets/Shared
     dependencies:
       - package: JobsmithKit
       - target: JobsmithShare
+      - target: JobsmithWidgets
     entitlements:
       path: App/Jobsmith.entitlements
       properties:
@@ -78,6 +82,9 @@ targets:
         UIBackgroundModes:
           - fetch
           - processing
+        # The JobRun Live Activity (search/scoring progress on the Lock Screen
+        # and in the Dynamic Island). Locally updated — no push entitlement.
+        NSSupportsLiveActivities: true
         BGTaskSchedulerPermittedIdentifiers:
           - com.thedevro.jobsmith.standalone.refresh
           - com.thedevro.jobsmith.standalone.processing
@@ -137,6 +144,34 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone.Share
+        # Must match the host app's device family.
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+  # The Live Activity host: WidgetKit renders the Lock Screen card and the
+  # Dynamic Island from here. No JobsmithKit dependency — the shared attributes
+  # file is the whole contract with the app.
+  JobsmithWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+    entitlements:
+      path: Widgets/JobsmithWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.thedevro.jobsmith.standalone
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Jobsmith
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thedevro.jobsmith.standalone.Widgets
         # Must match the host app's device family.
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_USER_SCRIPT_SANDBOXING: NO

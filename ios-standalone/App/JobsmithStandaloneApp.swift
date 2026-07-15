@@ -22,6 +22,10 @@ struct JobsmithStandaloneApp: App {
         NotificationManager.requestProvisionalAuthorization()
         NotificationManager.registerCategories()
         UNUserNotificationCenter.current().delegate = delegate
+        // The Lock Screen Stop button: StopRunIntent executes in this process
+        // and reaches the model through the bridge (the widget target only
+        // references the intent type, never this closure).
+        RunControlBridge.onStop = { model.stopActiveRun() }
     }
 
     var body: some Scene {
@@ -48,6 +52,11 @@ struct JobsmithStandaloneApp: App {
                         Task {
                             await model.resumeInterruptedSearch()
                             model.resumeScoringIfNeeded()
+                            // With the resume attempts settled, the flags are
+                            // accurate — end any Live Activity left over from
+                            // a run that no longer exists (e.g. the app was
+                            // killed and the run since retired).
+                            LiveActivityController.shared.reconcile(model: model)
                         }
                         // Dates change on either device and arrive by sync, so
                         // rebuild the schedule whenever we come back.

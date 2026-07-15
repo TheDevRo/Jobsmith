@@ -38,13 +38,6 @@ struct InboxView: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
-              // Live per-source status replaces the bare "Fetching…" spinner.
-              if model.isFetching {
-                  FetchProgressBanner(progress: model.fetchProgress)
-              } else if model.isSearchPaused || model.isScoringPaused {
-                  PausedBanner(searchPaused: model.isSearchPaused,
-                               scoringPaused: model.isScoringPaused)
-              }
               Group {
                 if model.inbox.isEmpty {
                     emptyState
@@ -70,6 +63,13 @@ struct InboxView: View {
                     }
                 }
               }
+            }
+            // The one in-app progress marker: a slim strip pinned under the
+            // navigation bar. It insets the content instead of overlapping it,
+            // and the per-source detail lives in its tap-to-open sheet — the
+            // deck keeps the screen.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ActivityStrip()
             }
             .overlay(alignment: .bottom) {
                 if showSearchTip {
@@ -194,11 +194,6 @@ struct InboxView: View {
 
     private var deck: some View {
         VStack(spacing: 16) {
-            if model.isScoringAll {
-                ScoreAllBanner(done: model.scoreAllDone, total: model.scoreAllTotal) {
-                    model.cancelScoreAll()
-                }
-            }
             HStack {
                 Eyebrow(text: "\(sortedInbox.count) to scout")
                 Spacer()

@@ -46,9 +46,16 @@ final class AppModel {
     /// suspended mid-call, and the remaining jobs will be picked up later.
     var isScoringPaused = false
     /// Live per-source progress for the in-flight fetch, or nil when idle.
-    /// Drives the Inbox "Searching…" banner; cleared when the fetch ends.
+    /// Drives the Activity Strip and the Live Activity; cleared when the
+    /// fetch ends.
     var fetchProgress: FetchProgress?
     var lastError: String?
+
+    /// The in-flight pipeline task, held so `cancelSearch()` can stop it.
+    private var searchWorkTask: Task<FetchSummary, Never>?
+    /// Distinguishes a deliberate Stop from the background window closing:
+    /// both cancel the pipeline, but only the latter parks the run to resume.
+    private var searchStopRequested = false
 
     init() {
         do {
@@ -467,6 +474,7 @@ final class AppModel {
         isScoringPaused = false
         scoreAllTotal = batch.count
         scoreAllDone = 0
+        LiveActivityController.shared.scoringStarted(total: batch.count)
         scoreAllTask = Task { @MainActor in
             var bgTask = UIBackgroundTaskIdentifier.invalid
             bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.scoring") {
@@ -496,6 +504,8 @@ final class AppModel {
                     break
                 }
                 scoreAllDone += 1
+                LiveActivityController.shared.scoringProgress(done: scoreAllDone,
+                                                              total: scoreAllTotal)
             }
             let done = scoreAllDone
             // Cancellation is how the background window closes, so it parks the
@@ -518,6 +528,12 @@ final class AppModel {
                 lastError = failure
                 ScoringIntent.clear()
             }
+            if isScoringPaused {
+                LiveActivityController.shared.scoringPaused(done: done, total: scoreAllTotal)
+            } else {
+                LiveActivityController.shared.scoringEnded(done: done, total: scoreAllTotal,
+                                                           failed: failure != nil)
+            }
             refresh()
             activityStore.log("scored_batch",
                 "Scored \(done) job\(done == 1 ? "" : "s")\(paused ? " (paused — will resume)" : "")")
@@ -531,6 +547,43 @@ final class AppModel {
     func cancelScoreAll() {
         ScoringIntent.clear()
         scoreAllTask?.cancel()
+        // A parked run has no task to cancel — clearing the intent above is the
+        // whole stop; just drop the paused flag and its Live Activity card.
+        if !isScoringAll && isScoringPaused {
+            isScoringPaused = false
+            LiveActivityController.shared.reconcile(model: self)
+        }
+    }
+
+    /// Stop whatever run is in flight or parked — the Lock Screen Stop button
+    /// (StopRunIntent) and the detail sheet's "Stop and keep results" both land
+    /// here. Partial results always survive: jobs are committed as they arrive
+    /// and each score is written as it lands.
+    func stopActiveRun() {
+        if isFetching || isSearchPaused { cancelSearch() }
+        if isScoringAll || isScoringPaused { cancelScoreAll() }
+    }
+
+    /// Stop an in-flight or parked search, keeping everything it found. Unlike
+    /// the background window closing (which parks the run to resume later), a
+    /// deliberate stop retires it: the run is marked complete and the pending
+    /// background continuation is cleared.
+    func cancelSearch() {
+        if isFetching {
+            searchStopRequested = true
+            searchWorkTask?.cancel()
+            return
+        }
+        // Parked, nothing running: retire the run in place.
+        if isSearchPaused {
+            if let run = try? searchRunStore.activeRun(), !run.isFinished {
+                try? searchRunStore.setState(id: run.id, .complete)
+            }
+            isSearchPaused = false
+            BackgroundScheduler.clearContinuation()
+            activityStore.log("search_stopped", "Search stopped — kept everything found so far")
+            LiveActivityController.shared.reconcile(model: self)
+        }
     }
 
     /// Pick up a Score-all run that was paused mid-batch. The remaining work is
@@ -751,18 +804,24 @@ final class AppModel {
             try? searchRunStore.setState(id: run.id, .complete)
             isSearchPaused = false
             BackgroundScheduler.clearContinuation()
+            LiveActivityController.shared.reconcile(model: self)
             return
         }
         isFetching = true
+        searchStopRequested = false
         try? searchRunStore.setState(id: run.id, .running)
+        LiveActivityController.shared.searchStarted(sourcesTotal: sources.count)
 
         let pipeline = FetchPipeline()
         // Subscribe to the progress stream *before* running so the opening
         // "fetching from N sources" event isn't missed, then mirror each event
-        // onto `fetchProgress` for the live Inbox banner.
+        // onto `fetchProgress` for the Activity Strip and the Live Activity.
         let stream = await pipeline.progressUpdates()
         let progressTask = Task { @MainActor in
-            for await progress in stream { self.fetchProgress = progress }
+            for await progress in stream {
+                self.fetchProgress = progress
+                LiveActivityController.shared.searchProgress(progress)
+            }
         }
 
         let work = Task { @MainActor in
@@ -770,6 +829,7 @@ final class AppModel {
                                jobStore: jobStore, runStore: searchRunStore,
                                runID: run.id, cursors: run.cursors)
         }
+        searchWorkTask = work
 
         var bgTask = UIBackgroundTaskIdentifier.invalid
         bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.search") {
@@ -784,6 +844,7 @@ final class AppModel {
         defer {
             isFetching = false
             fetchProgress = nil
+            searchWorkTask = nil
             refresh()
             if bgTask != .invalid {
                 UIApplication.shared.endBackgroundTask(bgTask)
@@ -804,6 +865,20 @@ final class AppModel {
         progressTask.cancel()
 
         if summary.isIncomplete {
+            // The user's own Stop retires the run: everything collected is
+            // already committed, and a deliberate stop must not resurrect
+            // itself in a background window the way a parked run does.
+            if searchStopRequested {
+                try? searchRunStore.setState(id: run.id, .complete)
+                isSearchPaused = false
+                BackgroundScheduler.clearContinuation()
+                activityStore.log(
+                    "search_stopped",
+                    "Search stopped — kept \(summary.inserted) new job\(summary.inserted == 1 ? "" : "s")")
+                LiveActivityController.shared.searchCompleted(newJobs: summary.inserted,
+                                                              stopped: true)
+                return
+            }
             // Left unfinished, not failed. Park it and line up a long background
             // window to finish in; the app returning to the foreground will also
             // pick it up, whichever comes first.
@@ -813,12 +888,14 @@ final class AppModel {
             activityStore.log(
                 "search_paused",
                 "Paused with \(summary.interrupted.count) source(s) left — will finish in the background")
+            LiveActivityController.shared.searchPaused(fetchProgress)
             return
         }
 
         try? searchRunStore.setState(id: run.id, .complete)
         isSearchPaused = false
         BackgroundScheduler.clearContinuation()
+        LiveActivityController.shared.searchCompleted(newJobs: summary.inserted, stopped: false)
 
         let total = summary.inserted
         activityStore.log("fetched", "\(total) new job\(total == 1 ? "" : "s") from \(summary.perSource.count) sources")
