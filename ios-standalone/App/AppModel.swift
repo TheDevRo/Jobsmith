@@ -701,9 +701,15 @@ final class AppModel {
     /// that was left unfinished.
     func fetchJobs() async {
         guard !isFetching else { return }
-        guard let run = try? searchRunStore.begin(
-            sources: SourceRegistry.enabledIDs(for: config))
-        else { return }
+        let sources = SourceRegistry.enabledIDs(for: config)
+        // Never begin an empty run: FetchPipeline reads an empty source list
+        // as "every registered source", which would turn "all sources off"
+        // into a fetch of all of them.
+        guard !sources.isEmpty else {
+            lastError = "No job sources are enabled. Turn one on in Settings › Job sources."
+            return
+        }
+        guard let run = try? searchRunStore.begin(sources: sources) else { return }
         await runSearch(run)
     }
 
@@ -734,6 +740,19 @@ final class AppModel {
     /// for a long `BGProcessingTask` window to finish in. Nothing is discarded
     /// and nothing is reported as an error.
     private func runSearch(_ run: SearchRun) async {
+        // A parked run's work list was written when the run BEGAN; the user may
+        // have toggled sources off since (the reported case: everything off but
+        // LinkedIn, yet a resumed run kept fetching the other boards). Honor
+        // the current toggles here — the one place every attempt passes
+        // through — and retire the run when nothing enabled remains.
+        let enabled = Set(SourceRegistry.enabledIDs(for: config))
+        let sources = run.remainingSources.filter { enabled.contains($0) }
+        guard !sources.isEmpty else {
+            try? searchRunStore.setState(id: run.id, .complete)
+            isSearchPaused = false
+            BackgroundScheduler.clearContinuation()
+            return
+        }
         isFetching = true
         try? searchRunStore.setState(id: run.id, .running)
 
@@ -747,7 +766,7 @@ final class AppModel {
         }
 
         let work = Task { @MainActor in
-            await pipeline.run(config: config, sources: run.remainingSources,
+            await pipeline.run(config: config, sources: sources,
                                jobStore: jobStore, runStore: searchRunStore,
                                runID: run.id, cursors: run.cursors)
         }
