@@ -26,15 +26,42 @@
       || autocomp === "list" || autocomp === "both";
   }
 
+  // The hidden native <select> that a Fabric-style (BambooHR) custom dropdown
+  // backs: a visible toggle button/div plus a display:none / off-screen
+  // <select> rendered inside the same wrapper. Returns it whether or not it
+  // carries real options (React often fills those in later), else null.
+  function hiddenNativeSelectFor(el) {
+    const wrap = el.parentElement;
+    // Only a tight widget wrapper counts — never a whole <form>/<fieldset>, or
+    // an unrelated hidden <select> elsewhere on the page would match. The
+    // backing select must be a sibling of the toggle or a direct child of the
+    // wrapper.
+    if (!wrap || wrap.tagName === "FORM" || wrap.tagName === "FIELDSET") return null;
+    for (const sib of wrap.children) {
+      if (sib.tagName === "SELECT" && sib !== el && !isVisible(sib)) return sib;
+      if (sib !== el) {
+        for (const gk of sib.children) {
+          if (gk.tagName === "SELECT" && !isVisible(gk)) return gk;
+        }
+      }
+    }
+    return null;
+  }
+
   // Workday / custom-widget dropdowns: a button or div acting as a select.
   // Not an <input>, so fill.js can't type into it — it opens the popup and
-  // clicks the matching [role=option] instead.
+  // clicks the matching [role=option] instead. Matches role=combobox, a
+  // button/div toggle with aria-haspopup="listbox" OR "true" (BambooHR's
+  // Fabric toggle uses "true"), or a toggle backed by a hidden native <select>.
   function isComboboxWidget(el) {
     if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") return false;
     const role = (el.getAttribute("role") || "").toLowerCase();
     const haspop = (el.getAttribute("aria-haspopup") || "").toLowerCase();
-    return role === "combobox"
-      || (el.tagName === "BUTTON" && haspop === "listbox");
+    if (role === "combobox") return true;
+    const isToggle = el.tagName === "BUTTON" || el.tagName === "DIV";
+    if (isToggle && (haspop === "listbox" || haspop === "true")) return true;
+    if (isToggle && hiddenNativeSelectFor(el)) return true;
+    return false;
   }
 
   function isEditableTextbox(el) {
@@ -105,7 +132,71 @@
     return "";
   }
 
-  const FIELD_QUERY = 'input, select, textarea, [role="combobox"], button[aria-haspopup="listbox"], [contenteditable="true"], [contenteditable=""]';
+  // Placeholder option text ("–Select–", "Choose…") that isn't a real choice.
+  function isSelectPlaceholder(text) {
+    return /^[\s–—-]*(select|choose|please|pick)\b/i.test((text || "").trim());
+  }
+
+  // Anti-bot honeypot: a field the form expects to stay empty. BambooHR silently
+  // rejects the whole submission if one is filled, so it must never be emitted.
+  // Conservative on purpose (name/label/placeholder signatures + far-offscreen
+  // positioning) so real fields are never dropped.
+  function isHoneypot(el) {
+    const idName = ((el.name || "") + " " + (el.id || "")).toLowerCase();
+    if (/hpcsaf|honeypot|leaveblank/i.test(idName)) return true;
+    const lbl = (labelFor(el) || "");
+    const ph = (el.placeholder || el.getAttribute("data-placeholder") || "");
+    if (/leave\s+(this\s+)?(field\s+)?blank/i.test(lbl) ||
+        /leave\s+(this\s+)?(field\s+)?blank/i.test(ph)) return true;
+    // Off-screen via absolute positioning (BambooHR hides its trap this way, not
+    // display:none, so it slips past isVisible).
+    try {
+      const r = el.getBoundingClientRect();
+      if (r.right < 0 || r.left < -9999) return true;
+    } catch (_) {}
+    let node = el;
+    for (let hops = 0; node && hops < 5; hops++, node = node.parentElement) {
+      try {
+        const st = window.getComputedStyle(node);
+        if (st.position === "absolute" || st.position === "fixed") {
+          const left = parseFloat(st.left);
+          if (!isNaN(left) && left <= -9999) return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Native radio/checkbox that a design system hides (opacity:0 / sr-only /
+  // 1px) behind a visible styled proxy + label. isVisible fails on the input
+  // itself, so without this the Yes/No screening questions (work auth,
+  // sponsorship) are never detected. Only inputs with a real visible label or
+  // wrapping control qualify — honeypots are excluded separately (isHoneypot).
+  function hasVisibleProxy(el) {
+    if (el.tagName !== "INPUT") return false;
+    const t = (el.type || "").toLowerCase();
+    if (t !== "radio" && t !== "checkbox") return false;
+    if (el.id) {
+      let lab = null;
+      try { lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); } catch (_) {}
+      if (lab && isVisible(lab)) return true;
+    }
+    let p = el.parentElement;
+    for (let hops = 0; p && hops < 3; hops++, p = p.parentElement) {
+      const role = (p.getAttribute && (p.getAttribute("role") || "").toLowerCase()) || "";
+      if ((p.tagName === "LABEL" || role === "radio" || role === "checkbox") && isVisible(p)) return true;
+    }
+    return false;
+  }
+
+  // BambooHR & many design systems mark required fields with a trailing/inline
+  // "*" in the label, not the native required attribute. Only the field's OWN
+  // label text is passed in here (never arbitrary page asterisks).
+  function hasRequiredMarker(text) {
+    return /\*/.test(text || "");
+  }
+
+  const FIELD_QUERY = 'input, select, textarea, [role="combobox"], button[aria-haspopup="listbox"], button[aria-haspopup="true"], [aria-haspopup="true"], [contenteditable="true"], [contenteditable=""]';
 
   function collectAllFormEls(root) {
     // Walk light DOM + open shadow roots, collecting form fields from every
@@ -152,6 +243,19 @@
       const group = document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`);
       return Array.from(group).map(r => labelFor(r) || r.value).filter(Boolean);
     }
+    // Fabric custom select: the visible options are rendered by React into a
+    // popup, but the backing hidden <select> sometimes carries the real list.
+    // Use it when it has >1 real option; otherwise leave null so fill.js opens
+    // the popup and reads the rendered options.
+    if (isComboboxWidget(el)) {
+      const nativeSel = hiddenNativeSelectFor(el);
+      if (nativeSel) {
+        const opts = Array.from(nativeSel.options)
+          .map(o => o.textContent.trim())
+          .filter(t => t && !isSelectPlaceholder(t));
+        if (opts.length > 1) return opts;
+      }
+    }
     return null;
   }
 
@@ -166,7 +270,11 @@
     // A combobox wrapper div usually contains the real <input> (react-select);
     // skip the wrapper so the widget isn't captured twice.
     if (!isFormTag && el.querySelector && el.querySelector("input, select, textarea")) return;
-    if (!isVisible(el)) return;
+    // Anti-bot honeypots (offscreen / "leave blank" / hpcsaf) must never be
+    // emitted — filling one makes BambooHR silently reject the submission.
+    if (isHoneypot(el)) return;
+    // Native radio/checkbox hidden behind a visible styled proxy still counts.
+    if (!isVisible(el) && !hasVisibleProxy(el)) return;
     if (el.tagName === "INPUT" && ["hidden", "submit", "button", "reset", "image"].includes((el.type || "").toLowerCase())) return;
     if (el.type === "radio" && el.name) {
       // Dedupe by group name — but only for named radios; unnamed radios are
@@ -189,7 +297,7 @@
       field_type: fieldType(el),
       name: el.name || "",
       options: optionsFor(el),
-      required: el.required || el.getAttribute("aria-required") === "true",
+      required: el.required || el.getAttribute("aria-required") === "true" || hasRequiredMarker(label),
       extra_context: groupContext(el),
       autocomplete: el.getAttribute("autocomplete") || "",
       _selector: `[data-jobsmith-fid="${CSS.escape(fid)}"]`,

@@ -83,14 +83,17 @@ struct ApplyBrowserView: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if let url = URL(string: job.url) {
-                        Button {
+                    Button {
+                        // Escape hatch: reCAPTCHA v2 and some ATS flows can't be
+                        // completed inside a WKWebView, so hand the CURRENT page
+                        // (not just the original posting) off to real Safari.
+                        if let url = controller.currentURL ?? URL(string: job.url) {
                             UIApplication.shared.open(url)
-                        } label: {
-                            Image(systemName: "safari")
                         }
-                        .accessibilityLabel("Open in Safari")
+                    } label: {
+                        Image(systemName: "safari")
                     }
+                    .accessibilityLabel("Open in Safari")
                 }
             }
             .sheet(isPresented: $showPanel) {
@@ -392,10 +395,24 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     private var childWebViews: [WKWebView] = []
     private let maxChildWebViews = 4
 
+    /// A recent mobile-Safari UA. WKWebView's default UA omits the "Safari"
+    /// token and version, which Google reCAPTCHA v2 and some ATS bot checks
+    /// treat as suspicious — failing the "I'm not a robot" challenge or refusing
+    /// to render it. Presenting a Safari-like UA makes the embedded browser look
+    /// like the system browser so those flows behave.
+    static let safariUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+
+    /// The URL currently shown in the active web view (post-redirect), so
+    /// "Open in Safari" hands off the page the user is actually looking at.
+    var currentURL: URL? { activeWebView.url }
+
     override init() {
         let config = WKWebViewConfiguration()
         webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        webView.customUserAgent = Self.safariUserAgent
         activeWebView = webView
         super.init()
         webView.uiDelegate = self
@@ -453,6 +470,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         guard childWebViews.count < maxChildWebViews else { return nil }
         let child = WKWebView(frame: .zero, configuration: configuration)
         child.allowsBackForwardNavigationGestures = true
+        child.customUserAgent = Self.safariUserAgent
         child.uiDelegate = self
         child.navigationDelegate = self
         childWebViews.append(child)

@@ -39,6 +39,38 @@ const html = `<!DOCTYPE html><html><body>
     <label for="pw">Password</label><input id="pw" type="password">
     <label for="dt">Start Date</label><input id="dt" type="date">
     <input type="file" id="resume" style="display:none">
+
+    <!-- Fabric (BambooHR) custom select: visible button aria-haspopup=true
+         backed by a HIDDEN native <select> sibling that carries the options. -->
+    <label for="fabric-state">State *</label>
+    <div class="fab-select-wrap">
+      <button id="fabric-state" type="button" aria-haspopup="true">–Select–</button>
+      <select name="state.value" style="display:none" aria-hidden="true">
+        <option value="">–Select–</option>
+        <option value="CA">California</option>
+        <option value="TX">Texas</option>
+      </select>
+    </div>
+
+    <!-- Honeypots: name signature, offscreen, and "leave blank" label -->
+    <label for="hp1">Please leave this field blank</label>
+    <input id="hp1" name="nickname_hpcsaf" type="text">
+    <label for="hp2">Nickname</label>
+    <input id="hp2" name="nickname2" type="text" style="position:absolute;left:-9999px">
+    <label for="hp3">Confirm you are human — leave this blank</label>
+    <input id="hp3" name="confirm_human" type="text">
+
+    <!-- Required marked only by a trailing "*" (BambooHR has no native attr) -->
+    <label for="lastname">Last Name *</label><input id="lastname" type="text">
+    <!-- Unmarked field must NOT be flagged required -->
+    <label for="linkedin">LinkedIn URL</label><input id="linkedin" type="url">
+
+    <!-- Visually-hidden radio group behind a visible styled proxy+label -->
+    <fieldset>
+      <legend>Are you legally authorized to work?</legend>
+      <label class="proxy"><input type="radio" name="workauth" value="yes" style="opacity:0;position:absolute;width:1px;height:1px"> Yes</label>
+      <label class="proxy"><input type="radio" name="workauth" value="no" style="opacity:0;position:absolute;width:1px;height:1px"> No</label>
+    </fieldset>
   </form>
 </body></html>`;
 
@@ -63,6 +95,26 @@ const fail = report([
   ["password type kept", byId.pw && byId.pw.field_type === "password"],
   ["date type kept", byId.dt && byId.dt.field_type === "date"],
   ["hidden file input kept", byId.resume && byId.resume.field_type === "file"],
+
+  // Fabric custom select (visible aria-haspopup="true" button + hidden native
+  // <select>) captured as a fillable select with options from the hidden list.
+  ["fabric custom select captured", byId["fabric-state"] && byId["fabric-state"].field_type === "select" && byId["fabric-state"]._combobox === true],
+  ["fabric options pulled from hidden <select>", byId["fabric-state"] && (byId["fabric-state"].options || []).join(",") === "California,Texas"],
+  ["hidden native <select> not emitted on its own", !snap.fields.some(f => f.name === "state.value")],
+
+  // Honeypots dropped by name / offscreen / "leave blank" label.
+  ["honeypot by name (hpcsaf) skipped", !byId.hp1],
+  ["honeypot offscreen skipped", !byId.hp2],
+  ["honeypot by 'leave blank' label skipped", !byId.hp3],
+
+  // Required inferred from the "*" marker (no native required attr).
+  ["required inferred from * marker", byId.lastname && byId.lastname.required === true],
+  ["fabric select * marks it required", byId["fabric-state"] && byId["fabric-state"].required === true],
+  ["unmarked field not required", byId.linkedin && byId.linkedin.required === false],
+
+  // Visually-hidden radio group behind a visible proxy is detected.
+  ["hidden radio group detected", snap.fields.filter(f => f.name === "workauth").length === 1],
+  ["hidden radio options collected", byId.workauth && (byId.workauth.options || []).join(",") === "Yes,No"],
 ]);
 
 if (fail) {
