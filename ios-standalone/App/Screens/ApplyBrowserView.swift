@@ -15,8 +15,10 @@ struct ApplyBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     let job: Job
 
-    @State private var controller = ApplyWebController()
-    @State private var status = "Load the form, then tap Autofill."
+    @StateObject private var controller = ApplyWebController()
+    @State private var status = ""
+    @State private var statusVisible = false
+    @State private var statusHideTask: Task<Void, Never>?
     @State private var busy = false
     @State private var rows: [ApplyFieldRow] = []
     @State private var showPanel = false
@@ -51,91 +53,130 @@ struct ApplyBrowserView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if jobURL != nil {
-                    ApplyWebView(controller: controller)
-                } else {
-                    ContentUnavailableView("No application URL",
-                                           systemImage: "link.badge.plus")
-                }
-                if needsLinkedInSignIn {
-                    linkedInSignInBanner
-                }
-                bottomBar
-            }
-            .navigationTitle(job.company.isEmpty ? "Apply" : job.company)
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                guard !didStart, let url = jobURL else { return }
-                didStart = true
-                controller.start(url: url,
-                                 liAtCookie: isLinkedIn ? storedLinkedInCookie : nil,
-                                 jsessionId: isLinkedIn ? storedLinkedInJSessionId : nil)
-            }
-            .sheet(isPresented: $showLinkedInSignIn) {
-                LinkedInSignInSheet { _, cookie, jsession in
-                    handleLinkedInSignIn(cookie, jsession)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        // Escape hatch: reCAPTCHA v2 and some ATS flows can't be
-                        // completed inside a WKWebView, so hand the CURRENT page
-                        // (not just the original posting) off to real Safari.
-                        if let url = controller.currentURL ?? URL(string: job.url) {
-                            UIApplication.shared.open(url)
+        // No NavigationStack: ATS forms (LinkedIn Easy Apply's modal especially)
+        // need every point of viewport height, so the only chrome is a single
+        // slim toolbar and a transient status line that appears during autofill.
+        VStack(spacing: 0) {
+            if jobURL != nil {
+                ApplyWebView(controller: controller)
+                    .overlay(alignment: .top) {
+                        if controller.isLoading {
+                            ProgressView(value: min(max(controller.estimatedProgress, 0.05), 1))
+                                .progressViewStyle(.linear)
                         }
-                    } label: {
-                        Image(systemName: "safari")
                     }
-                    .accessibilityLabel("Open in Safari")
-                }
+            } else {
+                ContentUnavailableView("No application URL",
+                                       systemImage: "link.badge.plus")
             }
-            .sheet(isPresented: $showPanel) {
-                ApplyFallbackPanel(job: job, rows: rows)
-                    .presentationDetents([.medium, .large])
+            if needsLinkedInSignIn {
+                linkedInSignInBanner
             }
+            bottomBar
+        }
+        // Let the keyboard cover the toolbar instead of squeezing the layout:
+        // the web view manages its own keyboard insets, so this hands the form
+        // the full remaining height while typing (Safari behaves the same way).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .task {
+            guard !didStart, let url = jobURL else { return }
+            didStart = true
+            controller.start(url: url,
+                             liAtCookie: isLinkedIn ? storedLinkedInCookie : nil,
+                             jsessionId: isLinkedIn ? storedLinkedInJSessionId : nil)
+            showStatus("Load the form, then tap Autofill.", autoHideAfter: 6)
+        }
+        .onChange(of: controller.hasPopup) { _, opened in
+            if opened {
+                showStatus("The site opened a new window — back returns to the posting.",
+                           autoHideAfter: 6)
+            }
+        }
+        .sheet(isPresented: $showLinkedInSignIn) {
+            LinkedInSignInSheet { _, cookie, jsession in
+                handleLinkedInSignIn(cookie, jsession)
+            }
+        }
+        .sheet(isPresented: $showPanel) {
+            ApplyFallbackPanel(job: job, rows: rows)
+                .presentationDetents([.medium, .large])
         }
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 8) {
-            Text(status)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(2)
-            HStack(spacing: 12) {
+        VStack(spacing: 4) {
+            if statusVisible {
+                Text(status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+                    .padding(.horizontal, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            HStack(spacing: 0) {
+                barButton("xmark", "Close") { dismiss() }
+                barButton("chevron.backward", "Back") { controller.goBack() }
+                    .disabled(!controller.canGoBack && !controller.hasPopup)
+                barButton("chevron.forward", "Forward") { controller.goForward() }
+                    .disabled(!controller.canGoForward)
+                barButton("arrow.clockwise", "Reload") { controller.reload() }
+
+                Spacer(minLength: 4)
+
                 Button(action: autofill) {
                     Label(busy ? "Working…" : "Autofill", systemImage: "wand.and.stars")
                         .font(.callout.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 7)
+                        .padding(.horizontal, 2)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(busy || URL(string: job.url) == nil)
 
                 if !rows.isEmpty {
-                    Button {
-                        showPanel = true
-                    } label: {
-                        Label("Answers", systemImage: "list.clipboard")
-                            .font(.callout.weight(.semibold))
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 6)
+                    barButton("list.clipboard", "Answers") { showPanel = true }
+                }
+                barButton("safari", "Open in Safari") {
+                    // Escape hatch: reCAPTCHA v2 and some ATS flows can't be
+                    // completed inside a WKWebView, so hand the CURRENT page
+                    // (not just the original posting) off to real Safari.
+                    if let url = controller.currentURL ?? URL(string: job.url) {
+                        UIApplication.shared.open(url)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(.bar)
+    }
+
+    private func barButton(_ systemImage: String, _ label: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body)
+                .frame(width: 40, height: 38)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(label)
+    }
+
+    /// Show the transient status line; optionally auto-hide it. The line only
+    /// occupies toolbar height while it has something to say — permanent chrome
+    /// costs viewport the form needs.
+    private func showStatus(_ text: String, autoHideAfter seconds: Double? = nil) {
+        status = text
+        statusHideTask?.cancel()
+        statusHideTask = nil
+        withAnimation(.easeOut(duration: 0.2)) { statusVisible = true }
+        if let seconds {
+            statusHideTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeIn(duration: 0.2)) { statusVisible = false }
+            }
+        }
     }
 
     private var linkedInSignInBanner: some View {
@@ -174,21 +215,21 @@ struct ApplyBrowserView: View {
 
     private func autofill() {
         busy = true
-        status = "Scanning form…"
+        showStatus("Scanning form…")
         Task {
             do {
                 let snap = try await controller.snapshot()
                 guard !snap.fields.isEmpty else {
-                    status = "No form fields found — the page may still be loading, "
-                        + "behind a login, or not a web form."
+                    showStatus("No form fields found — the page may still be loading, "
+                               + "behind a login, or not a web form.", autoHideAfter: 10)
                     busy = false
                     return
                 }
-                status = "Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…"
+                showStatus("Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…")
                 let values = await model.mapApplyFields(snap.fields, job: job)
                 var items = Self.buildFillItems(descriptors: snap.fields, values: values,
                                                 documents: uploadDocuments(for: values))
-                status = "Filling…"
+                showStatus("Filling…")
                 // Phase 2 — shrink the snapshot→fill window. Mapping above can
                 // take seconds (LLM), during which an SPA form may re-render and
                 // drop the data-jobsmith-fid stamps snapshot.js applied. Re-run
@@ -215,12 +256,13 @@ struct ApplyBrowserView: View {
                                       fillResults: fillResults)
                 let filled = fillResults.filter { ($0["status"] as? String) == "filled" }.count
                 let pendingUploads = rows.contains { $0.isUpload && !$0.wasFilled }
-                status = pendingUploads
+                showStatus(pendingUploads
                     ? "Filled \(filled) of \(items.count). Review the page, attach documents, then submit."
-                    : "Filled \(filled) of \(items.count). Review the page, then submit."
+                    : "Filled \(filled) of \(items.count). Review the page, then submit.",
+                    autoHideAfter: 8)
                 showPanel = true
             } catch {
-                status = "Autofill failed: \(error.localizedDescription)"
+                showStatus("Autofill failed: \(error.localizedDescription)", autoHideAfter: 10)
             }
             busy = false
         }
@@ -395,6 +437,25 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     private var childWebViews: [WKWebView] = []
     private let maxChildWebViews = 4
 
+    // Published navigation state so the toolbar can enable/disable controls and
+    // show load progress — users tapping into a half-loaded form is a top cause
+    // of "the button did nothing".
+    @Published private(set) var isLoading = false
+    @Published private(set) var estimatedProgress: Double = 0
+    @Published private(set) var canGoBack = false
+    @Published private(set) var canGoForward = false
+    /// True while a `window.open` child is mounted; the back button closes it
+    /// (the page's own `window.close()` is the only other way out).
+    @Published private(set) var hasPopup = false
+
+    /// KVO tokens for the mounted web view; re-created on every mount so the
+    /// toolbar always reflects the view the user is actually looking at.
+    private var observations: [NSKeyValueObservation] = []
+
+    /// The URL `start` was given, so Reload can recover a web view whose
+    /// provisional load failed (url == nil, where reload() is a no-op).
+    private var initialURL: URL?
+
     /// A recent mobile-Safari UA. WKWebView's default UA omits the "Safari"
     /// token and version, which Google reCAPTCHA v2 and some ATS bot checks
     /// treat as suspicious — failing the "I'm not a robot" challenge or refusing
@@ -410,20 +471,37 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
 
     override init() {
         let config = WKWebViewConfiguration()
+        // ATS redirect shims often call window.open AFTER async validation —
+        // outside the user-gesture window — which WebKit blocks silently by
+        // default. The tapped Apply button then appears to do nothing.
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        config.allowsInlineMediaPlayback = true
         webView = WKWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.customUserAgent = Self.safariUserAgent
         activeWebView = webView
         super.init()
-        webView.uiDelegate = self
-        webView.navigationDelegate = self
+        configure(webView)
         mount(webView)
+    }
+
+    /// Settings every mounted web view (primary or popup child) needs.
+    private func configure(_ view: WKWebView) {
+        view.allowsBackForwardNavigationGestures = true
+        view.customUserAgent = Self.safariUserAgent
+        // Long-press link previews swallow the tap that follows and fight the
+        // page's own press handlers; an application form never needs them.
+        view.allowsLinkPreview = false
+        // Long forms: let a downward swipe put the keyboard away instead of
+        // leaving it covering half the remaining viewport.
+        view.scrollView.keyboardDismissMode = .interactive
+        view.uiDelegate = self
+        view.navigationDelegate = self
     }
 
     /// Show `view` filling the container, replacing whatever was mounted, and
     /// route autofill at it.
     private func mount(_ view: WKWebView) {
         activeWebView = view
+        hasPopup = view !== webView
         containerView.subviews.forEach { $0.removeFromSuperview() }
         view.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(view)
@@ -433,6 +511,64 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
+        observe(view)
+    }
+
+    /// Mirror the mounted view's navigation state into the published props.
+    /// WebKit fires these on the main thread; the Task hop keeps the writes
+    /// inside this class's MainActor isolation without assuming it.
+    private func observe(_ view: WKWebView) {
+        observations = [
+            view.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] wv, _ in
+                let value = wv.estimatedProgress
+                Task { @MainActor in self?.estimatedProgress = value }
+            },
+            view.observe(\.isLoading, options: [.initial, .new]) { [weak self] wv, _ in
+                let value = wv.isLoading
+                Task { @MainActor in self?.isLoading = value }
+            },
+            view.observe(\.canGoBack, options: [.initial, .new]) { [weak self] wv, _ in
+                let value = wv.canGoBack
+                Task { @MainActor in self?.canGoBack = value }
+            },
+            view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] wv, _ in
+                let value = wv.canGoForward
+                Task { @MainActor in self?.canGoForward = value }
+            },
+        ]
+    }
+
+    // MARK: Toolbar navigation
+
+    /// Back, with popup awareness: a `window.open` child with no history of its
+    /// own is closed (returning to the page that opened it) — otherwise a popup
+    /// the site never closes traps the user.
+    func goBack() {
+        if activeWebView.canGoBack {
+            activeWebView.goBack()
+        } else if activeWebView !== webView {
+            closePopup()
+        }
+    }
+
+    func goForward() {
+        activeWebView.goForward()
+    }
+
+    func reload() {
+        if activeWebView.url != nil {
+            activeWebView.reload()
+        } else if let url = initialURL {
+            load(url)
+        }
+    }
+
+    /// Dismiss the mounted popup child and re-show what was underneath.
+    func closePopup() {
+        guard activeWebView !== webView,
+              let idx = childWebViews.firstIndex(of: activeWebView) else { return }
+        childWebViews.remove(at: idx)
+        mount(childWebViews.last ?? webView)
     }
 
     /// LinkedIn's external Apply button (and many ATS redirect shims) hand off
@@ -468,11 +604,9 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
 
     private func makeChildWebView(_ configuration: WKWebViewConfiguration) -> WKWebView? {
         guard childWebViews.count < maxChildWebViews else { return nil }
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         let child = WKWebView(frame: .zero, configuration: configuration)
-        child.allowsBackForwardNavigationGestures = true
-        child.customUserAgent = Self.safariUserAgent
-        child.uiDelegate = self
-        child.navigationDelegate = self
+        configure(child)
         childWebViews.append(child)
         mount(child)
         return child
@@ -486,16 +620,98 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         mount(childWebViews.last ?? self.webView)
     }
 
-    // MARK: WKNavigationDelegate — allow (incl. cross-origin apply redirects)
-    // and log, so a dropped handoff is diagnosable.
+    // MARK: WKUIDelegate — JS dialogs. Without these handlers WebKit drops the
+    // dialog silently: alert() vanishes and confirm() returns false, so any
+    // ATS submit flow gated on "Are you sure?" dead-ends with a button that
+    // looks broken.
+
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        presentDialog(message: message,
+                      actions: [("OK", .default, { completionHandler() })],
+                      fallback: completionHandler)
+    }
+
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        presentDialog(message: message,
+                      actions: [("Cancel", .cancel, { completionHandler(false) }),
+                                ("OK", .default, { completionHandler(true) })],
+                      fallback: { completionHandler(false) })
+    }
+
+    func webView(_ webView: WKWebView,
+                 runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (String?) -> Void) {
+        guard let presenter = presenterViewController else {
+            completionHandler(nil)
+            return
+        }
+        let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+        alert.addTextField { $0.text = defaultText }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+            completionHandler(nil)
+        })
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+            completionHandler(alert?.textFields?.first?.text ?? "")
+        })
+        presenter.present(alert, animated: true)
+    }
+
+    /// Present a JS dialog as a native alert. The completion handler MUST fire
+    /// exactly once no matter what — WebKit blocks the page's JS thread until
+    /// it does — hence the fallback when there's nothing to present from.
+    private func presentDialog(message: String,
+                               actions: [(String, UIAlertAction.Style, () -> Void)],
+                               fallback: () -> Void) {
+        guard let presenter = presenterViewController else {
+            fallback()
+            return
+        }
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        for (title, style, handler) in actions {
+            alert.addAction(UIAlertAction(title: title, style: style) { _ in handler() })
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    /// The top-most presented view controller (the fullScreenCover hosting this
+    /// browser, or a sheet above it) — where a UIAlertController can present.
+    private var presenterViewController: UIViewController? {
+        guard var top = containerView.window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+
+    // MARK: WKNavigationDelegate — allow web navigations (incl. cross-origin
+    // apply redirects) and log, so a dropped handoff is diagnosable.
 
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let url = navigationAction.request.url {
-            NSLog("[Apply] navigate → %@", url.absoluteString)
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
         }
-        decisionHandler(.allow)
+        NSLog("[Apply] navigate → %@", url.absoluteString)
+        // Non-web schemes (mailto:, tel:, ATS companion-app links) can't render
+        // in a web view — .allow just fails the provisional navigation and the
+        // tapped link looks dead. Cancel and hand them to the system instead.
+        let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript", "file"]
+        if webSchemes.contains(url.scheme?.lowercased() ?? "") {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.cancel)
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
@@ -514,6 +730,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// `JSESSIONID` (its value is LinkedIn's csrf-token). Both are scoped to
     /// `.linkedin.com`, so they're never sent to other ATS hosts.
     func start(url: URL, liAtCookie: String?, jsessionId: String?) {
+        initialURL = url
         var cookies: [HTTPCookie] = []
         if let liAtCookie, !liAtCookie.isEmpty,
            let cookie = Self.linkedInSessionCookie(value: liAtCookie) {
