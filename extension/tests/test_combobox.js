@@ -22,6 +22,14 @@ const html = `<!DOCTYPE html><html><body>
   <!-- multi-select skills picker -->
   <input id="cb5" role="combobox" aria-multiselectable="true" data-jobsmith-fid="cb5">
   <div id="menu5"></div>
+
+  <!-- Fabric (BambooHR) custom select: visible button aria-haspopup="true"
+       backed by a hidden native <select>; options render on click. -->
+  <div class="fab-select-wrap">
+    <button id="cb6" type="button" aria-haspopup="true" data-jobsmith-fid="cb6">–Select–</button>
+    <select name="state.value" style="display:none"><option value="">–Select–</option></select>
+  </div>
+  <div id="menu6"></div>
 </body></html>`;
 
 const dom = loadDom(html);
@@ -86,12 +94,21 @@ doc.getElementById("cb5").addEventListener("input", (e) => {
   }
 });
 
+// cb6: Fabric button widget opens full list on click; selection updates button text
+doc.getElementById("cb6").addEventListener("click", () => {
+  renderOptions("menu6", ["California", "Texas", "New York"], "cb6");
+  for (const o of doc.getElementById("menu6").querySelectorAll('[role="option"]')) {
+    o.addEventListener("click", () => { doc.getElementById("cb6").textContent = o.textContent; });
+  }
+});
+
 const items = [
   { field_id: "cb1", selector: '[data-jobsmith-fid="cb1"]', value: "Texas", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
   { field_id: "cb2", selector: '[data-jobsmith-fid="cb2"]', value: "Mobile", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
   { field_id: "cb3", selector: '[data-jobsmith-fid="cb3"]', value: "Austin, TX, United States", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
   { field_id: "cb4", selector: '[data-jobsmith-fid="cb4"]', value: "Alpha", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
   { field_id: "cb5", selector: '[data-jobsmith-fid="cb5"]', value: "Python, React", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
+  { field_id: "cb6", selector: '[data-jobsmith-fid="cb6"]', value: "Texas", action: "select", field_type: "select", confidence: 0.95, _combobox: true },
 ];
 
 (async () => {
@@ -104,6 +121,7 @@ const items = [
     ["short-query retry finds Austin", picked.cb3 === "Austin, TX, United States" && byId.cb3.status === "filled"],
     ["unverifiable widget flagged low-conf", picked.cb4 === "Alpha" && byId.cb4.status === "low_confidence"],
     ["multi-select picks both skills", cb5picked.includes("Python") && cb5picked.includes("React") && byId.cb5.status === "filled"],
+    ["fabric custom select fills via popup", picked.cb6 === "Texas" && byId.cb6.status === "filled"],
   ]);
 
   if (fail) {
