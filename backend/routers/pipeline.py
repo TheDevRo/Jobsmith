@@ -43,9 +43,18 @@ async def score_batch(
 ):
     if state.task_running("score_batch"):
         raise HTTPException(409, "Batch scoring is already running")
+    # Seed the status feed synchronously so a poll racing the task start never
+    # sees a stale terminal state from the previous run.
+    state.score_status = {"status": "scoring", "done": 0, "total": 0, "current": "", "detail": "Starting batch scoring...", "started_at": bg._iso_now(), "finished_at": None}
     task = asyncio.create_task(bg._bg_score_batch(limit=limit, rescore=rescore))
     state.running_tasks["score_batch"] = task
     return {"message": "Batch rescoring started" if rescore else "Batch scoring started"}
+
+
+@router.get("/api/jobs/score-batch/status")
+async def score_batch_status():
+    """Return the current state of the batch scoring run (see state.score_status)."""
+    return state.score_status
 
 
 @router.post("/api/jobs/score-batch/cancel")

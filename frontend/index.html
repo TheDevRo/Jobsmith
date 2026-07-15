@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=40">
+    <link rel="stylesheet" href="style.css?v=41">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -42,6 +42,10 @@
                 <h2 id="page-title">Inbox</h2>
             </div>
             <div class="topbar-right">
+                <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="location.hash='dashboard'" title="A run is in progress — view Activity">
+                    <span class="run-chip-dot" aria-hidden="true"></span>
+                    <span id="run-status-chip-text"></span>
+                </button>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">&#9790;</button>
                 <div class="notification-wrapper">
                     <button class="notification-bell" id="notification-bell" onclick="toggleNotificationCenter()">
@@ -208,6 +212,16 @@
                             </select>
                             <button class="btn btn-secondary" id="score-btn" onclick="scoreAll()">Score Unscored</button>
                             <button class="btn btn-danger btn-sm" id="score-stop-btn" onclick="cancelScoreBatch()" style="display:none">Stop</button>
+                        </div>
+                        <div id="score-status" style="display:none;margin-top:12px">
+                            <div class="fetch-status-row">
+                                <span class="loading" id="score-spinner"></span>
+                                <span id="score-status-text"></span>
+                            </div>
+                            <div id="score-status-current" style="margin-top:6px;font-size:0.83em;color:var(--text-muted)"></div>
+                            <div class="progress-track">
+                                <div class="progress-bar progress-bar-heat" id="score-progress-bar"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -1323,9 +1337,9 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=40"></script>
-    <script src="js/dashboard.js?v=36"></script>
-    <script src="js/jobs.js?v=39"></script>
+    <script src="js/core.js?v=41"></script>
+    <script src="js/dashboard.js?v=37"></script>
+    <script src="js/jobs.js?v=40"></script>
     <script src="js/review.js?v=39"></script>
     <script src="js/settings.js?v=44"></script>
     <script src="js/prompts.js?v=1"></script>

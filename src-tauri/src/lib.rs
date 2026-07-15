@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
-use tauri::Manager;
+use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_notification::NotificationExt;
 
 #[cfg(not(debug_assertions))]
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
@@ -19,6 +21,24 @@ type SidecarChild = (); // dev mode: ./start_server.sh owns the server
 
 /// Holds the sidecar process so we can kill it on exit.
 struct Backend(Mutex<Option<SidecarChild>>);
+
+/// Live run state, pushed by the frontend polls via `set_run_status` whenever
+/// a fetch/scoring run starts, progresses, or ends. Drives the tray menu's
+/// status line and the close-to-tray decision.
+#[derive(Default)]
+struct RunStatus {
+    active: bool,
+    text: String,
+}
+struct RunState(Mutex<RunStatus>);
+
+/// Handles needed to update the tray after setup (status line, quit label,
+/// tooltip). Managed state so `set_run_status` can reach them.
+struct TrayHandles {
+    tray: TrayIcon<Wry>,
+    status_item: MenuItem<Wry>,
+    quit_item: MenuItem<Wry>,
+}
 
 const DEFAULT_PORT: u16 = 8888;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -207,6 +227,108 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+/// Frontend → shell: "a run is active / idle". Called by the fetch/scoring
+/// polls in core.js/dashboard.js whenever run state changes.
+#[tauri::command]
+fn set_run_status(app: tauri::AppHandle, active: bool, text: String) {
+    if let Some(state) = app.try_state::<RunState>() {
+        let mut s = state.0.lock().unwrap();
+        s.active = active;
+        s.text = text.clone();
+    }
+    if let Some(handles) = app.try_state::<TrayHandles>() {
+        let status = if active && !text.is_empty() {
+            text.clone()
+        } else if active {
+            "Running…".to_string()
+        } else {
+            "Idle".to_string()
+        };
+        let _ = handles.status_item.set_text(&status);
+        let _ = handles
+            .quit_item
+            .set_text(if active { "Quit — stops the run" } else { "Quit" });
+        let _ = handles.tray.set_tooltip(Some(if active {
+            format!("Jobsmith — {}", status)
+        } else {
+            "Jobsmith".to_string()
+        }));
+    }
+}
+
+/// Bring the (possibly hidden) main window back: show + focus, and on macOS
+/// return to a regular Dock app first so focusing actually works.
+fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// One-time heads-up the first time a close is turned into hide-to-tray.
+fn notify_hidden_to_tray(app: &tauri::AppHandle) {
+    static NOTIFIED: AtomicBool = AtomicBool::new(false);
+    if NOTIFIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = app
+        .notification()
+        .builder()
+        .title("Jobsmith keeps running in the menu bar")
+        .body("A search/scoring run is still active. Reopen or quit from the tray icon.")
+        .show();
+}
+
+/// Tray icon: disabled status line, Open, separator, Quit. Left-click opens
+/// the window; the menu is on right-click.
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    let status_item = MenuItemBuilder::with_id("tray_status", "Idle")
+        .enabled(false)
+        .build(app)?;
+    let open_item = MenuItemBuilder::with_id("tray_open", "Open Jobsmith").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("tray_quit", "Quit").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&status_item)
+        .item(&open_item)
+        .separator()
+        .item(&quit_item)
+        .build()?;
+
+    let tray = TrayIconBuilder::with_id("jobsmith-tray")
+        .icon(app.default_window_icon().expect("app icon").clone())
+        .tooltip("Jobsmith")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray_open" => show_main_window(app),
+            // Normal exit path: RunEvent::Exit still fires, so the existing
+            // sidecar kill runs and no orphaned uvicorn keeps the port.
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    app.manage(TrayHandles {
+        tray,
+        status_item,
+        quit_item,
+    });
+    Ok(())
+}
+
 fn open_external(target: &str) {
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(target).spawn();
@@ -352,11 +474,37 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Backend(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![restart_app])
+        .manage(RunState(Mutex::new(RunStatus::default())))
+        .invoke_handler(tauri::generate_handler![restart_app, set_run_status])
+        .on_window_event(|window, event| {
+            // Close with a run in flight → hide to the tray instead of quitting
+            // (quitting kills the Python sidecar and the run with it). Idle
+            // close keeps the default behaviour: quit + sidecar teardown.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                let app = window.app_handle();
+                let active = app
+                    .try_state::<RunState>()
+                    .map(|s| s.0.lock().unwrap().active)
+                    .unwrap_or(false);
+                if active {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    // No zombie Dock icon while we live in the menu bar only.
+                    #[cfg(target_os = "macos")]
+                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    notify_hidden_to_tray(app);
+                }
+            }
+        })
         .setup(|app| {
             install_menu(app)?;
+            install_tray(app)?;
 
             // Dev builds (`tauri dev`) expect ./start_server.sh on 8888 and
             // just point the webview at it via devUrl.

@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-backend",
+  "description": "The real app is served by the local Python backend over http://127.0.0.1:<port> (a 'remote' context to Tauri). Grant that page the IPC surface it needs: invoke (set_run_status/restart_app) and native notifications.",
+  "windows": [
+    "main"
+  ],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "notification:default"
+  ]
+}

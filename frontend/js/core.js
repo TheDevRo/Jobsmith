@@ -117,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startNotificationPoll();
     checkBackendPort();        // EOU-03
     startBrowserStatusPoll();  // REL-04
+    reattachActiveRuns();      // re-attach to an in-flight fetch/scoring batch
 
     // Live view refresh: reflect the saved preference in the toggle and start
     // the loop unless the user turned it off.
@@ -630,13 +631,41 @@ function appPrompt(message, defaultValue = '') { return _appDialog({ message, in
 function appAlert(message) { return _appDialog({ message, cancelable: false }); }
 
 // ---- Browser & Push Notifications ----
+// Two delivery paths: inside the Tauri shell, notifications go through the
+// notification plugin (real native macOS/Windows notifications that work even
+// while the window is hidden in the tray); in a plain browser we keep the
+// HTML5 Notification API.
+function _tauriNotification() {
+    return (window.__TAURI__ && window.__TAURI__.notification) || null;
+}
+
 function requestNotificationPermission() {
+    if (_tauriNotification()) return; // native path asks lazily on first send
     if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
     }
 }
 
-function sendBrowserNotification(title, body, tag) {
+let _tauriNotifGranted = null; // null = not asked yet this session
+
+async function sendBrowserNotification(title, body, tag) {
+    const native = _tauriNotification();
+    if (native) {
+        try {
+            if (_tauriNotifGranted === null) {
+                let granted = await native.isPermissionGranted();
+                if (!granted) granted = (await native.requestPermission()) === 'granted';
+                _tauriNotifGranted = granted;
+            }
+            if (_tauriNotifGranted) {
+                native.sendNotification({ title, body: body || '' });
+            }
+        } catch (e) {
+            console.warn('Native notification failed', e);
+        }
+        return;
+    }
+    // Plain-browser path: HTML5 notification with 8s auto-close + click-to-focus.
     if ('Notification' in window && Notification.permission === 'granted') {
         const n = new Notification(title, {
             body: body,

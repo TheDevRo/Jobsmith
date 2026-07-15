@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "window-state:default",
+    "notification:default",
     {
       "identifier": "shell:allow-execute",
       "allow": [

@@ -9,6 +9,7 @@ as asyncio tasks and register them in state.running_tasks so the matching
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from . import app_state as state
@@ -26,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 def _update_fetch_status(**kwargs):
     state.fetch_status.update(kwargs)
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _finish_score_status(status: str, detail: str):
+    """Terminal transition for the batch-scoring feed (done/cancelled/error)."""
+    state.score_status.update(status=status, current="", detail=detail, finished_at=_iso_now())
 
 
 async def _bg_fetch_jobs(sources: list[str] | None = None):
@@ -390,10 +400,12 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
     state.cancel_score.clear()
     BATCH_SIZE = 50
     verb = "Rescored" if rescore else "Scored"
+    state.score_status = {"status": "scoring", "done": 0, "total": 0, "current": "", "detail": "Starting batch scoring...", "started_at": _iso_now(), "finished_at": None}
     try:
         cfg = state.load_config()
         profile = cfg.get("profile", {})
         scored = 0
+        processed = 0
 
         # Rescored jobs stay in the query's result set (unlike unscored jobs,
         # which drop out once scored), so snapshot the target IDs up front and
@@ -407,6 +419,15 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
                     break
                 pending_ids.extend(j["id"] for j in page)
                 offset += len(page)
+
+        # Progress feed: how many jobs this run intends to score.
+        if rescore:
+            total = len(pending_ids)
+        else:
+            total = (await db.get_jobs(status="discovered", unscored_only=True, limit=1))["total"]
+        if limit is not None:
+            total = min(total, limit)
+        state.score_status.update(total=total, detail=f"Scoring {total} jobs...")
 
         while True:
             if state.cancel_score.is_set():
@@ -434,11 +455,15 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
             for job in jobs:
                 if state.cancel_score.is_set():
                     logger.info("Batch scoring cancelled after %d jobs", scored)
+                    _finish_score_status("cancelled", f"Stopped after scoring {scored} jobs")
                     state.push_notification("score", "Batch Scoring Stopped", f"Stopped after scoring {scored} jobs", "info")
                     await db.log_activity("batch_score_complete", f"{verb} {scored} jobs (cancelled)")
                     return
                 if limit is not None and scored >= limit:
                     break
+                current = f"{job.get('title') or 'Untitled'} · {job.get('company') or ''}".rstrip(" ·")
+                progress = f"Scoring job {min(processed + 1, total)} of {total}..." if total else f"Scoring job {processed + 1}..."
+                state.score_status.update(current=current, detail=progress)
                 try:
                     score, reasoning, match_report = await ai_engine.score_job_fit(job, profile, cfg)
                     await db.update_job_score(job["id"], score, reasoning, match_report)
@@ -447,13 +472,21 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
                     scored += 1
                 except Exception:
                     logger.exception("Failed to score %s", job.get("title"))
+                processed += 1
+                state.score_status.update(done=processed)
 
+        if state.cancel_score.is_set():
+            _finish_score_status("cancelled", f"Stopped after scoring {scored} jobs")
+        else:
+            _finish_score_status("done", f"{verb} {scored} jobs")
         await db.log_activity("batch_score_complete", f"{verb} {scored} jobs")
         state.push_notification("score", "Batch Scoring Complete", f"{verb} {scored} jobs", "success")
     except asyncio.CancelledError:
+        _finish_score_status("cancelled", "Batch scoring was stopped by user")
         state.push_notification("score", "Batch Scoring Stopped", "Batch scoring was stopped by user", "info")
     except Exception:
         logger.exception("Batch scoring failed")
+        _finish_score_status("error", "Batch scoring failed — check server logs")
         state.push_notification("score", "Batch Scoring Failed", "An error occurred during batch scoring", "error")
 
 

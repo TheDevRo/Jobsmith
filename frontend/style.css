@@ -615,6 +615,54 @@ main {
     width: 0%;
 }
 
+/* Steel→ember heat ramp — scoring is literally "heating up" jobs. */
+.progress-bar-heat {
+    background: linear-gradient(90deg, var(--steel), var(--accent-ember));
+}
+
+/* ==========================================================================
+   Run-status chip (topbar) — persistent "Searching · 4/9" / "Scoring · 12/50"
+   indicator, visible from every tab while a background run is active.
+   Click → Activity tab.
+   ========================================================================== */
+.run-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--accent-ember);
+    background: var(--accent-tint);
+    color: var(--text-primary);
+    font-family: var(--font-rounded);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition);
+}
+.run-status-chip:hover { background: rgba(240, 134, 58, 0.22); }
+
+.run-chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-ember);
+    flex-shrink: 0;
+    animation: run-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes run-chip-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .run-chip-dot { animation: none; }
+}
+
 /* ==========================================================================
    Buttons
    ========================================================================== */

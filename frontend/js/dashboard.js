@@ -237,6 +237,76 @@ function renderOutcomesPanel(data) {
         </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Run-status chip (topbar) — one persistent indicator for both long-running
+// background runs (fetch + batch scoring). Each poll pushes its live text in
+// ("Searching · 4/9" / "Scoring · 12/50") or null when its run ends; the chip
+// shows whatever is active and hides when nothing is. The same state is
+// forwarded to the desktop shell (Tauri) so the tray menu can mirror it.
+// ---------------------------------------------------------------------------
+const _chipRuns = { fetch: null, score: null };
+let _lastShellRunStatus = null;
+
+function updateRunChip(kind, text) {
+    _chipRuns[kind] = text || null;
+    const chip = document.getElementById('run-status-chip');
+    const textEl = document.getElementById('run-status-chip-text');
+    const parts = [_chipRuns.fetch, _chipRuns.score].filter(Boolean);
+    if (chip && textEl) {
+        if (parts.length) {
+            textEl.textContent = parts.join('  ·  ');
+            chip.style.display = '';
+        } else {
+            chip.style.display = 'none';
+        }
+    }
+    _notifyShellRunStatus(parts.length > 0, parts.join(' · '));
+}
+
+// Tell the Tauri shell about run-state changes (tray status line + tooltip,
+// and close-to-tray behaviour). No-op in a plain browser; failures are silent
+// (an older shell without the command just ignores us).
+function _notifyShellRunStatus(active, text) {
+    const core = window.__TAURI__ && window.__TAURI__.core;
+    if (!core || typeof core.invoke !== 'function') return;
+    const key = `${active}|${text}`;
+    if (_lastShellRunStatus === key) return;
+    _lastShellRunStatus = key;
+    try {
+        core.invoke('set_run_status', { active, text }).catch(() => {});
+    } catch (e) { /* shell without the command */ }
+}
+
+// One-shot on page load: if a fetch or scoring batch is already in flight
+// (page reload, second window, run started from the API), re-attach the
+// button states, progress cards, polls and the header chip to it.
+async function reattachActiveRuns() {
+    try {
+        const s = await api('/api/jobs/fetch/status');
+        if (s.active) {
+            const btn = document.getElementById('fetch-btn');
+            btn.disabled = true;
+            btn.textContent = 'Fetching...';
+            document.getElementById('fetch-stop-btn').style.display = '';
+            document.getElementById('fetch-finish-btn').style.display = '';
+            showFetchStatus(true);
+            startFetchPoll();
+        }
+    } catch (e) { /* backend not up yet — the polls start on demand anyway */ }
+    try {
+        const s = await api('/api/jobs/score-batch/status');
+        if (s.status === 'scoring') {
+            const btn = document.getElementById('score-btn');
+            btn.disabled = true;
+            btn.textContent = 'Scoring...';
+            document.getElementById('score-stop-btn').style.display = '';
+            showScoreStatus(true);
+            renderScoreStatus(s);
+            startScorePoll();
+        }
+    } catch (e) { /* older backend without the endpoint, or not up yet */ }
+}
+
 let _fetchPollInterval = null;
 
 async function fetchNewJobs() {
@@ -311,6 +381,15 @@ function startFetchPoll() {
             }
             barEl.style.width = pct + '%';
 
+            // Header chip mirrors the run from every tab.
+            if (s.active) {
+                updateRunChip('fetch', s.sources_total > 0
+                    ? `Searching · ${s.sources_done}/${s.sources_total}`
+                    : (s.phase === 'saving' ? 'Searching · saving' : 'Searching…'));
+            } else {
+                updateRunChip('fetch', null);
+            }
+
             if (!s.active) {
                 stopFetchPoll();
                 spinnerEl.style.display = 'none';
@@ -344,6 +423,85 @@ function stopFetchPoll() {
         clearInterval(_fetchPollInterval);
         _fetchPollInterval = null;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Batch scoring progress — GET /api/jobs/score-batch/status, polled every 2s
+// only while a batch is running (same lifecycle as the fetch poll). Drives the
+// Score All progress card and the header chip.
+// ---------------------------------------------------------------------------
+let _scorePollInterval = null;
+
+function showScoreStatus(visible) {
+    const el = document.getElementById('score-status');
+    if (el) el.style.display = visible ? '' : 'none';
+}
+
+function startScorePoll() {
+    stopScorePoll();
+    _scorePollInterval = setInterval(async () => {
+        try {
+            renderScoreStatus(await api('/api/jobs/score-batch/status'));
+        } catch (e) {
+            // Ignore poll errors — the next tick tries again.
+        }
+    }, 2000);
+}
+
+function stopScorePoll() {
+    if (_scorePollInterval) {
+        clearInterval(_scorePollInterval);
+        _scorePollInterval = null;
+    }
+}
+
+function renderScoreStatus(s) {
+    const textEl = document.getElementById('score-status-text');
+    const currentEl = document.getElementById('score-status-current');
+    const barEl = document.getElementById('score-progress-bar');
+    const spinnerEl = document.getElementById('score-spinner');
+    if (!textEl || !barEl) return;
+
+    const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
+
+    if (s.status === 'scoring') {
+        textEl.textContent = s.total > 0 ? `${s.done} of ${s.total} · ${pct}%` : (s.detail || 'Scoring…');
+        if (currentEl) currentEl.textContent = s.current || '';
+        barEl.style.width = pct + '%';
+        if (spinnerEl) spinnerEl.style.display = '';
+        updateRunChip('score', s.total > 0 ? `Scoring · ${s.done}/${s.total}` : 'Scoring…');
+        return;
+    }
+
+    // Terminal (done/cancelled/error) or idle: tear the run UI down.
+    stopScorePoll();
+    updateRunChip('score', null);
+    if (spinnerEl) spinnerEl.style.display = 'none';
+    if (currentEl) currentEl.textContent = '';
+    const btn = document.getElementById('score-btn');
+    if (btn) {
+        btn.disabled = false;
+        updateScoreBtnLabel();
+    }
+    const stopBtn = document.getElementById('score-stop-btn');
+    if (stopBtn) stopBtn.style.display = 'none';
+
+    if (s.status === 'done') {
+        barEl.style.width = '100%';
+        textEl.textContent = s.detail || `Scored ${s.done} jobs`;
+        toast(textEl.textContent, 'success');
+        loadJobs();
+        loadDashboard();
+    } else if (s.status === 'cancelled') {
+        textEl.textContent = s.detail || `Stopped after ${s.done} jobs`;
+        toast(textEl.textContent, 'info');
+        loadJobs();
+        loadDashboard();
+    } else if (s.status === 'error') {
+        textEl.textContent = s.detail || 'Batch scoring failed';
+        toast('Batch scoring failed', 'error');
+    }
+    setTimeout(() => showScoreStatus(false), 5000);
 }
 
 // Add a single job by URL

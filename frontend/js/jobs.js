@@ -371,6 +371,12 @@ async function scoreAll() {
         btn.textContent = label;
         document.getElementById('score-stop-btn').style.display = '';
         toast('Batch scoring started!', 'success');
+        showScoreStatus(true);
+        document.getElementById('score-spinner').style.display = '';
+        document.getElementById('score-status-text').textContent = 'Starting…';
+        document.getElementById('score-status-current').textContent = '';
+        document.getElementById('score-progress-bar').style.width = '0%';
+        startScorePoll();
         _startOpsPoll();
     } catch (e) {
         toast('Failed to start batch scoring', 'error');
