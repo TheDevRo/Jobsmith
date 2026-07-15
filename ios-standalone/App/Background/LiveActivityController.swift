@@ -35,13 +35,13 @@ final class LiveActivityController {
 
     func searchStarted(sourcesTotal: Int) {
         startOrMorph(.init(
-            phase: .searching, completed: 0, total: sourcesTotal, jobsFound: 0,
+            phase: .searching, kind: .search, completed: 0, total: sourcesTotal, jobsFound: 0,
             title: searchTitle(total: sourcesTotal), detail: "Starting search…"))
     }
 
     func searchProgress(_ p: FetchProgress) {
         push(.init(
-            phase: .searching, completed: p.sourcesDone, total: p.sourcesTotal,
+            phase: .searching, kind: .search, completed: p.sourcesDone, total: p.sourcesTotal,
             jobsFound: p.jobsFound,
             title: searchTitle(total: p.sourcesTotal),
             detail: "\(p.sourcesDone) of \(p.sourcesTotal) boards done"),
@@ -51,7 +51,7 @@ final class LiveActivityController {
     func searchPaused(_ p: FetchProgress?) {
         let remaining = p.map { max($0.sourcesTotal - $0.sourcesDone, $0.interrupted.count) } ?? 0
         push(.init(
-            phase: .paused, completed: p?.sourcesDone ?? 0, total: p?.sourcesTotal ?? 1,
+            phase: .paused, kind: .search, completed: p?.sourcesDone ?? 0, total: p?.sourcesTotal ?? 1,
             jobsFound: p?.jobsFound ?? 0,
             title: "Search paused",
             detail: remaining > 0
@@ -62,7 +62,7 @@ final class LiveActivityController {
 
     func searchCompleted(newJobs: Int, stopped: Bool) {
         scheduleEnd(.init(
-            phase: .done, completed: 1, total: 1, jobsFound: newJobs,
+            phase: .done, kind: .search, completed: 1, total: 1, jobsFound: newJobs,
             title: stopped ? "Search stopped" : "Search complete",
             detail: stopped
                 ? "Kept everything found so far"
@@ -73,20 +73,20 @@ final class LiveActivityController {
 
     func scoringStarted(total: Int) {
         startOrMorph(.init(
-            phase: .scoring, completed: 0, total: total, jobsFound: 0,
+            phase: .scoring, kind: .scoring, completed: 0, total: total, jobsFound: 0,
             title: "Scoring matches", detail: "0 of \(total) scored"))
     }
 
     func scoringProgress(done: Int, total: Int) {
         push(.init(
-            phase: .scoring, completed: done, total: total, jobsFound: 0,
+            phase: .scoring, kind: .scoring, completed: done, total: total, jobsFound: 0,
             title: "Scoring matches", detail: "\(done) of \(total) scored"),
             throttled: true)
     }
 
     func scoringPaused(done: Int, total: Int) {
         push(.init(
-            phase: .paused, completed: done, total: total, jobsFound: 0,
+            phase: .paused, kind: .scoring, completed: done, total: total, jobsFound: 0,
             title: "Scoring paused",
             detail: "Finishes when the AI endpoint is reachable"),
             throttled: false)
@@ -94,7 +94,7 @@ final class LiveActivityController {
 
     func scoringEnded(done: Int, total: Int, failed: Bool) {
         scheduleEnd(.init(
-            phase: .done, completed: done, total: max(total, 1), jobsFound: done,
+            phase: .done, kind: .scoring, completed: done, total: max(total, 1), jobsFound: done,
             title: failed ? "Scoring stopped" : "Scoring complete",
             detail: "Scored \(done) job\(done == 1 ? "" : "s")"))
     }

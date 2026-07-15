@@ -13,8 +13,16 @@ struct JobRunAttributes: ActivityAttributes {
         case searching, scoring, paused, done
     }
 
+    /// Which run the card is about. Phase alone can't say — a `.done` or
+    /// `.paused` card must label its count "scored" vs "found", not reuse
+    /// the search wording for a scoring run.
+    enum Kind: String, Codable, Hashable {
+        case search, scoring
+    }
+
     struct ContentState: Codable, Hashable {
         var phase: Phase
+        var kind: Kind
         /// Sources finished (searching) or jobs scored (scoring).
         var completed: Int
         var total: Int

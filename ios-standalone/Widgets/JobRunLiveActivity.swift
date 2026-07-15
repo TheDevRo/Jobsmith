@@ -25,14 +25,19 @@ private enum RunPalette {
         case .done: return success
         }
     }
+}
 
-    static func glyph(for phase: JobRunAttributes.Phase) -> String {
-        switch phase {
-        case .searching: return "magnifyingglass"
-        case .scoring: return "flame.fill"
-        case .paused: return "pause.fill"
-        case .done: return "checkmark"
-        }
+/// The actual app logo (bundled into the widget's own asset catalog) — the
+/// face of the activity everywhere, instead of a generic SF-symbol glyph.
+private struct AppLogo: View {
+    var size: CGFloat = 28
+
+    var body: some View {
+        Image("Logo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
     }
 }
 
@@ -45,7 +50,7 @@ struct JobRunLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    RunGlyph(phase: context.state.phase)
+                    AppLogo(size: 28)
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
@@ -69,90 +74,64 @@ struct JobRunLiveActivity: Widget {
                         .padding(.top, 4)
                 }
             } compactLeading: {
-                Image(systemName: RunPalette.glyph(for: context.state.phase))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(RunPalette.tint(for: context.state.phase))
+                AppLogo(size: 20)
             } compactTrailing: {
-                CompactFraction(state: context.state)
+                CompactCount(state: context.state)
             } minimal: {
-                Image(systemName: RunPalette.glyph(for: context.state.phase))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(RunPalette.tint(for: context.state.phase))
+                AppLogo(size: 18)
             }
             .keylineTint(RunPalette.ember)
         }
     }
 }
 
-/// "6/9" while searching, "24%" while scoring — the most compact honest read.
-private struct CompactFraction: View {
+/// The live count next to the logo: jobs found so far while searching,
+/// scored/total while scoring.
+private struct CompactCount: View {
     let state: JobRunAttributes.ContentState
 
     var body: some View {
-        switch state.phase {
-        case .searching:
-            Text("\(state.completed)/\(state.total)")
-                .font(.caption2.weight(.bold).monospacedDigit())
-                .foregroundStyle(RunPalette.ember)
-        case .scoring:
-            Text("\(Int(state.fraction * 100))%")
-                .font(.caption2.weight(.bold).monospacedDigit())
-                .foregroundStyle(RunPalette.ember)
-        case .paused:
-            Image(systemName: "pause.fill")
-                .font(.caption2)
-                .foregroundStyle(RunPalette.amber)
-        case .done:
+        switch (state.kind, state.phase) {
+        case (.search, .done):
             Image(systemName: "checkmark")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(RunPalette.success)
+        case (.scoring, .done):
+            Image(systemName: "checkmark")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(RunPalette.success)
+        case (.search, _):
+            Text("\(state.jobsFound)")
+                .font(.caption2.weight(.bold).monospacedDigit())
+                .foregroundStyle(RunPalette.tint(for: state.phase))
+        case (.scoring, _):
+            Text("\(state.completed)/\(state.total)")
+                .font(.caption2.weight(.bold).monospacedDigit())
+                .foregroundStyle(RunPalette.tint(for: state.phase))
         }
     }
 }
 
-private struct RunGlyph: View {
-    let phase: JobRunAttributes.Phase
-
-    var body: some View {
-        Image(systemName: RunPalette.glyph(for: phase))
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(LinearGradient(
-                        colors: gradient,
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
-            )
-    }
-
-    private var gradient: [Color] {
-        switch phase {
-        case .paused: return [RunPalette.amber, RunPalette.amber.opacity(0.8)]
-        case .done: return [RunPalette.success, RunPalette.success.opacity(0.8)]
-        default: return [RunPalette.ember, RunPalette.emberDeep]
-        }
-    }
-}
-
-/// The big tabular numeral: jobs found while searching, done/total while
-/// scoring, new-job count when complete.
+/// The big tabular numeral. Which count it is — and what the word under it
+/// says — follows the run's kind, so a finished scoring batch reads
+/// "3 scored", never the search wording "3 new jobs".
 private struct HeadlineCount: View {
     let state: JobRunAttributes.ContentState
 
     private var number: String {
-        switch state.phase {
-        case .scoring: return "\(state.completed)/\(state.total)"
+        switch (state.kind, state.phase) {
+        case (.scoring, .done): return "\(state.completed)"
+        case (.scoring, _): return "\(state.completed)/\(state.total)"
         default: return "\(state.jobsFound)"
         }
     }
 
     private var label: String {
-        switch state.phase {
-        case .scoring: return "scored"
-        case .done: return "new jobs"
-        case .paused: return "found so far"
-        case .searching: return "found"
+        switch (state.kind, state.phase) {
+        case (.scoring, _): return "scored"
+        case (.search, .done): return "new jobs"
+        case (.search, .paused): return "found so far"
+        default: return "found"
         }
     }
 
@@ -207,7 +186,7 @@ struct LockScreenRunView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
-                RunGlyph(phase: state.phase)
+                AppLogo(size: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(state.title)
                         .font(.subheadline.weight(.semibold))
