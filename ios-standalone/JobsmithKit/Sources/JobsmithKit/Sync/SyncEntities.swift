@@ -92,12 +92,16 @@ public enum SyncEntities {
     // MARK: profile (mirrors backend/sync/profile_map.py)
 
     static let profileScalar: [String: String] = [
-        "full_name": "fullName", "email": "email", "phone": "phone",
+        "full_name": "fullName", "middle_name": "middleName", "email": "email",
+        "phone": "phone",
         "location": "location", "street_address": "streetAddress",
+        "street_address_2": "streetAddress2",
         "city": "city", "state": "state", "zip_code": "zipCode",
         "linkedin": "linkedin", "github": "github", "portfolio": "portfolio",
         "desired_salary": "desiredSalary", "work_authorization": "workAuthorization",
         "sponsorship_required": "sponsorshipRequired",
+        "gender": "gender", "race_ethnicity": "raceEthnicity",
+        "veteran_status": "veteranStatus", "disability_status": "disabilityStatus",
         "available_start": "availableStart", "notice_period": "noticePeriod",
         "summary": "summary",
     ]
@@ -190,8 +194,10 @@ public enum SyncEntities {
         return out
     }
 
-    /// iOS profile -> canonical, overlaid on `base` to preserve fields iOS
-    /// doesn't model (middle_name, EEO block, ...). Never emits secrets.
+    /// iOS profile -> canonical, overlaid on `base` to preserve any canonical
+    /// fields iOS doesn't model (forward-compat / additionalProperties). Never
+    /// emits secrets. middle_name, street_address_2 and the EEO block are now
+    /// iOS-owned and travel through profileScalar.
     public static func profileIOSToCanonical(_ ios: [String: JSONValue], base: [String: JSONValue] = [:]) -> [String: JSONValue] {
         var out = base
         for (canon, iosKey) in profileScalar where ios[iosKey] != nil { out[canon] = ios[iosKey] }

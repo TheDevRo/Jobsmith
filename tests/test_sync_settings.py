@@ -78,6 +78,33 @@ def test_profile_secret_keys_are_registry_folder_strips():
         assert f"profile.{key}" in canonical, f"profile.{key} not in secret_canonical_keys()"
 
 
+def test_profile_map_round_trips_new_iOS_owned_fields():
+    """middle_name, street_address_2 and the EEO block are now iOS-owned scalars.
+    They must survive canonical -> iOS -> canonical with zero loss, matching the
+    profile-normalize test vectors."""
+    import json
+    from pathlib import Path
+
+    from backend.sync import profile_map as pm
+
+    vec = Path(__file__).resolve().parent.parent / "backend/sync/test-vectors/profile-normalize"
+    canonical = json.loads((vec / "canonical.json").read_text())
+    ios = json.loads((vec / "ios-profile.json").read_text())
+
+    # canonical -> iOS reproduces the iOS fixture exactly (all scalars modeled now).
+    assert pm.canonical_to_ios(canonical) == ios
+    for ik in ("middleName", "streetAddress2", "gender", "raceEthnicity",
+               "veteranStatus", "disabilityStatus"):
+        assert ik in ios
+
+    # iOS -> canonical (base-overlaid) round-trips back to the canonical fixture.
+    assert pm.ios_to_canonical(ios, base=canonical) == canonical
+    for ck in ("middle_name", "street_address_2", "gender", "race_ethnicity",
+               "veteran_status", "disability_status"):
+        assert ck in pm.IOS_OWNED_CANON_KEYS
+        assert pm.ios_to_canonical(ios)[ck] == canonical[ck]
+
+
 def test_http_secret_fields_are_registry_api_masked():
     # routers/settings pulls the (optional) auto_apply stack; skip cleanly when
     # those deps aren't installed rather than failing on an unrelated import.

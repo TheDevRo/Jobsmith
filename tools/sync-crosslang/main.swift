@@ -79,6 +79,12 @@ case "registry":
     let data = try! JSONEncoder().encode(SettingsSync.canonicalIDs())
     print(String(data: data, encoding: .utf8)!)
 
+case "profilemap":
+    // Profile scalar-map parity: the Python test asserts this equals
+    // profile_map.CANON_TO_IOS_SCALAR. `folder` is ignored.
+    let data = try! JSONEncoder().encode(SyncEntities.profileScalar)
+    print(String(data: data, encoding: .utf8)!)
+
 case "emit-settings":
     // Emit `setting` records produced by the REAL iOS mapper from an iOS-native
     // config dict — exercising enabledSources fold, prompt expansion, the

@@ -6,8 +6,11 @@ final class SyncManagerTests: XCTestCase {
 
     private func sampleProfile() -> Profile {
         Profile(
-            fullName: "Alex Kim", email: "d@example.com", phone: "555-1212",
-            location: "Denver, CO", summary: "iOS + backend engineer.",
+            fullName: "Alex Kim", middleName: "J", email: "d@example.com",
+            phone: "555-1212", location: "Denver, CO", streetAddress2: "Unit 3",
+            gender: "Male", raceEthnicity: "Asian", veteranStatus: "Not a veteran",
+            disabilityStatus: "No",
+            summary: "iOS + backend engineer.",
             skills: ["Swift", "Python", "GRDB"],
             certifications: ["AWS SA"]
         )
@@ -30,6 +33,14 @@ final class SyncManagerTests: XCTestCase {
         XCTAssertEqual(back.email, "d@example.com")
         XCTAssertEqual(back.skills, ["Swift", "Python", "GRDB"])
         XCTAssertEqual(back.certifications, ["AWS SA"])
+        // The newly-parity'd fields (middle name, address line 2, EEO block)
+        // must survive the canonical round-trip too.
+        XCTAssertEqual(back.middleName, "J")
+        XCTAssertEqual(back.streetAddress2, "Unit 3")
+        XCTAssertEqual(back.gender, "Male")
+        XCTAssertEqual(back.raceEthnicity, "Asian")
+        XCTAssertEqual(back.veteranStatus, "Not a veteran")
+        XCTAssertEqual(back.disabilityStatus, "No")
         XCTAssertEqual(back, p)
     }
 
