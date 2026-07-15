@@ -92,6 +92,15 @@ struct ApplyBrowserView: View {
                            autoHideAfter: 6)
             }
         }
+        .onChange(of: controller.loadError) { _, error in
+            // A failed load otherwise looks like a silently blank page; name
+            // the failure and leave it up — Reload and Safari are the way out.
+            if let error {
+                showStatus("Couldn't load the page: \(error)")
+            } else if statusVisible, status.hasPrefix("Couldn't load") {
+                withAnimation(.easeIn(duration: 0.2)) { statusVisible = false }
+            }
+        }
         .sheet(isPresented: $showLinkedInSignIn) {
             LinkedInSignInSheet { _, cookie, jsession in
                 handleLinkedInSignIn(cookie, jsession)
@@ -155,8 +164,8 @@ struct ApplyBrowserView: View {
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.body)
-                .frame(width: 40, height: 38)
+                .font(.title3)
+                .frame(width: 43, height: 40)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
@@ -448,6 +457,14 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// (the page's own `window.close()` is the only other way out).
     @Published private(set) var hasPopup = false
 
+    /// A human-readable load failure ("blank page" is the alternative — the
+    /// user needs to know the page failed and that Reload is the way out).
+    @Published private(set) var loadError: String?
+
+    /// Content-process kills already auto-reloaded, so a repeat means the page
+    /// genuinely can't run on this device — stop looping and tell the user.
+    private var didRecoverFromProcessKill = false
+
     /// KVO tokens for the mounted web view; re-created on every mount so the
     /// toolbar always reflects the view the user is actually looking at.
     private var observations: [NSKeyValueObservation] = []
@@ -575,26 +592,35 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// to the company site via `window.open` / `target="_blank"`. WKWebView
     /// routes those here and drops them without a UI delegate.
     ///
-    /// Two shapes:
-    ///  - carries a URL → load it in the opener (swipe-back returns to the
-    ///    posting), which is enough for most `target="_blank"` links.
+    /// Two shapes, both answered with a real child web view (created with the
+    /// passed configuration, as WKWebView requires):
+    ///  - carries a URL → load it in the child; the back button (or the
+    ///    page's window.close) returns to the opener, which stays alive.
     ///  - blank/`about:blank` then-navigate → the opener opens an empty window
     ///    and later sets `location` on the returned handle. Returning `nil`
-    ///    drops that flow, so hand back a real child web view (created with the
-    ///    passed configuration, as WKWebView requires) presented in place.
+    ///    drops that flow. The child stays hidden until it actually loads
+    ///    something, so popunders never blank the screen.
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard navigationAction.targetFrame == nil else { return nil }
         let url = navigationAction.request.url
+        NSLog("[Apply] window.open → %@", url?.absoluteString ?? "(blank)")
 
         if url == nil || url?.absoluteString == "about:blank" {
             return makeChildWebView(configuration)
         }
         guard let url else { return nil }
         if url.scheme == "http" || url.scheme == "https" {
-            webView.load(navigationAction.request)
+            // Load in a real child so the OPENER stays alive underneath —
+            // OAuth popups (Apply with LinkedIn/Indeed) post their result back
+            // through window.opener, which loading in place would destroy.
+            if let child = makeChildWebView(configuration) {
+                child.load(navigationAction.request)
+                return child
+            }
+            webView.load(navigationAction.request)  // child cap hit — degrade in place
         } else if UIApplication.shared.canOpenURL(url) {
             // Non-web schemes (mailto:, tel:, …) can't render in the web view.
             UIApplication.shared.open(url)
@@ -602,22 +628,30 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         return nil
     }
 
+    /// Create a `window.open` child but do NOT show it yet: analytics
+    /// popunders open about:blank windows they never navigate, and mounting
+    /// one immediately replaces the visible page with a blank view ("the page
+    /// doesn't show up at all"). The child is mounted on its first real
+    /// navigation (see decidePolicyFor) — a window that never loads anything
+    /// is never shown.
     private func makeChildWebView(_ configuration: WKWebViewConfiguration) -> WKWebView? {
         guard childWebViews.count < maxChildWebViews else { return nil }
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         let child = WKWebView(frame: .zero, configuration: configuration)
         configure(child)
         childWebViews.append(child)
-        mount(child)
         return child
     }
 
-    /// A child that scripts `window.close()` — pop it and re-show whatever was
-    /// underneath (the previous child, or the primary posting).
+    /// A child that scripts `window.close()` — drop it, and if it was the one
+    /// on screen, re-show what was underneath (the last child that actually
+    /// loaded something, or the primary posting).
     func webViewDidClose(_ webView: WKWebView) {
         guard let idx = childWebViews.firstIndex(of: webView) else { return }
         childWebViews.remove(at: idx)
-        mount(childWebViews.last ?? self.webView)
+        if activeWebView === webView {
+            mount(childWebViews.last(where: { $0.url != nil }) ?? self.webView)
+        }
     }
 
     // MARK: WKUIDelegate — JS dialogs. Without these handlers WebKit drops the
@@ -705,6 +739,13 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         // tapped link looks dead. Cancel and hand them to the system instead.
         let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript", "file"]
         if webSchemes.contains(url.scheme?.lowercased() ?? "") {
+            // A window.open child's first real navigation is the moment it
+            // stops being a potential popunder and becomes the page the user
+            // should see — show it now (created hidden in makeChildWebView).
+            if webView !== activeWebView, childWebViews.contains(webView),
+               url.scheme == "http" || url.scheme == "https" {
+                mount(webView)
+            }
             decisionHandler(.allow)
         } else {
             decisionHandler(.cancel)
@@ -717,10 +758,46 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: Error) {
         NSLog("[Apply] provisional navigation failed: %@", error.localizedDescription)
+        reportLoadFailure(error)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("[Apply] navigation failed: %@", error.localizedDescription)
+        reportLoadFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        loadError = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        NSLog("[Apply] didFinish → %@ (child: %d)",
+              webView.url?.absoluteString ?? "nil", webView !== self.webView ? 1 : 0)
+    }
+
+    /// iOS kills the WebKit content process under memory pressure (heavy pages
+    /// like LinkedIn, especially inside a fullScreenCover), which leaves a
+    /// permanently blank web view — "the page doesn't show up at all". Reload
+    /// once automatically; if it dies again, surface it instead of looping.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        NSLog("[Apply] web content process terminated")
+        if didRecoverFromProcessKill {
+            loadError = "This page keeps crashing the browser engine. "
+                + "Try Open in Safari."
+            return
+        }
+        didRecoverFromProcessKill = true
+        webView.reload()
+    }
+
+    /// Publish a load failure the toolbar can show. Cancellations are routine
+    /// (every cancelled scheme handoff and mid-load tap produces one) and the
+    /// page is usually still usable, so they don't count.
+    private func reportLoadFailure(_ error: Error) {
+        let nsError = error as NSError
+        guard nsError.code != NSURLErrorCancelled,
+              nsError.code != 102 else { return }  // WebKitErrorFrameLoadInterrupted
+        loadError = nsError.localizedDescription
     }
 
     /// Inject the stored LinkedIn session cookies (if any) into the web view's
