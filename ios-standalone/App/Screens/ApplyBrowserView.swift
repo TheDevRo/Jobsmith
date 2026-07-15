@@ -47,9 +47,11 @@ struct ApplyBrowserView: View {
     /// LinkedIn browsing works on `li_at` alone, but Easy Apply's Voyager POST
     /// needs a live `JSESSIONID` too. Prompt a (fresh) sign-in when either is
     /// missing rather than loading a half-authenticated session whose Apply
-    /// button silently 401s.
+    /// button silently 401s. LinkedIn bouncing the loaded posting to its
+    /// authwall also counts: it means the stored session (if any) is stale.
     private var needsLinkedInSignIn: Bool {
-        isLinkedIn && (storedLinkedInCookie == nil || storedLinkedInJSessionId == nil)
+        isLinkedIn && (storedLinkedInCookie == nil || storedLinkedInJSessionId == nil
+                       || controller.hitAuthwall)
     }
 
     var body: some View {
@@ -461,6 +463,19 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// user needs to know the page failed and that Reload is the way out).
     @Published private(set) var loadError: String?
 
+    /// True after LinkedIn tried to bounce an already-rendered posting to its
+    /// /authwall (its bot check flags WKWebView guests as "scraping" and
+    /// redirects a page that loaded fine). The redirect is cancelled so the
+    /// posting stays visible; this flag lets the view offer sign-in, which
+    /// also covers a stored-but-stale li_at session.
+    @Published private(set) var hitAuthwall = false
+
+    /// Set once a linkedin.com /jobs/ page finishes rendering — the signal
+    /// that a later /authwall navigation is the client-side bounce (cancel it)
+    /// rather than a server-side wall on a page we never got (allow it, or
+    /// the user sees a blank view instead of the wall).
+    private var renderedLinkedInJobPage = false
+
     /// Content-process kills already auto-reloaded, so a repeat means the page
     /// genuinely can't run on this device — stop looping and tell the user.
     private var didRecoverFromProcessKill = false
@@ -734,6 +749,19 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             return
         }
         NSLog("[Apply] navigate → %@", url.absoluteString)
+        // LinkedIn's guest job pages render fully, then a bot-detection script
+        // decides the embedded browser is "scraping" and JS-redirects to the
+        // /authwall signup page — replacing a posting the user was already
+        // reading. Cancel that hop and keep the rendered page; the sign-in
+        // banner (via hitAuthwall) is the sanctioned way behind the wall.
+        if renderedLinkedInJobPage,
+           url.host?.lowercased().hasSuffix("linkedin.com") == true,
+           url.path.hasPrefix("/authwall") {
+            NSLog("[Apply] cancelled authwall bounce (posting already rendered)")
+            hitAuthwall = true
+            decisionHandler(.cancel)
+            return
+        }
         // Non-web schemes (mailto:, tel:, ATS companion-app links) can't render
         // in a web view — .allow just fails the provisional navigation and the
         // tapped link looks dead. Cancel and hand them to the system instead.
@@ -773,6 +801,11 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         NSLog("[Apply] didFinish → %@ (child: %d)",
               webView.url?.absoluteString ?? "nil", webView !== self.webView ? 1 : 0)
+        if let url = webView.url,
+           url.host?.lowercased().hasSuffix("linkedin.com") == true,
+           url.path.hasPrefix("/jobs/") {
+            renderedLinkedInJobPage = true
+        }
     }
 
     /// iOS kills the WebKit content process under memory pressure (heavy pages
@@ -808,6 +841,8 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// `.linkedin.com`, so they're never sent to other ATS hosts.
     func start(url: URL, liAtCookie: String?, jsessionId: String?) {
         initialURL = url
+        renderedLinkedInJobPage = false
+        hitAuthwall = false
         var cookies: [HTTPCookie] = []
         if let liAtCookie, !liAtCookie.isEmpty,
            let cookie = Self.linkedInSessionCookie(value: liAtCookie) {
@@ -836,7 +871,15 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
 
     func load(_ url: URL) {
         if activeWebView !== webView { mount(webView) }
-        webView.load(URLRequest(url: url))
+        var request = URLRequest(url: url)
+        // LinkedIn's guest authwall spares search-engine visitors: with no
+        // referer, its bot check hides the (fully served) posting and bounces
+        // to the signup wall; a search referer renders it like a Google hit.
+        // Signed-in sessions are unaffected.
+        if url.host?.lowercased().hasSuffix("linkedin.com") == true {
+            request.setValue("https://www.google.com/", forHTTPHeaderField: "Referer")
+        }
+        webView.load(request)
     }
 
     static func linkedInSessionCookie(value: String) -> HTTPCookie? {

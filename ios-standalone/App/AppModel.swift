@@ -117,11 +117,18 @@ final class AppModel {
             try $0.execute(sql: "DELETE FROM applications")
             try $0.execute(sql: "DELETE FROM jobs")
         }
+        // "-E2EJobURL <url>" points demo-1 at a real posting so UI tests can
+        // drive the Apply browser against a live site (LinkedIn especially).
+        var demo1URL = "https://example.com/jobs/demo-1"
+        if let idx = CommandLine.arguments.firstIndex(of: "-E2EJobURL"),
+           CommandLine.arguments.indices.contains(idx + 1) {
+            demo1URL = CommandLine.arguments[idx + 1]
+        }
         let jobs = [
             NormalizedJob(source: "demo", externalId: "demo-1",
                           title: "Senior Backend Engineer", company: "Acme Corp",
                           location: "Denver, CO",
-                          url: "https://example.com/jobs/demo-1",
+                          url: demo1URL,
                           description: "Build high-throughput services in Python and Go.",
                           salaryMin: 140000, salaryMax: 175000, salaryPeriod: "annual"),
             NormalizedJob(source: "demo", externalId: "demo-2",
