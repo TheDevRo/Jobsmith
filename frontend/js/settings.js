@@ -438,6 +438,8 @@ async function loadSyncSettings() {
         const label = document.getElementById('cfg-sync-label');
         const interval = document.getElementById('cfg-sync-interval');
         if (en) en.checked = !!st.enabled;
+        const fulfill = document.getElementById('cfg-sync-fulfill');
+        if (fulfill) fulfill.checked = !!st.fulfill_work_requests;
         // Don't clobber an unsaved value the user is mid-typing on refresh.
         if (folder && document.activeElement !== folder) folder.value = st.folder || '';
         if (label && document.activeElement !== label) label.value = st.device_label || '';
@@ -465,9 +467,14 @@ function renderSyncCategories(st) {
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     box.innerHTML = cats.map(c => {
         const on = state[c.key] !== undefined ? !!state[c.key] : !!c.default;
+        // The AI Connection group carries the endpoint API key verbatim, so warn
+        // right next to the toggle that turns it on.
+        const caption = c.key === 'ai_connection'
+            ? `<span class="hint" style="display:block;margin:2px 0 0 26px">Includes your AI endpoint API key as plain text in the sync folder.</span>`
+            : '';
         return `<label class="remote-toggle" style="display:flex;align-items:center;gap:8px;${masterOn ? '' : 'opacity:0.5'}">`
             + `<input type="checkbox" ${on ? 'checked' : ''} ${masterOn ? '' : 'disabled'} `
-            + `onchange="saveSyncCategory('${esc(c.key)}', this.checked)"> ${esc(c.label)}</label>`;
+            + `onchange="saveSyncCategory('${esc(c.key)}', this.checked)"> ${esc(c.label)}</label>${caption}`;
     }).join('');
 }
 
@@ -481,6 +488,19 @@ async function saveSyncCategory(key, on) {
         renderSyncStatus(st);
     } catch (e) {
         toast(`Could not update sync group: ${e.message}`, 'error');
+        await loadSyncSettings();
+    }
+}
+
+async function saveSyncFulfill(on) {
+    try {
+        const st = await api('/api/sync/config', {
+            method: 'POST',
+            body: JSON.stringify({ fulfill_work_requests: !!on }),
+        });
+        renderSyncStatus(st);
+    } catch (e) {
+        toast(`Could not update hand-off setting: ${e.message}`, 'error');
         await loadSyncSettings();
     }
 }

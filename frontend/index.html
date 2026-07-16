@@ -1088,6 +1088,12 @@
                                 </select>
                                 <span class="hint">How often this device checks the shared folder for changes and pushes its own. Lower is more responsive; higher is lighter on the folder provider.</span>
                             </div>
+                            <div class="form-group">
+                                <label class="remote-toggle" style="display:flex;align-items:center;gap:8px">
+                                    <input type="checkbox" id="cfg-sync-fulfill" onchange="saveSyncFulfill(this.checked)"> Finish scoring runs from your iPhone
+                                </label>
+                                <span class="hint">When your phone can't finish scoring (you left the app, or your AI server isn't reachable from it), it leaves a request in the sync folder. With this on, this computer picks up the request, scores the remaining jobs with its own AI connection, and syncs the scores back. Off by default — turn it on if you want this machine to do the heavy lifting.</span>
+                            </div>
                             <div class="form-group" style="margin-top:4px">
                                 <label>Sync these across devices</label>
                                 <span class="hint">Pick which groups of settings ride the same folder. A group only syncs when it's on here <em>and</em> on your other device. Turn on a group on both devices to share it.</span>
