@@ -652,7 +652,7 @@ const TOUR_STEPS = [
         hash: '#review',
         selector: '.review-tab-bar',
         title: 'Your Pipeline',
-        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from this view (or from the Inbox detail pane). Applied / Failed / In Progress tabs let you audit past applications. Note: "Approve" is an audit-trail status — it does not submit.',
+        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from this view (or from the Inbox detail pane). Applied / Failed / In Progress tabs let you audit past applications.',
     },
     {
         hash: '#settings',

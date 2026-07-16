@@ -616,8 +616,7 @@ function renderReviewQueue(apps) {
                         <button class="btn btn-danger btn-sm" onclick="rejectApp('${app.id}')">Reject</button>
                         <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     ` : `
-                        <button class="btn btn-green btn-sm" onclick="approveApp('${app.id}')">Approve</button>
-                        ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="approveAndApply('${app.id}')">Auto Apply</button>` : ''}
+                        ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="autoApply('${app.id}')">Auto Apply</button>` : ''}
                         <button class="btn btn-assist btn-sm" onclick="launchAssist('${app.job_id}')">Apply Assist</button>
                         <button class="btn btn-green btn-sm" onclick="markAppApplied('${app.id}')">Mark Applied</button>
                         <button class="btn btn-danger btn-sm" onclick="rejectApp('${app.id}')">Reject</button>
@@ -1037,21 +1036,10 @@ function closeAiEditModal() {
     modal.remove();
 }
 
-async function approveApp(appId) {
+async function autoApply(appId) {
     try {
-        await api(`/api/applications/${appId}/approve`, { method: 'POST' });
-        toast('Application approved!', 'success');
-        document.getElementById(`review-${appId}`).remove();
-    } catch (e) {
-        toast('Failed to approve', 'error');
-    }
-}
-
-async function approveAndApply(appId) {
-    try {
-        await api(`/api/applications/${appId}/approve`, { method: 'POST' });
         await api(`/api/applications/${appId}/apply`, { method: 'POST' });
-        toast('Application approved and apply triggered!', 'success');
+        toast('Apply triggered!', 'success');
         const card = document.getElementById(`review-${appId}`);
         if (card) {
             const actions = card.querySelector('.review-card-actions');
@@ -1078,7 +1066,7 @@ async function approveAndApply(appId) {
             }
         }
     } catch (e) {
-        toast('Failed to approve and apply', 'error');
+        toast('Failed to apply', 'error');
     }
 }
 
@@ -1104,22 +1092,6 @@ async function rejectApp(appId) {
         document.getElementById(`review-${appId}`).remove();
     } catch (e) {
         toast('Failed to reject', 'error');
-    }
-}
-
-async function bulkApprove() {
-    const apps = window._reviewApps || {};
-    const ids = Object.keys(apps);
-    if (ids.length === 0) return;
-    try {
-        await api('/api/jobs/approve-batch', {
-            method: 'POST',
-            body: JSON.stringify({ application_ids: ids }),
-        });
-        toast(`Approved ${ids.length} applications`, 'success');
-        loadReviewQueue();
-    } catch (e) {
-        toast('Bulk approve failed', 'error');
     }
 }
 

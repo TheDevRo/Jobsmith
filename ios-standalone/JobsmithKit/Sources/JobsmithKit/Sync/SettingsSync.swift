@@ -103,7 +103,6 @@ public enum SettingsSync {
         .init("pipeline.skip_already_applied", category: "pipeline"),
         .init("pipeline.digest_weights", category: "pipeline"),
         .init("auto_apply.enabled", category: "auto_apply"),
-        .init("auto_apply.auto_approve", category: "auto_apply"),
         .init("auto_apply.mode", category: "auto_apply"),
         .init("auto_apply.max_daily_applications", category: "auto_apply"),
         .init("auto_apply.per_domain_rate_limit", category: "auto_apply"),

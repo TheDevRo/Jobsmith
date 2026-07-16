@@ -114,7 +114,6 @@ api_keys:
   usajobs_api_key: your-api-key
 auto_apply:
   enabled: false
-  auto_approve: false
   headless: true
   max_daily_applications: 20
   use_browser_use: false

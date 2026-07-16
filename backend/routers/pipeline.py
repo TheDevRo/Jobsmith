@@ -23,10 +23,6 @@ class TailorBatchRequest(BaseModel):
     min_score: float = 50.0
 
 
-class ApproveBatchRequest(BaseModel):
-    application_ids: list[str]
-
-
 @router.post("/api/jobs/{job_id}/score", status_code=202)
 async def score_job(job_id: str):
     job = await db.get_job(job_id)
@@ -141,17 +137,6 @@ async def cancel_tailor_batch():
     if task and not task.done():
         task.cancel()
     return {"message": "Batch tailoring cancel requested"}
-
-
-@router.post("/api/jobs/approve-batch")
-async def approve_batch(body: ApproveBatchRequest):
-    cfg = state.load_config()
-    auto_apply_enabled = cfg.get("auto_apply", {}).get("enabled", False)
-    for app_id in body.application_ids:
-        await db.update_application_status(app_id, "approved")
-        if auto_apply_enabled:
-            asyncio.create_task(bg._bg_apply(app_id))
-    return {"message": f"Approved {len(body.application_ids)} applications"}
 
 
 # ---------------------------------------------------------------------------

@@ -202,20 +202,6 @@ async def application_apply_progress(app_id: str):
     return {"active": False}
 
 
-@router.post("/api/applications/{app_id}/approve")
-async def approve_application(app_id: str):
-    await db.update_application_status(app_id, "approved")
-
-    cfg = state.load_config()
-    if cfg.get("auto_apply", {}).get("enabled", False):
-        if _apply_in_progress():
-            raise HTTPException(409, "An application is already being applied")
-        task = asyncio.create_task(bg._bg_apply(app_id))
-        state.running_tasks["apply"] = task
-        return {"message": "Application approved — auto-apply triggered"}
-    return {"message": "Application approved"}
-
-
 @router.post("/api/applications/{app_id}/reject")
 async def reject_application(app_id: str):
     await db.update_application_status(app_id, "rejected")
@@ -243,8 +229,8 @@ async def cancel_single_apply(app_id: str):
     task = state.running_tasks.get(f"apply:{app_id}")
     if task and not task.done():
         task.cancel()
-        await db.update_application_status(app_id, "approved")
-        return {"message": "Apply cancelled, application reset to approved"}
+        await db.update_application_status(app_id, "pending_review")
+        return {"message": "Apply cancelled, application reset to pending review"}
     return {"message": "No active apply task for this application"}
 
 

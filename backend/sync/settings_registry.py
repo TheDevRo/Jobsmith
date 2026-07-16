@@ -157,7 +157,6 @@ REGISTRY: tuple[Setting, ...] = (
     # -- Auto-apply POLICY (auto_apply.*) — SYNC the policy, never the toggles
     #    that depend on a local browser install (headless / use_browser_use). ---
     Setting("auto_apply.enabled", Cls.SYNC, Kind.BOOL, "auto_apply"),
-    Setting("auto_apply.auto_approve", Cls.SYNC, Kind.BOOL, "auto_apply"),
     Setting("auto_apply.mode", Cls.SYNC, Kind.ENUM, "auto_apply", enum_values=("autofill", "submit")),
     Setting("auto_apply.max_daily_applications", Cls.SYNC, Kind.INT, "auto_apply"),
     Setting("auto_apply.per_domain_rate_limit", Cls.SYNC, Kind.INT, "auto_apply"),

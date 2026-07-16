@@ -67,9 +67,9 @@ struct DocumentReviewView: View {
                 .buttonStyle(.bordered)
 
                 Button {
-                    approve()
+                    saveAndRegenerate()
                 } label: {
-                    Label("Approve", systemImage: "checkmark")
+                    Label("Save & Regenerate", systemImage: "arrow.triangle.2.circlepath")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -118,15 +118,13 @@ struct DocumentReviewView: View {
                                    format: model.config.honesty.documentFormat)
     }
 
-    private func approve() {
+    private func saveAndRegenerate() {
         guard let application, let job else { return }
         saveEdits()
         var updated = application
         updated.resumeContent = resumeText
         updated.coverLetterContent = coverText
         try? model.regenerateDocuments(for: updated, job: job)
-        try? model.applicationStore.updateStatus(id: application.id, status: "approved")
-        model.activityStore.log("approved", "Documents approved for \(job.title)", jobId: job.id)
         model.refresh()
     }
 

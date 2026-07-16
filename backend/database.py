@@ -1063,14 +1063,13 @@ async def create_application(
     cover_letter_content: str,
     resume_path: Optional[str] = None,
     cover_letter_path: Optional[str] = None,
-    auto_approved: bool = False,
     honesty_level: Optional[str] = None,
 ) -> str:
     """Create an application record for a job. Returns the application id."""
     db = await _get_db()
     try:
         app_id = str(uuid.uuid4())
-        status = "approved" if auto_approved else "pending_review"
+        status = "pending_review"
         await db.execute(
             """INSERT INTO applications
                (id, job_id, tailored_resume_path, tailored_cover_letter_path,
@@ -1085,7 +1084,7 @@ async def create_application(
                 resume_content,
                 cover_letter_content,
                 status,
-                auto_approved,
+                False,
                 honesty_level,
                 datetime.now(timezone.utc).isoformat(),
             ),

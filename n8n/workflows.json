@@ -74,78 +74,13 @@
           "type": "n8n-nodes-base.httpRequest",
           "typeVersion": 4.1,
           "position": [1130, 300]
-        },
-        {
-          "parameters": {
-            "conditions": {
-              "boolean": [
-                {
-                  "value1": "={{ $json.auto_apply.auto_approve }}",
-                  "value2": true
-                }
-              ]
-            }
-          },
-          "id": "if-auto-approve",
-          "name": "Auto-Approve Enabled?",
-          "type": "n8n-nodes-base.if",
-          "typeVersion": 1,
-          "position": [1350, 300]
-        },
-        {
-          "parameters": {
-            "url": "http://localhost:8888/api/applications/pending",
-            "options": {}
-          },
-          "id": "get-pending",
-          "name": "Get Pending Apps",
-          "type": "n8n-nodes-base.httpRequest",
-          "typeVersion": 4.1,
-          "position": [1570, 200]
-        },
-        {
-          "parameters": {
-            "method": "POST",
-            "url": "http://localhost:8888/api/jobs/approve-batch",
-            "sendBody": true,
-            "bodyParameters": {
-              "parameters": [
-                {
-                  "name": "application_ids",
-                  "value": "={{ $json.map(a => a.id) }}"
-                }
-              ]
-            },
-            "options": {}
-          },
-          "id": "approve-all",
-          "name": "Approve All",
-          "type": "n8n-nodes-base.httpRequest",
-          "typeVersion": 4.1,
-          "position": [1790, 200]
-        },
-        {
-          "parameters": {},
-          "id": "noop",
-          "name": "End (Manual Review)",
-          "type": "n8n-nodes-base.noOp",
-          "typeVersion": 1,
-          "position": [1570, 400]
         }
       ],
       "connections": {
         "Every 6 Hours": { "main": [[{ "node": "Fetch Jobs", "type": "main", "index": 0 }]] },
         "Fetch Jobs": { "main": [[{ "node": "Wait for Fetch", "type": "main", "index": 0 }]] },
         "Wait for Fetch": { "main": [[{ "node": "Tailor Batch", "type": "main", "index": 0 }]] },
-        "Tailor Batch": { "main": [[{ "node": "Get Config", "type": "main", "index": 0 }]] },
-        "Get Config": { "main": [[{ "node": "Auto-Approve Enabled?", "type": "main", "index": 0 }]] },
-        "Auto-Approve Enabled?": {
-          "main": [
-            [{ "node": "Get Pending Apps", "type": "main", "index": 0 }],
-            [{ "node": "End (Manual Review)", "type": "main", "index": 0 }]
-          ]
-        },
-        "Get Pending Apps": { "main": [[{ "node": "Approve All", "type": "main", "index": 0 }]] }
+        "Tailor Batch": { "main": [[{ "node": "Get Config", "type": "main", "index": 0 }]] }
       },
       "settings": {
         "executionOrder": "v1"

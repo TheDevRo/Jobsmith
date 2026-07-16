@@ -221,16 +221,12 @@ async def _bg_tailor_job(job_id: str):
             except Exception:
                 logger.exception("Cover letter DOCX generation failed for job %s", job_id)
 
-        # Check auto-approve
-        auto_approve = cfg.get("auto_apply", {}).get("auto_approve", False)
-
         await db.create_application(
             job_id=job_id,
             resume_content=resume_text,
             cover_letter_content=cover_letter_text,
             resume_path=resume_path,
             cover_letter_path=cl_path,
-            auto_approved=auto_approve,
             honesty_level=honesty_level,
         )
 
@@ -332,14 +328,12 @@ async def _bg_tailor_batch(min_score: float):
                         resume_path = resume_generator.generate_resume(resume_text, profile, job, cfg)
                         cl_path = resume_generator.generate_cover_letter(cl_text, profile, job, cfg)
 
-                        auto_approve = cfg.get("auto_apply", {}).get("auto_approve", False)
                         await db.create_application(
                             job_id=job_id,
                             resume_content=resume_text,
                             cover_letter_content=cl_text,
                             resume_path=resume_path,
                             cover_letter_path=cl_path,
-                            auto_approved=auto_approve,
                             honesty_level=honesty_level,
                         )
 

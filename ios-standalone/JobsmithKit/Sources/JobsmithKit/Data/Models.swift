@@ -143,7 +143,7 @@ public struct Application: Codable, Equatable, Sendable, Identifiable,
     public var resumeDocxPath: String?
     public var coverDocxPath: String?
     public var customAnswers: String
-    /// pending_review → approved → applied | manual
+    /// pending_review → applied | manual
     public var status: String
     public var honestyLevel: String
     public var stylePreset: String
