@@ -782,3 +782,30 @@ async def test_schedule_survives_a_concurrent_edit(tmp_path, monkeypatch):
     app_b = _rows(path_b, "SELECT * FROM applications WHERE id = 'app-1'")[0]
     assert app_b["interview_at"] is None
     assert app_b["resume_content"] == "REVISED"  # the application itself survives
+
+
+def test_append_log_flushes_full_lines_before_returning(tmp_path):
+    """_append_log holds an exclusive lock and fsyncs before releasing, so the
+    log's bytes are complete on disk the moment append returns — a concurrent
+    cloud uploader can never capture a torn final line (MEDIUM hardening)."""
+    engine = SyncEngine(tmp_path / "x.db", "A1B2")
+    folder = tmp_path / "sync"
+    records = [
+        {"v": 1, "entity": "job", "id": "1", "updated_at": "2026-07-08T10:00:00.000Z",
+         "device": "A1B2", "deleted": False, "data": {"title": "Engineer"}},
+        {"v": 1, "entity": "job", "id": "2", "updated_at": "2026-07-08T10:00:01.000Z",
+         "device": "A1B2", "deleted": True},
+    ]
+    engine._append_log(folder, records)
+
+    log = folder / "changes" / "A1B2.jsonl"
+    text = log.read_text(encoding="utf-8")
+    # Every record is a whole line terminated by '\n' — no partial trailing write.
+    assert text.endswith("\n")
+    lines = [json.loads(l) for l in text.splitlines()]
+    assert [r["id"] for r in lines] == ["1", "2"]
+    assert lines[0]["data"] == {"title": "Engineer"}
+
+    # Appending again extends the file rather than truncating it.
+    engine._append_log(folder, [dict(records[0], id="3")])
+    assert [json.loads(l)["id"] for l in log.read_text().splitlines()] == ["1", "2", "3"]

@@ -37,8 +37,10 @@ against two databases in one process (used by the round-trip test).
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -376,9 +378,19 @@ class SyncEngine:
         changes = folder / "changes"
         changes.mkdir(parents=True, exist_ok=True)
         log = changes / f"{self.device_id}.jsonl"
+        payload = "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in records)
+        # Append under an exclusive advisory lock and fsync before releasing, so a
+        # concurrent cloud uploader (or another writer) can never capture a torn
+        # final line. flock/fsync are POSIX-only — every platform this backend
+        # runs on (macOS / Linux / Docker).
         with log.open("a", encoding="utf-8") as f:
-            for rec in records:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     # -- import ------------------------------------------------------------
 

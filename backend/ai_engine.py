@@ -35,6 +35,14 @@ _RETRYABLE_LLM_ERRORS = (
 )
 
 
+class ScoringUnavailable(Exception):
+    """Scoring could not be completed for a genuine (non-recoverable-here)
+    reason — the LLM was unreachable after retries, or its response could not be
+    parsed into a score. Distinct from a real low score: callers MUST NOT persist
+    a 0.0 on this, or a transient LM Studio outage becomes a permanent 0% fit
+    that `unscored_only` batches never retry. Leave fit_score NULL instead."""
+
+
 async def _llm_create_with_retry(client: AsyncOpenAI, *, tiers: int = 3,
                                  base: float = 1.5, **create_kwargs):
     """Call chat.completions.create with jittered exponential backoff.
@@ -495,13 +503,19 @@ async def score_job_fit(
             logger.error(
                 "score_job_fit: Could not parse score from AI response: %s", text[:200]
             )
-            return 0.0, f"ERROR: Could not parse score from LLM response. Raw: {text[:200]}", None
+            raise ScoringUnavailable(
+                f"Could not parse a score from the LLM response. Raw: {text[:200]}"
+            )
 
+    except ScoringUnavailable:
+        raise
     except Exception as e:
         # _llm_create_with_retry already exhausted transient retries with
         # backoff; a failure here is genuine (LM Studio down, bad request, …).
+        # Do NOT return 0.0 — that would be persisted as a real 0% fit. Raise so
+        # the caller can leave fit_score NULL and retry on a later batch.
         logger.exception("AI scoring failed for job %s", job.get("title", ""))
-        return 0.0, f"AI error: {str(e)}", None
+        raise ScoringUnavailable(f"AI error: {str(e)}") from e
 
 
 async def suggest_job_titles(profile: dict, answers: dict, config: dict) -> list[dict]:

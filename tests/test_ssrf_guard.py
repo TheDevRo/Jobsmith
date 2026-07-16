@@ -66,3 +66,73 @@ class TestSsrfGuard:
         ])
         with pytest.raises(ValueError, match="private/internal"):
             assert_public_http_url("http://dual.example/")
+
+
+class _FakeResp:
+    """Minimal aiohttp-response stand-in for the redirect-guard tests."""
+    def __init__(self, status, headers=None, body=""):
+        self.status = status
+        self.headers = headers or {}
+        self._body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def text(self):
+        return self._body
+
+
+class _FakeSession:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.requested = []
+
+    def get(self, url, **kwargs):
+        # The guard must disable aiohttp's own redirect following.
+        assert kwargs.get("allow_redirects") is False
+        self.requested.append(url)
+        return self._responses.pop(0)
+
+
+class TestRedirectGuard:
+    """SEC — the ingest fetch must re-validate every redirect hop, or a public
+    URL can 302 the server into an internal address (SSRF-via-redirect / TOCTOU)."""
+
+    def test_redirect_to_internal_address_is_refused(self):
+        import asyncio
+        from backend.job_sources import manual
+
+        session = _FakeSession([
+            _FakeResp(302, {"Location": "http://169.254.169.254/latest/meta-data/"}),
+        ])
+        with pytest.raises(ValueError, match="private/internal"):
+            asyncio.run(manual._get_following_redirects(session, "https://jobs.example/1"))
+        assert session.requested == ["https://jobs.example/1"]  # never reached the metadata host
+
+    def test_redirect_to_public_address_is_followed(self):
+        import asyncio
+        from backend.job_sources import manual
+
+        session = _FakeSession([
+            _FakeResp(301, {"Location": "http://93.184.216.34/final"}),
+            _FakeResp(200, body="<html>ok</html>"),
+        ])
+        body, final = asyncio.run(
+            manual._get_following_redirects(session, "http://93.184.216.34/start")
+        )
+        assert body == "<html>ok</html>"
+        assert final == "http://93.184.216.34/final"
+
+    def test_redirect_chain_is_bounded(self):
+        import asyncio
+        from backend.job_sources import manual
+
+        # Every hop is a public 302 — the guard must still stop after max_hops.
+        session = _FakeSession(
+            [_FakeResp(302, {"Location": f"http://93.184.216.34/{i}"}) for i in range(10)]
+        )
+        with pytest.raises(ValueError, match="Too many redirects"):
+            asyncio.run(manual._get_following_redirects(session, "http://93.184.216.34/start"))

@@ -24,6 +24,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _resume_dir_path(job_id: str, name: str) -> Path:
+    """Build RESUMES_DIR/{job_id}_{name}.docx, refusing any job_id that would
+    escape RESUMES_DIR (e.g. "../../etc/passwd"). 404 on containment failure."""
+    path = state.RESUMES_DIR / f"{job_id}_{name}.docx"
+    if not path.resolve().is_relative_to(state.RESUMES_DIR.resolve()):
+        raise HTTPException(404, "Job not found")
+    return path
+
 # ---------------------------------------------------------------------------
 # Applicant Assist endpoints
 # ---------------------------------------------------------------------------
@@ -442,8 +451,8 @@ async def assist_launch(req: AssistLaunchRequest):
     if not app_data:
         raise HTTPException(400, "No application record for this job — tailor the resume first")
 
-    resume_path = state.RESUMES_DIR / f"{req.job_id}_resume.docx"
-    cl_path = state.RESUMES_DIR / f"{req.job_id}_cover_letter.docx"
+    resume_path = _resume_dir_path(req.job_id, "resume")
+    cl_path = _resume_dir_path(req.job_id, "cover_letter")
     resume_text = app_data.get("resume_content") or ""
     cl_text = app_data.get("cover_letter_content") or ""
 
@@ -795,8 +804,8 @@ async def assist_session_fallback(session_id: str):
     if not job:
         raise HTTPException(404, "Job not found")
     app_data = job.get("application") or {}
-    resume_path = state.RESUMES_DIR / f"{job_id}_resume.docx"
-    cl_path = state.RESUMES_DIR / f"{job_id}_cover_letter.docx"
+    resume_path = _resume_dir_path(job_id, "resume")
+    cl_path = _resume_dir_path(job_id, "cover_letter")
     asyncio.create_task(
         applicant_assist.launch_assist_isolated(
             job=job,

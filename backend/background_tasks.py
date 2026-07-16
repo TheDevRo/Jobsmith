@@ -404,12 +404,16 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
     state.cancel_score.clear()
     BATCH_SIZE = 50
     verb = "Rescored" if rescore else "Scored"
-    state.score_status = {"status": "scoring", "done": 0, "total": 0, "current": "", "detail": "Starting batch scoring...", "started_at": _iso_now(), "finished_at": None}
+    state.score_status = {"status": "scoring", "done": 0, "total": 0, "failed": 0, "current": "", "detail": "Starting batch scoring...", "started_at": _iso_now(), "finished_at": None}
     try:
         cfg = state.load_config()
         profile = cfg.get("profile", {})
         scored = 0
         processed = 0
+        failed = 0
+        # Job ids we've already tried this run, so a job left unscored by a
+        # transient failure isn't re-fetched forever from the unscored feed.
+        attempted: set[str] = set()
 
         # Rescored jobs stay in the query's result set (unlike unscored jobs,
         # which drop out once scored), so snapshot the target IDs up front and
@@ -453,6 +457,13 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                 jobs = result["jobs"]
                 if not jobs:
                     break
+                # A job left unscored by a transient failure stays in the unscored
+                # feed, so the next fetch returns it again — an infinite loop if a
+                # whole page keeps failing. Stop once a page brings nothing new; the
+                # failures are retried on a *later* batch run, not this one.
+                jobs = [j for j in jobs if j["id"] not in attempted]
+                if not jobs:
+                    break
 
             logger.info("Scoring batch of %d jobs (scored so far: %d, rescore=%s)", len(jobs), scored, rescore)
 
@@ -465,6 +476,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                     return
                 if limit is not None and scored >= limit:
                     break
+                attempted.add(job["id"])
                 current = f"{job.get('title') or 'Untitled'} · {job.get('company') or ''}".rstrip(" ·")
                 progress = f"Scoring job {min(processed + 1, total)} of {total}..." if total else f"Scoring job {processed + 1}..."
                 state.score_status.update(current=current, detail=progress)
@@ -474,17 +486,31 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                     if cfg.get("salary_estimator", {}).get("auto_on_ingest", True) and cfg.get("salary_estimator", {}).get("market_compare_on_score", True):
                         await _maybe_estimate_salary(job, cfg)
                     scored += 1
+                except ai_engine.ScoringUnavailable:
+                    # Scoring backend unreachable/garbled — do NOT persist a 0.0
+                    # (that would mark a real 0% fit and drop the job out of every
+                    # future unscored_only batch). Leave fit_score NULL so the next
+                    # batch retries it; just tally the failure.
+                    failed += 1
+                    logger.warning("Scoring unavailable for %s — left unscored for retry", job.get("title"))
                 except Exception:
                     logger.exception("Failed to score %s", job.get("title"))
+                    failed += 1
                 processed += 1
-                state.score_status.update(done=processed)
+                state.score_status.update(done=processed, failed=failed)
 
+        # Surface transient failures so a silent LM Studio outage doesn't read as
+        # "all done" — those jobs were left unscored and will retry next run.
+        suffix = f" ({failed} failed)" if failed else ""
         if state.cancel_score.is_set():
-            _finish_score_status("cancelled", f"Stopped after scoring {scored} jobs")
+            _finish_score_status("cancelled", f"Stopped after scoring {scored} jobs{suffix}")
         else:
-            _finish_score_status("done", f"{verb} {scored} jobs")
-        await db.log_activity("batch_score_complete", f"{verb} {scored} jobs")
-        state.push_notification("score", "Batch Scoring Complete", f"{verb} {scored} jobs", "success")
+            _finish_score_status("done", f"{verb} {scored} jobs{suffix}")
+        await db.log_activity("batch_score_complete", f"{verb} {scored} jobs{suffix}")
+        state.push_notification(
+            "score", "Batch Scoring Complete", f"{verb} {scored} jobs{suffix}",
+            "warning" if failed else "success",
+        )
     except asyncio.CancelledError:
         _finish_score_status("cancelled", "Batch scoring was stopped by user")
         state.push_notification("score", "Batch Scoring Stopped", "Batch scoring was stopped by user", "info")

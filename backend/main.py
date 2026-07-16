@@ -131,6 +131,16 @@ async def lifespan(app: FastAPI):
         logger.info("No config.yaml found — created one from config.example.yaml. "
                     "Open the app to run first-time setup.")
 
+    # Loud, unmissable notice when API auth has been disabled. This restores the
+    # old "trust the network" behaviour, exposing config (secrets, PII), logs and
+    # the apply/delete endpoints to anyone who can reach the port.
+    if _auth.auth_disabled():
+        logger.warning(
+            "SECURITY: JOBSMITH_ALLOW_INSECURE=1 is set — dashboard API auth is "
+            "DISABLED. Every caller that can reach this port has full, "
+            "unauthenticated access. Unset it unless this is a trusted single-user LAN."
+        )
+
     cfg = state.load_config()
     try:
         ai_status = await asyncio.wait_for(ai_engine.test_connection(cfg), timeout=5)

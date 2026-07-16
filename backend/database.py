@@ -38,6 +38,10 @@ async def _get_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(str(DB_PATH))
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys=ON")
+    # Wait up to 15s for a competing writer to release its lock instead of
+    # failing instantly with "database is locked" — background workers write
+    # while requests are served, so brief contention is normal. Per-connection.
+    await db.execute("PRAGMA busy_timeout=15000")
     return db
 
 

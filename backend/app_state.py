@@ -224,7 +224,8 @@ current_apply_app_id: Optional[str] = None
 fetch_status: dict = {"active": False, "phase": "", "detail": "", "sources_done": 0, "sources_total": 0, "jobs_found": 0, "jobs_inserted": 0}
 # Batch-scoring progress feed, read by GET /api/jobs/score-batch/status.
 # status: idle | scoring | done | error | cancelled. `current` is the job being
-# scored right now ("title · company"); done/total drive the progress bar.
-score_status: dict = {"status": "idle", "done": 0, "total": 0, "current": "", "detail": "", "started_at": None, "finished_at": None}
+# scored right now ("title · company"); done/total drive the progress bar;
+# `failed` counts jobs the scoring backend couldn't reach (left unscored to retry).
+score_status: dict = {"status": "idle", "done": 0, "total": 0, "failed": 0, "current": "", "detail": "", "started_at": None, "finished_at": None}
 detect_types_status: dict = {"active": False, "processed": 0, "easy_apply": 0, "quick_apply": 0, "external": 0, "unknown": 0, "detail": ""}
 refetch_status: dict = {"active": False, "processed": 0, "total": 0, "updated": 0, "failed": 0, "detail": ""}

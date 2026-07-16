@@ -63,6 +63,29 @@ class SyncFolder:
             return set()
         return {p.stem for p in self.changes_dir.glob("*.jsonl")}
 
+    def evicted_log_ids(self) -> set[str]:
+        """Device ids whose changes log is present only as an undownloaded iCloud
+        placeholder — no real {id}.jsonl beside it.
+
+        iCloud evicts a not-recently-used file by replacing its bytes with a
+        zero-length placeholder named `.{name}.icloud` (dot-prefixed, hidden).
+        Reading the *real* name usually triggers materialization, but until the
+        download lands the log is genuinely absent — merging the folder now would
+        silently drop that device's changes. Callers should treat a non-empty
+        result as "not safe to merge this cycle"."""
+        if not self.changes_dir.exists():
+            return set()
+        real_logs = {p.name for p in self.changes_dir.glob("*.jsonl")}
+        evicted: set[str] = set()
+        for p in self.changes_dir.iterdir():
+            if not p.name.endswith(".icloud"):
+                continue
+            # `.A1B2.jsonl.icloud` (hidden) or `A1B2.jsonl.icloud`
+            real = p.name[: -len(".icloud")].lstrip(".")
+            if real.endswith(".jsonl") and real not in real_logs:
+                evicted.add(real[: -len(".jsonl")])
+        return evicted
+
     def read_manifest(self) -> dict:
         if self.manifest_path.exists():
             try:

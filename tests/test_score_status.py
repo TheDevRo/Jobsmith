@@ -110,3 +110,125 @@ class TestScoreBatchLifecycle:
 
         assert state.score_status["status"] == "cancelled"
         assert state.score_status["finished_at"] is not None
+
+
+class TestScoringUnavailable:
+    """A scoring-backend outage must NOT be persisted as a real 0.0 fit: the job
+    is left unscored (fit_score NULL), the run tallies it as failed, and a later
+    batch retries it once the backend recovers."""
+
+    def test_score_job_fit_raises_when_backend_unreachable(self, monkeypatch):
+        from backend import ai_engine
+
+        monkeypatch.setattr(ai_engine, "_get_client", lambda cfg, tier: object())
+        monkeypatch.setattr(ai_engine, "_profile_summary", lambda p: "")
+        monkeypatch.setattr(ai_engine.prompt_registry, "render_prompt", lambda *a, **k: "prompt")
+
+        async def boom(*a, **k):
+            raise ConnectionError("LM Studio down")
+
+        monkeypatch.setattr(ai_engine, "_llm_create_with_retry", boom)
+
+        with pytest.raises(ai_engine.ScoringUnavailable):
+            asyncio.run(ai_engine.score_job_fit({"title": "Eng", "description": ""}, {}, {}))
+
+    def test_score_job_fit_raises_on_unparseable_response(self, monkeypatch):
+        from backend import ai_engine
+
+        monkeypatch.setattr(ai_engine, "_get_client", lambda cfg, tier: object())
+        monkeypatch.setattr(ai_engine, "_profile_summary", lambda p: "")
+        monkeypatch.setattr(ai_engine.prompt_registry, "render_prompt", lambda *a, **k: "prompt")
+
+        class _Msg:
+            content = "the model returned no score at all"
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        async def ok(*a, **k):
+            return _Resp()
+
+        monkeypatch.setattr(ai_engine, "_llm_create_with_retry", ok)
+
+        with pytest.raises(ai_engine.ScoringUnavailable):
+            asyncio.run(ai_engine.score_job_fit({"title": "Eng", "description": ""}, {}, {}))
+
+    def test_batch_leaves_job_unscored_and_reports_failure_count(self, monkeypatch):
+        from backend import ai_engine
+
+        jobs = [{"id": "1", "title": "Engineer", "company": "Acme"}]
+        persisted = []
+
+        async def fake_get_jobs(**kwargs):
+            # Nothing ever gets persisted, so the job stays in the unscored feed.
+            if kwargs.get("limit") == 1:
+                return {"jobs": jobs[:1], "total": len(jobs)}
+            return {"jobs": list(jobs), "total": len(jobs)}
+
+        async def fake_score(job, profile, cfg):
+            raise ai_engine.ScoringUnavailable("LM Studio down")
+
+        async def fake_update(job_id, *a, **k):
+            persisted.append(job_id)
+
+        async def _anoop(*a, **k):
+            pass
+
+        monkeypatch.setattr(bg.db, "get_jobs", fake_get_jobs)
+        monkeypatch.setattr(bg.db, "update_job_score", fake_update)
+        monkeypatch.setattr(bg.db, "log_activity", _anoop)
+        monkeypatch.setattr(bg.ai_engine, "score_job_fit", fake_score)
+        monkeypatch.setattr(state, "load_config", lambda: {"salary_estimator": {"auto_on_ingest": False}})
+
+        asyncio.run(bg._bg_score_batch())
+
+        assert persisted == []  # never written => fit_score stays NULL
+        s = state.score_status
+        assert s["status"] == "done"
+        assert s["failed"] == 1
+        assert "1 failed" in s["detail"]
+
+    def test_later_batch_retries_a_job_left_unscored(self, monkeypatch):
+        from backend import ai_engine
+
+        job = {"id": "1", "title": "Engineer", "company": "Acme"}
+        persisted = []
+        backend_up = {"ok": False}
+
+        async def fake_get_jobs(**kwargs):
+            pending = [] if persisted else [job]  # drops out once persisted
+            if kwargs.get("limit") == 1:
+                return {"jobs": pending[:1], "total": len(pending)}
+            return {"jobs": list(pending), "total": len(pending)}
+
+        async def fake_score(j, p, c):
+            if not backend_up["ok"]:
+                raise ai_engine.ScoringUnavailable("down")
+            return 77.0, "ok", {}
+
+        async def fake_update(job_id, *a, **k):
+            persisted.append(job_id)
+
+        async def _anoop(*a, **k):
+            pass
+
+        monkeypatch.setattr(bg.db, "get_jobs", fake_get_jobs)
+        monkeypatch.setattr(bg.db, "update_job_score", fake_update)
+        monkeypatch.setattr(bg.db, "log_activity", _anoop)
+        monkeypatch.setattr(bg.ai_engine, "score_job_fit", fake_score)
+        monkeypatch.setattr(state, "load_config", lambda: {"salary_estimator": {"auto_on_ingest": False}})
+
+        # First run: backend down -> job left unscored.
+        asyncio.run(bg._bg_score_batch())
+        assert persisted == []
+        assert state.score_status["failed"] == 1
+
+        # Later run: backend recovered -> the same job is picked up and scored.
+        backend_up["ok"] = True
+        asyncio.run(bg._bg_score_batch())
+        assert persisted == ["1"]
+        assert state.score_status["failed"] == 0
+        assert state.score_status["done"] == 1

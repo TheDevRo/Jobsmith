@@ -421,8 +421,13 @@ def _resolve_document(job_id: str, kind: str) -> tuple[Path, str, str]:
     cfg = state.load_config()
     fmt = cfg.get("application_honesty", {}).get("document_format", "docx")
     preferred = "pdf" if str(fmt).lower() == "pdf" else "docx"
+    resumes_root = state.RESUMES_DIR.resolve()
     for ext in (preferred, "docx" if preferred == "pdf" else "pdf"):
         path = state.RESUMES_DIR / f"{job_id}_{kind}.{ext}"
+        # Containment: a crafted job_id (e.g. "../../etc/passwd") must not let the
+        # download escape RESUMES_DIR. Treat any escape as a plain 404.
+        if not path.resolve().is_relative_to(resumes_root):
+            raise HTTPException(404, f"{kind.replace('_', ' ').title()} not found")
         if path.exists():
             mime = "application/pdf" if ext == "pdf" else state.DOCX_MIME
             return path, f"{job_id}_{kind}.{ext}", mime

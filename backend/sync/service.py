@@ -52,6 +52,10 @@ class SyncService:
         self._lock = asyncio.Lock()
         self.last_result: Optional[dict] = None
         self.last_error: Optional[str] = None
+        # Device ids whose logs are present only as undownloaded iCloud
+        # placeholders; a non-empty list means the last cycle skipped merging to
+        # avoid dropping those devices' changes. Surfaced via status().
+        self.pending_downloads: list[str] = []
 
     # -- config ------------------------------------------------------------
 
@@ -161,6 +165,9 @@ class SyncService:
             ],
             "last_result": self.last_result,
             "last_error": self.last_error,
+            # Peer logs the cloud hasn't finished downloading (iCloud placeholders).
+            # Non-empty => the last cycle skipped merging to avoid a partial folder.
+            "pending_downloads": self.pending_downloads,
         }
 
     # -- profile bridge ----------------------------------------------------
@@ -211,6 +218,23 @@ class SyncService:
                     label=self._sync_cfg(self._load_config()).get("device_label"),
                     platform=self._platform,
                 )
+                # An iCloud-evicted peer log reads as absent, so merging now would
+                # silently drop that device's changes. Detect the placeholders and
+                # skip this cycle rather than merge a partial folder — the download
+                # usually lands within a tick or two, and the next cycle merges.
+                evicted = sorted(sf.evicted_log_ids())
+                self.pending_downloads = evicted
+                if evicted:
+                    logger.warning(
+                        "sync: %d peer log(s) not downloaded from the cloud yet "
+                        "(iCloud placeholders: %s) — skipping merge this cycle",
+                        len(evicted), ", ".join(evicted),
+                    )
+                    result = {"skipped": True, "reason": "pending_downloads",
+                              "pending_downloads": evicted}
+                    self.last_result = result
+                    self.last_error = None
+                    return result
                 engine = self._make_engine(folder, device_id)
                 # Export BEFORE import: a just-made local decision (shortlist or
                 # delete) has no timestamp until it's exported, so we stamp it

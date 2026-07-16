@@ -64,3 +64,23 @@ def test_compaction_drops_superseded_but_preserves_merge(tmp_path):
     kept = [json.loads(l) for l in (sf.changes_dir / "A1B2.jsonl").read_text().splitlines()]
     assert len(kept) == 1
     assert kept[0]["id"] == "1" and kept[0]["data"] == {"v": "new"}
+
+
+def test_evicted_log_ids_flags_undownloaded_icloud_placeholders(tmp_path):
+    """An iCloud-evicted peer log appears only as a `.icloud` placeholder with no
+    real .jsonl beside it. evicted_log_ids() flags exactly those so the service
+    can skip merging a partial folder rather than silently drop that device."""
+    sf = SyncFolder(tmp_path)
+    sf.ensure_dirs()
+
+    # A downloaded log (real bytes present) — NOT evicted.
+    (sf.changes_dir / "A1B2.jsonl").write_text('{"ok": 1}\n')
+    # A peer whose log is only an undownloaded placeholder (macOS hidden name).
+    (sf.changes_dir / ".C3D4.jsonl.icloud").write_text("")
+    # A peer with BOTH a placeholder and the real file (download landed) — NOT evicted.
+    (sf.changes_dir / "E5F6.jsonl").write_text('{"ok": 1}\n')
+    (sf.changes_dir / ".E5F6.jsonl.icloud").write_text("")
+
+    assert sf.evicted_log_ids() == {"C3D4"}
+    # The evicted placeholder does not pollute the authoritative device list.
+    assert sf.log_device_ids() == {"A1B2", "E5F6"}
