@@ -44,6 +44,22 @@ struct ApplyBrowserView: View {
         return cookie.isEmpty ? nil : cookie
     }
 
+    /// The Keychain-stored session as injectable cookies. Enough on its own
+    /// only when the browser's persistent jar already holds LinkedIn's device
+    /// cookies from an earlier sign-in — see `handleLinkedInSignIn`.
+    private var storedLinkedInCookies: [HTTPCookie] {
+        var cookies: [HTTPCookie] = []
+        if let value = storedLinkedInCookie,
+           let cookie = ApplyWebController.linkedInSessionCookie(value: value) {
+            cookies.append(cookie)
+        }
+        if let value = storedLinkedInJSessionId,
+           let cookie = ApplyWebController.linkedInJSessionCookie(value: value) {
+            cookies.append(cookie)
+        }
+        return cookies
+    }
+
     /// LinkedIn browsing works on `li_at` alone, but Easy Apply's Voyager POST
     /// needs a live `JSESSIONID` too. Prompt a (fresh) sign-in when either is
     /// missing rather than loading a half-authenticated session whose Apply
@@ -84,8 +100,7 @@ struct ApplyBrowserView: View {
             guard !didStart, let url = jobURL else { return }
             didStart = true
             controller.start(url: url,
-                             liAtCookie: isLinkedIn ? storedLinkedInCookie : nil,
-                             jsessionId: isLinkedIn ? storedLinkedInJSessionId : nil)
+                             cookies: isLinkedIn ? storedLinkedInCookies : [])
             showStatus("Load the form, then tap Autofill.", autoHideAfter: 6)
         }
         .onChange(of: controller.hasPopup) { _, opened in
@@ -104,8 +119,8 @@ struct ApplyBrowserView: View {
             }
         }
         .sheet(isPresented: $showLinkedInSignIn) {
-            LinkedInSignInSheet { _, cookie, jsession in
-                handleLinkedInSignIn(cookie, jsession)
+            LinkedInSignInSheet { result in
+                handleLinkedInSignIn(result)
             }
         }
         .sheet(isPresented: $showPanel) {
@@ -209,16 +224,21 @@ struct ApplyBrowserView: View {
     }
 
     /// Persist the captured `li_at` + `JSESSIONID` cookies (same store
-    /// onboarding writes) and reload the posting so it renders — and can Easy
-    /// Apply — behind the fresh session.
-    private func handleLinkedInSignIn(_ cookie: String?, _ jsession: String?) {
-        guard let cookie, !cookie.isEmpty else { return }
+    /// onboarding writes) and reload the posting behind the fresh session —
+    /// injecting the sheet's COMPLETE cookie jar, not just the two we keep:
+    /// `li_at` landing in a jar without its companion device cookies
+    /// (bcookie/bscookie/lidc/…) fails LinkedIn's session check and
+    /// 302-loops, which the loop recovery then "fixes" by discarding the
+    /// brand-new session — making sign-in appear to do nothing. The extra
+    /// cookies live only in the browser's own jar, never in the Keychain.
+    private func handleLinkedInSignIn(_ result: LinkedInSignInResult) {
+        guard let cookie = result.liAt, !cookie.isEmpty else { return }
         model.saveConfig {
             $0.apiKeys.linkedInCookie = cookie
-            $0.apiKeys.linkedInJSessionId = jsession ?? ""
+            $0.apiKeys.linkedInJSessionId = result.jsessionId ?? ""
         }
         if let url = jobURL {
-            controller.start(url: url, liAtCookie: cookie, jsessionId: jsession)
+            controller.start(url: url, cookies: result.cookies)
         }
     }
 
@@ -845,26 +865,18 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         loadError = nsError.localizedDescription
     }
 
-    /// Inject the stored LinkedIn session cookies (if any) into the web view's
+    /// Inject the given LinkedIn session cookies (if any) into the web view's
     /// cookie store, then load — so LinkedIn postings render, and can Easy
     /// Apply, behind the user's own session instead of the logged-out wall.
-    /// `li_at` alone renders logged-in but the Easy-Apply POST needs a live
-    /// `JSESSIONID` (its value is LinkedIn's csrf-token). Both are scoped to
-    /// `.linkedin.com`, so they're never sent to other ATS hosts.
-    func start(url: URL, liAtCookie: String?, jsessionId: String?) {
+    /// A fresh sign-in passes the complete jar (LinkedIn validates `li_at`
+    /// against its device cookies; see `handleLinkedInSignIn`); later opens
+    /// pass just the Keychain pair atop the browser's persisted jar. All are
+    /// scoped to `.linkedin.com`, so they're never sent to other ATS hosts.
+    func start(url: URL, cookies: [HTTPCookie] = []) {
         initialURL = url
         renderedLinkedInJobPage = false
         hitAuthwall = false
         didRetryAsGuestAfterRedirectLoop = false
-        var cookies: [HTTPCookie] = []
-        if let liAtCookie, !liAtCookie.isEmpty,
-           let cookie = Self.linkedInSessionCookie(value: liAtCookie) {
-            cookies.append(cookie)
-        }
-        if let jsessionId, !jsessionId.isEmpty,
-           let cookie = Self.linkedInJSessionCookie(value: jsessionId) {
-            cookies.append(cookie)
-        }
         injectedLinkedInSession = !cookies.isEmpty
         guard !cookies.isEmpty else { load(url); return }
         setCookies(cookies, thenLoad: url)

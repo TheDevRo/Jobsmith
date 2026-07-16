@@ -411,11 +411,11 @@ struct LinkedInSettingsSection: View {
                      : "Signed in, Jobsmith searches LinkedIn as you — more results, far fewer rate limits. Without an account it falls back to LinkedIn's public pages. Turn LinkedIn off and Jobsmith never contacts it at all.")
             }
             .sheet(isPresented: $showSignIn) {
-                LinkedInSignInSheet { _, cookie, jsession in
-                    if let cookie, !cookie.isEmpty {
+                LinkedInSignInSheet { result in
+                    if let cookie = result.liAt, !cookie.isEmpty {
                         model.saveConfig {
                             $0.apiKeys.linkedInCookie = cookie
-                            $0.apiKeys.linkedInJSessionId = jsession ?? ""
+                            $0.apiKeys.linkedInJSessionId = result.jsessionId ?? ""
                         }
                     }
                 }
