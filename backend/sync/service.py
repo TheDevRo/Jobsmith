@@ -38,12 +38,17 @@ class SyncService:
         docs_dir: str | Path,
         *,
         platform: str = "macos",
+        after_import: Optional[Callable[[], None]] = None,
     ):
         self._load_config = load_config
         self._save_config = save_config
         self._db_path_fn = db_path_fn
         self._docs_dir = Path(docs_dir)
         self._platform = platform
+        # Fired after each cycle that imported changes — the seam where the app
+        # reacts to what sync brought in (today: work-request fulfillment).
+        # Synchronous and must not block; spawn a task for real work.
+        self._after_import = after_import
         self._lock = asyncio.Lock()
         self.last_result: Optional[dict] = None
         self.last_error: Optional[str] = None
@@ -92,11 +97,14 @@ class SyncService:
                       folder: Optional[str] = None,
                       device_label: Optional[str] = None,
                       interval_seconds: Optional[int] = None,
-                      settings: Optional[dict] = None) -> dict:
+                      settings: Optional[dict] = None,
+                      fulfill_work_requests: Optional[bool] = None) -> dict:
         cfg = self._load_config()
         section = self._sync_cfg(cfg)
         if enabled is not None:
             section["enabled"] = enabled
+        if fulfill_work_requests is not None:
+            section["fulfill_work_requests"] = bool(fulfill_work_requests)
         if folder is not None:
             section["folder"] = folder
         if device_label is not None:
@@ -141,6 +149,9 @@ class SyncService:
             "folder": folder,
             "device_id": section.get("device_id"),
             "device_label": section.get("device_label"),
+            # Serve other devices' hand-off requests (score_all). Off by
+            # default: a synced file must not spend LLM tokens uninvited.
+            "fulfill_work_requests": bool(section.get("fulfill_work_requests")),
             "interval_seconds": self.interval_seconds,
             "known_devices": devices,
             "settings": self.settings_state(cfg),
@@ -188,6 +199,7 @@ class SyncService:
         if not self.enabled or not self.folder:
             return {"skipped": True, "reason": "disabled" if not self.enabled else "no folder"}
 
+        imported_changes = False
         async with self._lock:
             folder = Path(self.folder).expanduser()
             device_id = self.device_id()
@@ -217,11 +229,23 @@ class SyncService:
                 }
                 self.last_result = result
                 self.last_error = None
-                return result
+                # A hand-off can only arrive on a cycle that actually imported
+                # something, so only bother the hook then — not on every idle tick.
+                imported_changes = bool(imp.upserts or imp.deletes)
             except Exception as e:  # sync must never crash the app
                 logger.exception("sync_once failed")
                 self.last_error = str(e)
                 return {"skipped": False, "error": str(e)}
+
+        # Fire the after-import hook OUTSIDE the lock — it may kick off a long
+        # fulfillment batch, which must not block the next cycle from acquiring
+        # the lock. Isolated: the hook must never break sync itself.
+        if imported_changes and self._after_import is not None:
+            try:
+                self._after_import()
+            except Exception:
+                logger.exception("after-import hook failed")
+        return result
 
     async def run_periodic(self, interval_seconds: Optional[int] = None) -> None:
         """Background loop; reloads config each tick so it's safe to always
@@ -247,6 +271,7 @@ def default_service() -> SyncService:
     global _default
     if _default is None:
         from .. import app_state as state
+        from .. import background_tasks
         from .. import database
         from ..paths import project_root
 
@@ -255,5 +280,6 @@ def default_service() -> SyncService:
             save_config=state.save_config,
             db_path_fn=lambda: str(database.DB_PATH),
             docs_dir=project_root() / "data" / "sync-docs",
+            after_import=background_tasks.schedule_work_request_fulfillment,
         )
     return _default

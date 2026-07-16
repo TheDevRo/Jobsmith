@@ -40,11 +40,14 @@ Lifecycle decision (the `triage` entity):
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 
 class DeferRecord(Exception):
@@ -506,6 +509,72 @@ class AnswerAdapter:
         )
 
 
+# ---------------------------------------------------------------------------
+# work_request  (cross-device hand-off: "score everything unscored")
+# ---------------------------------------------------------------------------
+
+class WorkRequestAdapter:
+    """A hand-off command from another device, keyed by its own UUID.
+
+    One flat LWW record: the requester writes it `pending`, the fulfiller
+    re-emits it `done` with a newer timestamp, and last-writer-wins settles it
+    everywhere. It carries no job references on purpose — the fulfilling side
+    derives "what's left" from its own database (the jobs still unscored), the
+    same way a locally resumed run does — so a request can't go stale against
+    the work it names, and there is nothing to defer on.
+
+    Fulfillment is NOT the adapter's business: importing a pending request just
+    lands the row. Whether this desktop acts on it is a separate, off-by-default
+    setting (sync.fulfill_work_requests) checked after the sync cycle.
+    Must match the iOS side (SyncEngine.workRequestSnapshot/applyWorkRequest).
+    """
+
+    entity = "work_request"
+
+    # Kinds this build knows how to fulfill. An unknown kind can never be
+    # retired here (nothing serves it), so it would sit `pending` forever and
+    # re-import every cycle — drop it on apply instead. A build that understands
+    # the kind will re-import it from the origin device, which still holds it.
+    KNOWN_KINDS = {"score_all"}
+
+    SCALAR = ("kind", "status", "requested_by", "requested_at",
+              "completed_by", "completed_at")
+    JSON = ("params",)
+    COLS = SCALAR + JSON
+
+    async def snapshot(self, conn: aiosqlite.Connection) -> dict[str, dict]:
+        cols = ", ".join(("id",) + self.COLS)
+        cur = await conn.execute(f"SELECT {cols} FROM work_requests")
+        out: dict[str, dict] = {}
+        for row in await cur.fetchall():
+            r = dict(row)
+            data: dict = {c: r[c] for c in self.SCALAR}
+            data["params"] = _loads(r["params"], {})
+            out[r["id"]] = data
+        return out
+
+    async def apply_live(self, conn: aiosqlite.Connection, sync_id: str, data: dict) -> None:
+        kind = data.get("kind")
+        if kind not in self.KNOWN_KINDS:
+            logger.warning("Dropping work_request %s of unknown kind %r", sync_id, kind)
+            return
+        values = {c: data.get(c) for c in self.SCALAR}
+        values["status"] = values.get("status") or "pending"
+        values["params"] = _dumps(data.get("params") or {})
+        cols = ["id", *values.keys()]
+        placeholders = ", ".join("?" for _ in cols)
+        updates = ", ".join(f"{c} = excluded.{c}" for c in values)
+        await conn.execute(
+            f"""INSERT INTO work_requests ({', '.join(cols)}) VALUES ({placeholders})
+                ON CONFLICT(id) DO UPDATE SET {updates}""",
+            (sync_id, *values.values()),
+        )
+
+    async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        # The requester pruning old news — just drop the row.
+        await conn.execute("DELETE FROM work_requests WHERE id = ?", (sync_id,))
+
+
 # Live-apply order respects dependencies (a job's facts must exist before its
 # triage decision or its application, and an application before its events).
 # Tombstones are applied in reverse so children go before parents.
@@ -517,6 +586,7 @@ def db_adapters(document_store=None):
         ApplicationAdapter(document_store),
         ApplicationEventAdapter(),
         ApplicationScheduleAdapter(),
+        WorkRequestAdapter(),
     )
 
 

@@ -26,6 +26,9 @@ class SyncConfigUpdate(BaseModel):
     # Per-category sync toggles (sync.settings.<key>). Unknown keys are ignored
     # by the service (validated against the registry's category keys).
     settings: Optional[dict] = None
+    # Serve score_all hand-off requests other devices leave in the folder.
+    # Off by default — a synced file must not spend LLM tokens uninvited.
+    fulfill_work_requests: Optional[bool] = None
 
 
 @router.get("/api/sync/status")
@@ -43,6 +46,7 @@ async def sync_config(update: SyncConfigUpdate):
         device_label=update.device_label,
         interval_seconds=update.interval_seconds,
         settings=update.settings,
+        fulfill_work_requests=update.fulfill_work_requests,
     )
 
 

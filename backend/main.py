@@ -171,6 +171,11 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("Server shutting down")
+    # Cancel any in-flight background workers (fetch/score/apply/hand-off) so the
+    # process can exit promptly instead of waiting on a long LLM batch.
+    for task in list(state.running_tasks.values()):
+        if task and not task.done():
+            task.cancel()
 
 
 app = FastAPI(title="Jobsmith", version=APP_VERSION, lifespan=lifespan)

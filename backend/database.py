@@ -99,6 +99,20 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
     # as fields on `application` — same reason the outcome doesn't live there.
     (24, "ALTER TABLE applications ADD COLUMN follow_up_at TIMESTAMP"),
     (25, "ALTER TABLE applications ADD COLUMN interview_at TIMESTAMP"),
+    # Cross-device work hand-off (the `work_request` sync entity): a phone that
+    # couldn't finish a scoring run files a request; this desktop may fulfill it
+    # (sync.fulfill_work_requests, off by default) and flip it to 'done'.
+    (26, """CREATE TABLE IF NOT EXISTS work_requests (
+                id           TEXT PRIMARY KEY,
+                kind         TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                requested_by TEXT,
+                requested_at TEXT,
+                completed_by TEXT,
+                completed_at TEXT,
+                params       TEXT
+            )"""),
+    (27, "CREATE INDEX IF NOT EXISTS idx_work_requests_status ON work_requests(status)"),
 ]
 
 
@@ -769,6 +783,47 @@ async def update_job_score(
         await db.execute(
             "UPDATE jobs SET fit_score = ?, fit_reasoning = ?, match_report = ? WHERE id = ?",
             (score, reasoning, json.dumps(match_report) if match_report else None, job_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_pending_work_requests(kind: Optional[str] = None) -> list[dict]:
+    """Work requests other devices filed and nothing has fulfilled yet,
+    oldest first. `params` comes back parsed."""
+    db = await _get_db()
+    try:
+        sql = "SELECT * FROM work_requests WHERE status = 'pending'"
+        args: tuple = ()
+        if kind:
+            sql += " AND kind = ?"
+            args = (kind,)
+        sql += " ORDER BY requested_at"
+        cursor = await db.execute(sql, args)
+        rows = [dict(r) for r in await cursor.fetchall()]
+        for r in rows:
+            try:
+                r["params"] = json.loads(r.get("params") or "{}")
+            except (ValueError, TypeError):
+                r["params"] = {}
+        return rows
+    finally:
+        await db.close()
+
+
+async def complete_work_request(request_id: str, device_id: Optional[str] = None) -> None:
+    """Mark a work request fulfilled. The next sync export re-emits it with a
+    newer timestamp, so 'done' out-ranks the requester's 'pending' under LWW."""
+    db = await _get_db()
+    try:
+        now = datetime.now(timezone.utc)
+        completed_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+        await db.execute(
+            """UPDATE work_requests
+               SET status = 'done', completed_by = ?, completed_at = ?
+               WHERE id = ?""",
+            (device_id, completed_at, request_id),
         )
         await db.commit()
     finally:

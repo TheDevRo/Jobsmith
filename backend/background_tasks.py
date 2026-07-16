@@ -389,13 +389,17 @@ async def _bg_score_job(job_id: str):
         state.push_notification("score", "Scoring Failed", f"Failed to score job {job_id}", "error")
 
 
-async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
-    """Score discovered jobs that don't have a score yet.
+async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
+                          status: str = "discovered"):
+    """Score jobs in a worklist that don't have a score yet.
 
     Args:
         limit: Maximum number of jobs to score. None means score all.
         rescore: Also re-score jobs that already have a score (e.g. after a
             profile change). Default scores unscored jobs only.
+        status: The worklist to draw from — "discovered" (the inbox feed) or
+            "shortlisted" (the pipeline). Lets the sync hand-off score the pool
+            the requesting device named.
     """
     state.cancel_score.clear()
     BATCH_SIZE = 50
@@ -414,7 +418,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
         if rescore:
             offset = 0
             while True:
-                page = (await db.get_jobs(status="discovered", limit=500, offset=offset))["jobs"]
+                page = (await db.get_jobs(status=status, limit=500, offset=offset))["jobs"]
                 if not page:
                     break
                 pending_ids.extend(j["id"] for j in page)
@@ -424,7 +428,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
         if rescore:
             total = len(pending_ids)
         else:
-            total = (await db.get_jobs(status="discovered", unscored_only=True, limit=1))["total"]
+            total = (await db.get_jobs(status=status, unscored_only=True, limit=1))["total"]
         if limit is not None:
             total = min(total, limit)
         state.score_status.update(total=total, detail=f"Scoring {total} jobs...")
@@ -445,7 +449,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False):
                 if not jobs:
                     continue
             else:
-                result = await db.get_jobs(status="discovered", unscored_only=True, limit=fetch_size)
+                result = await db.get_jobs(status=status, unscored_only=True, limit=fetch_size)
                 jobs = result["jobs"]
                 if not jobs:
                     break
@@ -869,3 +873,113 @@ async def _bg_refetch_descriptions():
     except Exception:
         logger.exception("Refetch descriptions failed")
         state.refetch_status.update(active=False, detail="Refetch failed — check server logs")
+
+
+# ---------------------------------------------------------------------------
+# Work-request fulfillment (the sync hand-off's serving side)
+# ---------------------------------------------------------------------------
+
+# A hand-off's `pool` names the worklist to score: the inbox feed (jobs still
+# in `discovered`) or the shortlisted pipeline. Kept in step with the iOS side
+# (AppModel.requestDesktopHandoffIfEnabled, which sets pool from the run's
+# candidate set). Unknown pools fall back to the inbox feed.
+_POOL_STATUS = {"inbox": "discovered", "pipeline": "shortlisted"}
+
+# Hard cap on one fulfillment batch so a wedged AI endpoint can't hold the
+# hand-off task — and the shared score-batch mutex — open forever. Scoring is
+# far slower than a fetch (900s), so this is correspondingly generous.
+_HANDOFF_SCORE_TIMEOUT = 3600
+
+
+def _log_task_result(task: asyncio.Task) -> None:
+    """done_callback for detached background tasks: surface a crash that would
+    otherwise only be logged when the un-awaited task is garbage-collected."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Background task %s failed", task.get_name(), exc_info=exc)
+
+
+def schedule_work_request_fulfillment() -> None:
+    """Called after a sync cycle that imported changes (SyncService's after-import
+    hook): if the folder brought in a pending `score_all` hand-off from another
+    device and the user has opted in (sync.fulfill_work_requests, off by default),
+    start fulfilling it in the background. Synchronous and cheap on purpose — the
+    sync cycle must not wait minutes for an LLM batch. The task is registered in
+    state.running_tasks so /cancel and the lifespan shutdown can reach it."""
+    cfg = state.load_config()
+    if not (cfg.get("sync") or {}).get("fulfill_work_requests"):
+        return
+    if state.task_running("work_request"):
+        return  # already serving; the next cycle re-checks
+    task = asyncio.create_task(_bg_fulfill_work_requests())
+    state.running_tasks["work_request"] = task
+    task.add_done_callback(_log_task_result)
+
+
+async def _bg_fulfill_work_requests():
+    """Serve pending `score_all` hand-offs. Each request names a `pool` (the
+    inbox feed or the shortlisted pipeline); score each requested pool once over
+    its still-unscored jobs, then retire only the requests whose pool ran to
+    completion. The request names no jobs — "what's left" is derived from this
+    database, exactly like a local resume — and the scores travel back through
+    the ordinary `job` entity on the next sync cycle, where the retired (`done`)
+    requests also re-export with a newer timestamp and out-rank the requester's
+    `pending` under LWW."""
+    try:
+        pending = await db.get_pending_work_requests(kind="score_all")
+        if not pending:
+            return
+
+        # Bucket by pool: a pipeline request must not be retired by an inbox
+        # batch, since the two score disjoint worklists.
+        by_pool: dict[str, list[dict]] = {}
+        for req in pending:
+            pool = req["params"].get("pool") or "inbox"
+            if pool not in _POOL_STATUS:
+                pool = "inbox"  # unknown pool → the safe default worklist
+            by_pool.setdefault(pool, []).append(req)
+
+        # Share the score-batch route's mutex so we never run a second batch
+        # alongside one the user (or a prior cycle) already started. Check-and-
+        # claim with no await in between, exactly like the route, so a racing
+        # POST /score-batch can't slip through the window.
+        if state.task_running("score_batch"):
+            return  # a batch is already running; the next sync tick re-checks
+        state.running_tasks["score_batch"] = asyncio.current_task()
+
+        requesters = {r.get("requested_by") or "another device" for r in pending}
+        await db.log_activity(
+            "handoff",
+            f"Scoring hand-off from {', '.join(sorted(requesters))} — scoring unscored jobs",
+        )
+        device_id = (state.load_config().get("sync") or {}).get("device_id")
+        try:
+            for pool, reqs in by_pool.items():
+                # Largest cap in the bucket wins; a request without one means
+                # "everything" (limit None).
+                caps = [r["params"].get("cap") for r in reqs]
+                limit = None
+                if caps and all(isinstance(c, (int, float)) and c > 0 for c in caps):
+                    limit = int(max(caps))
+
+                await asyncio.wait_for(
+                    _bg_score_batch(limit=limit, status=_POOL_STATUS[pool]),
+                    timeout=_HANDOFF_SCORE_TIMEOUT,
+                )
+                # Retire only on a clean run. A cancelled batch (user pressed
+                # Stop) leaves this pool's — and any later pool's — requests
+                # pending so the next cycle resumes, rather than restarting
+                # against a user who just stopped it.
+                if state.cancel_score.is_set():
+                    break
+                for req in reqs:
+                    await db.complete_work_request(req["id"], device_id)
+        finally:
+            if state.running_tasks.get("score_batch") is asyncio.current_task():
+                del state.running_tasks["score_batch"]
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Work-request fulfillment failed")
