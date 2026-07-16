@@ -1,0 +1,4 @@
+{"v":1,"entity":"triage","id":"greenhouse:100","updated_at":"2026-07-08T10:00:00.000Z","device":"A1B2","deleted":false,"data":{"status":"shortlisted","decided_at":"2026-07-08T10:00:00.000Z"}}
+{"v":1,"entity":"triage","id":"greenhouse:100","updated_at":"2026-07-08T14:00:00.000Z","device":"A1B2","deleted":false,"data":{"status":"deleted","decided_at":"2026-07-08T14:00:00.000Z"}}
+{"v":1,"entity":"application_event","id":"uuid-app-1:2026-07-08T12:00:00.000Z:interviewing","updated_at":"2026-07-08T12:00:00.000Z","device":"A1B2","deleted":false,"data":{"application_id":"uuid-app-1","occurred_at":"2026-07-08T12:00:00.000Z","to_outcome":"interviewing"}}
+{"v":1,"entity":"application_schedule","id":"uuid-app-1","updated_at":"2026-07-08T11:00:00.000Z","device":"A1B2","deleted":false,"data":{"application_id":"uuid-app-1","interview_at":"2026-07-10T09:00:00.000Z","follow_up_at":"2026-07-12T09:00:00.000Z"}}

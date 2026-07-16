@@ -1,0 +1,31 @@
+{
+  "_comment": "The three pipeline entities exercise the two deletion styles side by side: a triage 'delete' is a LIVE record with status='deleted' (never a tombstone), while an application_schedule delete IS a tombstone (engines interpret it as 'dates cleared, row kept'). application_event ids are content-addressed and append-only, so two devices' events coexist and never conflict.",
+  "live": {
+    "triage": {
+      "greenhouse:100": {
+        "status": "deleted",
+        "decided_at": "2026-07-08T14:00:00.000Z",
+        "_won_from": "A1B2 @ 14:00 beats C3D4 'applied' @ 12:00 — and the winner is a live record, not a tombstone"
+      }
+    },
+    "application_event": {
+      "uuid-app-1:2026-07-08T12:00:00.000Z:interviewing": {
+        "application_id": "uuid-app-1",
+        "occurred_at": "2026-07-08T12:00:00.000Z",
+        "to_outcome": "interviewing"
+      },
+      "uuid-app-1:2026-07-08T15:00:00.000Z:offer": {
+        "application_id": "uuid-app-1",
+        "occurred_at": "2026-07-08T15:00:00.000Z",
+        "to_outcome": "offer"
+      }
+    }
+  },
+  "tombstones": {
+    "application_schedule": {
+      "uuid-app-1": {
+        "_won_from": "C3D4 delete @ 13:00 beats A1B2 dates @ 11:00 — engines clear the dates but keep the row"
+      }
+    }
+  }
+}

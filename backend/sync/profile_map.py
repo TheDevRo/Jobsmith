@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# VENDORED from jobsmith-sync@19a5068 (reference/profile_map.py). Do not edit
-# here — see backend/sync/VENDOR.md.
+# VENDORED from jobsmith-sync@0dc5bec (reference/profile_map.py). Do not edit here —
+# see backend/sync/VENDOR.md.
 """Reference profile normalization (see spec/PROFILE.md).
 
 Maps the canonical profile payload to/from each side's native shape and
@@ -31,12 +31,12 @@ CANON_TO_IOS_SCALAR = {
     "github": "github",
     "portfolio": "portfolio",
     "desired_salary": "desiredSalary",
-    "work_authorization": "workAuthorization",
-    "sponsorship_required": "sponsorshipRequired",
     "gender": "gender",
     "race_ethnicity": "raceEthnicity",
     "veteran_status": "veteranStatus",
     "disability_status": "disabilityStatus",
+    "work_authorization": "workAuthorization",
+    "sponsorship_required": "sponsorshipRequired",
     "available_start": "availableStart",
     "notice_period": "noticePeriod",
     "summary": "summary",
@@ -55,26 +55,22 @@ REF_CANON_TO_IOS = {
 }
 
 # Canonical keys iOS owns (emits on export). middle_name, street_address_2 and
-# the EEO block are now iOS-owned scalars; only forward-compat keys iOS doesn't
-# yet model are preserved via base.
+# the EEO block are now iOS-owned scalars; only forward-compat canonical keys iOS
+# doesn't yet model are preserved via base.
 IOS_OWNED_CANON_KEYS = (
     set(CANON_TO_IOS_SCALAR)
     | set(CANON_TO_IOS_LIST)
     | {"experience", "education", "references"}
 )
 
-# Desktop-only keys that must never enter a change record. Derived from the
-# canonical settings registry (the single source of truth that replaced the two
-# disagreeing secret lists): the profile-scoped folder-strip secrets, with the
-# `profile.` prefix removed since this filter runs over the profile sub-dict. A
-# guard test pins that every member is in settings_registry.secret_canonical_keys.
-from . import settings_registry as _sr  # noqa: E402
-
-SECRET_KEYS = frozenset(
-    k[len("profile."):]
-    for k in _sr.secret_canonical_keys()
-    if k.startswith("profile.")
-)
+# Desktop-only keys that must never enter a change record: the profile-scoped
+# ATS-login credentials. This is the authoritative set — in the desktop app it is
+# derived from the canonical settings registry (the SSOT that unified the two
+# previously-disagreeing secret lists) as the `profile.`-prefixed SECRET rows
+# with the prefix stripped. The oracle stays dependency-free, so the same
+# resulting set is hard-coded here; keep it in sync with
+# settings_registry.secret_canonical_keys() (profile-scoped members).
+SECRET_KEYS = {"workday_email", "workday_password", "ats_login_password"}
 
 
 def _map_items(items, mapping):

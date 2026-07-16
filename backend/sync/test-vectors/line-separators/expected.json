@@ -1,0 +1,14 @@
+{
+  "_comment": "One job record whose description carries literal U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR). str.splitlines() breaks on both, which would tear this single record into unparseable pieces; the merge oracle splits on '\\n' only, so the record survives intact and its description is preserved verbatim. A conforming engine must reproduce this exactly.",
+  "live": {
+    "job": {
+      "greenhouse:900": {
+        "title": "Staff Engineer",
+        "company": "Contoso",
+        "description": "Responsibilities: - Own the ingestion platform Requirements: - 5y backend experience",
+        "_won_from": "A1B2 @ 2026-07-09T00:00:00.000Z (only version) — separators preserved, not torn"
+      }
+    }
+  },
+  "tombstones": {}
+}

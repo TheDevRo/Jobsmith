@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from jobsmith-sync@19a5068 (reference/merge.py). Do not edit here —
+# VENDORED from jobsmith-sync@0dc5bec (reference/merge.py). Do not edit here —
 # see backend/sync/VENDOR.md. This is the merge oracle the desktop engine uses.
 """Reference merge engine for the Jobsmith sync contract.
 

@@ -1,0 +1,24 @@
+{
+  "_comment": "The work_request hand-off entity under plain per-record LWW. A1B2 (the requester, standing in for iOS) writes req-1 as `pending`; C3D4 (the fulfiller) re-emits the same id as `done` with a newer updated_at, so `done` wins back on the requester. req-2 shows retirement: A1B2's later delete tombstones its own earlier pending request. Importing a request never triggers work — fulfillment is an explicit local opt-in on the serving device.",
+  "live": {
+    "work_request": {
+      "req-1": {
+        "kind": "score_all",
+        "status": "done",
+        "requested_by": "A1B2",
+        "requested_at": "2026-07-15T12:00:00.000Z",
+        "completed_by": "C3D4",
+        "completed_at": "2026-07-15T12:05:00.000Z",
+        "params": {"cap": 25, "pool": "inbox"},
+        "_won_from": "C3D4 done @ 12:05 beats A1B2 pending @ 12:00 — done wins back"
+      }
+    }
+  },
+  "tombstones": {
+    "work_request": {
+      "req-2": {
+        "_won_from": "A1B2 delete @ 12:10 beats its own pending @ 12:00 — retired request pruned"
+      }
+    }
+  }
+}

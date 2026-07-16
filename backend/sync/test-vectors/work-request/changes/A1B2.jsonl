@@ -1,0 +1,3 @@
+{"v":1,"entity":"work_request","id":"req-1","updated_at":"2026-07-15T12:00:00.000Z","device":"A1B2","deleted":false,"data":{"kind":"score_all","status":"pending","requested_by":"A1B2","requested_at":"2026-07-15T12:00:00.000Z","params":{"cap":25,"pool":"inbox"}}}
+{"v":1,"entity":"work_request","id":"req-2","updated_at":"2026-07-15T12:00:00.000Z","device":"A1B2","deleted":false,"data":{"kind":"score_all","status":"pending","requested_by":"A1B2","requested_at":"2026-07-15T12:00:00.000Z","params":{"cap":10,"pool":"pipeline"}}}
+{"v":1,"entity":"work_request","id":"req-2","updated_at":"2026-07-15T12:10:00.000Z","device":"A1B2","deleted":true}
