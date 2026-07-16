@@ -28,6 +28,10 @@ public enum ScoringError: Error, LocalizedError {
     case interrupted(String)
     /// The model answered, but no score could be salvaged from its output.
     case unparseableResponse(String)
+    /// The model declined this specific job (on-device guardrails, content too
+    /// long, unsupported language). Deterministic — a retry gets the same
+    /// answer — and job-specific, so a batch skips it and keeps going.
+    case refused(String)
 
     public var errorDescription: String? {
         switch self {
@@ -37,6 +41,8 @@ public enum ScoringError: Error, LocalizedError {
             return "Scoring was interrupted: \(detail)"
         case .unparseableResponse(let raw):
             return "The AI response contained no score. Raw: \(raw)"
+        case .refused(let detail):
+            return detail
         }
     }
 }
@@ -78,9 +84,18 @@ public enum ScoringService {
             if TransientNetwork.isTransient(error) {
                 throw ScoringError.interrupted(String(describing: error))
             }
-            // Retry once at low temperature (strict JSON parse only).
+            // A decline is deterministic and about THIS job — no retry, and
+            // the caller keeps the batch going without it.
+            if let aiError = error as? AIEngineError, case .refused(let detail) = aiError {
+                throw ScoringError.refused(detail)
+            }
+            // Retry once at low temperature (strict JSON parse only). The
+            // retry normally escalates to the strong model — but never across
+            // the on-device boundary: when the user routed scoring on-device,
+            // escalating to .strong would silently send the job to the cloud
+            // model instead, which is exactly what they opted out of.
             var retry = request
-            retry.tier = .strong
+            retry.tier = config.ai.usesOnDevice(for: .fast) ? .fast : .strong
             retry.temperature = 0.3
             do {
                 let retryText = try await engine.complete(retry, config: config.ai)

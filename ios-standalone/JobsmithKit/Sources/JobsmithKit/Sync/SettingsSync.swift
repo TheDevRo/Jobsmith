@@ -252,7 +252,24 @@ public enum SettingsSync {
             return
         }
         guard let e = byCanonical[path], let iosPath = e.ios else { return }  // unmodeled: base-overlay
+        // A tier the user routed on-device is pinned device-local. The
+        // sentinel is never exported, so the folder only ever holds another
+        // device's endpoint model for this path — applying it would silently
+        // undo the on-device choice on every import (the reported bug: models
+        // set to on-device kept reverting to the desktop's cloud model).
+        if isDeviceLocal(path, config: config) { return }
         setIOS(&config, iosPath, normalizeEnum(path, value))
+    }
+
+    /// True when `path` is pinned device-local right now: a model tier whose
+    /// local value is the on-device sentinel. Such a path is skipped on export
+    /// (already), must not be overwritten by imports, and must not be
+    /// tombstoned (the other device's endpoint model remains its own business).
+    static func isDeviceLocal(_ path: String, config: [String: JSONValue]) -> Bool {
+        guard path.hasPrefix("ai.models."),
+              let e = byCanonical[path], let iosPath = e.ios,
+              case .string(let current)? = getIOS(config, iosPath) else { return false }
+        return current == onDeviceModelSentinel
     }
 
     /// True when this device models `path` in its config (so the engine tracks it

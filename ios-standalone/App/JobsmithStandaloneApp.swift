@@ -26,6 +26,11 @@ struct JobsmithStandaloneApp: App {
         // and reaches the model through the bridge (the widget target only
         // references the intent type, never this closure).
         RunControlBridge.onStop = { model.stopActiveRun() }
+        // Background-run diagnostics land in the Activity feed, so "why did
+        // my run stop when I left?" is answerable from the phone itself.
+        ContinuedRun.onEvent = { event, detail in
+            model.activityStore.log(event, detail)
+        }
     }
 
     var body: some Scene {

@@ -12,6 +12,11 @@ public enum AIEngineError: Error, Equatable, Sendable, LocalizedError {
     case interrupted(String)
     case httpStatus(Int, String)
     case emptyResponse
+    /// The model answered by declining this specific input — safety
+    /// guardrails, an unsupported language, or input beyond its context.
+    /// Retrying the same input cannot succeed, but nothing is wrong with the
+    /// engine, so a batch skips the one job rather than pausing or aborting.
+    case refused(String)
 
     public var errorDescription: String? {
         switch self {
@@ -26,6 +31,8 @@ public enum AIEngineError: Error, Equatable, Sendable, LocalizedError {
             return detail.isEmpty ? "Server returned HTTP \(code)" : "HTTP \(code): \(detail)"
         case .emptyResponse:
             return "The server returned an empty or malformed response"
+        case .refused(let detail):
+            return detail
         }
     }
 }

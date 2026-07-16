@@ -130,8 +130,34 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// model fields as any endpoint model name.
     public static let onDeviceModelID = "apple-on-device"
 
+    /// A saved AI connection the user can switch to in one tap: endpoint, key,
+    /// and the per-tier model assignments. Models belong to the preset because
+    /// they are endpoint-specific — an LM Studio model name means nothing to
+    /// OpenRouter, so switching the URL without the models would break routing.
+    /// Device-local: not in the settings-sync registry, so saved keys never
+    /// land in the sync folder.
+    public struct SavedEndpoint: Codable, Equatable, Identifiable, Sendable {
+        public var id: String
+        public var name: String
+        public var baseURL: String
+        public var apiKey: String
+        public var strongModel: String
+        public var fastModel: String
+        public var utilityModel: String
+
+        public init(id: String = UUID().uuidString, name: String,
+                    baseURL: String, apiKey: String,
+                    strongModel: String = "", fastModel: String = "",
+                    utilityModel: String = "") {
+            self.id = id; self.name = name
+            self.baseURL = baseURL; self.apiKey = apiKey
+            self.strongModel = strongModel; self.fastModel = fastModel
+            self.utilityModel = utilityModel
+        }
+    }
+
     public var engine: EngineKind
-    /// OpenAI-compatible endpoint, e.g. http://192.168.1.7:1234/v1 (LM Studio)
+    /// OpenAI-compatible endpoint, e.g. http://192.168.1.x:1234/v1 (LM Studio)
     /// or https://openrouter.ai/api/v1.
     public var baseURL: String
     /// Bearer token. Stored here (App Group JSON) rather than a shared
@@ -154,19 +180,23 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// Hard cap on how many jobs a single "Score all" run may process, so a
     /// batch can never fan out into unbounded API calls.
     public var scoreAllCap: Int
+    /// The user's saved connections, switchable from the AI settings screen.
+    public var savedEndpoints: [SavedEndpoint]
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
                 utilityModel: String = "", fastModel: String = "", strongModel: String = "",
                 temperature: Double = 0.7, maxTokens: Int = 16384,
                 preferOnDeviceForLightTasks: Bool = false,
-                scoreAllCap: Int = 25) {
+                scoreAllCap: Int = 25,
+                savedEndpoints: [SavedEndpoint] = []) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
         self.temperature = temperature; self.maxTokens = maxTokens
         self.preferOnDeviceForLightTasks = preferOnDeviceForLightTasks
         self.scoreAllCap = scoreAllCap
+        self.savedEndpoints = savedEndpoints
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -185,6 +215,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         maxTokens = try c.decodeIfPresent(Int.self, forKey: .maxTokens) ?? d.maxTokens
         preferOnDeviceForLightTasks = try c.decodeIfPresent(Bool.self, forKey: .preferOnDeviceForLightTasks) ?? false
         scoreAllCap = try c.decodeIfPresent(Int.self, forKey: .scoreAllCap) ?? d.scoreAllCap
+        savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
         migrateLegacyOnDeviceRouting()
     }
 
@@ -236,9 +267,34 @@ public struct AIConfig: Codable, Equatable, Sendable {
         }
     }
 
+    /// Make `endpoint` the live connection. On-device tier assignments are
+    /// kept: the sentinel routes to the device, not to any endpoint, so the
+    /// user's "score on-device" choice survives an endpoint switch.
+    public mutating func apply(_ endpoint: SavedEndpoint) {
+        baseURL = endpoint.baseURL
+        apiKey = endpoint.apiKey
+        if strongModel != AIConfig.onDeviceModelID { strongModel = endpoint.strongModel }
+        if fastModel != AIConfig.onDeviceModelID { fastModel = endpoint.fastModel }
+        if utilityModel != AIConfig.onDeviceModelID { utilityModel = endpoint.utilityModel }
+    }
+
+    /// Snapshot the live connection as a named preset.
+    public func capture(name: String, id: String = UUID().uuidString) -> SavedEndpoint {
+        SavedEndpoint(id: id, name: name, baseURL: baseURL, apiKey: apiKey,
+                      strongModel: strongModel, fastModel: fastModel,
+                      utilityModel: utilityModel)
+    }
+
+    /// The saved preset the live connection currently matches, if any —
+    /// compared on what a switch changes (URL + key), not on model tweaks.
+    public func activeSavedEndpoint() -> SavedEndpoint? {
+        savedEndpoints.first { $0.baseURL == baseURL && $0.apiKey == apiKey }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
+        case savedEndpoints
     }
 }
 

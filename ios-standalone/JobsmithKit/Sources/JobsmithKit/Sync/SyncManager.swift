@@ -126,6 +126,21 @@ public extension SyncManager {
         defaults.set(on, forKey: enabledKey)
     }
 
+    // MARK: desktop hand-off
+
+    private var handoffKey: String { "jobsmith.sync.handoff" }
+
+    /// Whether a scoring run this device can't finish should be handed to the
+    /// desktop as a `work_request` through the sync folder. Off by default —
+    /// asking another machine to spend LLM tokens is an explicit opt-in (the
+    /// desktop has its own serving toggle, also off by default).
+    func handoffEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: handoffKey)
+    }
+    func setHandoffEnabled(_ on: Bool, _ defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: handoffKey)
+    }
+
     // MARK: per-category settings-sync toggles (jobsmith.sync.settings.<key>)
 
     private func settingsFlagKey(_ category: String) -> String { "jobsmith.sync.settings.\(category)" }

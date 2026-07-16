@@ -9,9 +9,13 @@ import GRDB
 ///   upsert/delete rows + write the profile; rebuild the snapshot so a
 ///   subsequent export re-emits nothing.
 ///
-/// Entities: job, application, profile. Answers are desktop-only (iOS
-/// answer_bank has a different model). Documents travel as content-addressed
-/// references (resume_doc / cover_doc) via DocumentStore.
+/// Entities: job, triage, application, application_event, application_schedule,
+/// work_request, profile, and setting (per-key config LWW). Documents travel as
+/// content-addressed references (resume_doc / cover_doc) via DocumentStore.
+/// The `answer` entity is intentionally desktop-only: iOS's answer_bank has a
+/// different model, so this engine neither emits `answer` records nor imports
+/// them — a client with no handler for an entity skips it (see
+/// SyncConformanceTests), and iOS skips `answer` records by design.
 public final class SyncEngine {
     public struct ExportStats: Equatable { public var live = 0; public var tombstones = 0
         public var total: Int { live + tombstones } }
@@ -340,6 +344,51 @@ public final class SyncEngine {
                                     canonData["interview_at"]?.stringValue, id])
     }
 
+    /// The `work_request` entity — a hand-off command ("score everything
+    /// unscored"), keyed by its own UUID. One flat LWW record: the requester
+    /// writes it `pending`, the fulfiller re-emits it `done` with a newer
+    /// timestamp, and whichever devices see both keep the later one. It
+    /// carries no job references, so there is nothing to defer on.
+    /// Must match the desktop's WorkRequestAdapter (backend/sync/entities.py).
+    private func workRequestSnapshot(_ dbc: Database) throws -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for row in try Row.fetchAll(dbc, sql: "SELECT * FROM work_requests") {
+            var data: [String: JSONValue] = [
+                "kind": .string((row["kind"] as String?) ?? ""),
+                "status": .string((row["status"] as String?) ?? "pending"),
+                "params": .object(WorkRequestStore.decode(row["paramsJSON"])),
+            ]
+            if let v = row["requestedBy"] as String? { data["requested_by"] = .string(v) }
+            if let v = row["requestedAt"] as String? { data["requested_at"] = .string(v) }
+            if let v = row["completedBy"] as String? { data["completed_by"] = .string(v) }
+            if let v = row["completedAt"] as String? { data["completed_at"] = .string(v) }
+            out[row["id"]] = data
+        }
+        return out
+    }
+
+    private func applyWorkRequest(_ dbc: Database, _ id: String, _ canonData: [String: JSONValue]) throws {
+        let params: [String: JSONValue]
+        if case .object(let obj)? = canonData["params"] { params = obj } else { params = [:] }
+        try dbc.execute(sql: """
+            INSERT INTO work_requests
+                (id, kind, status, requestedBy, requestedAt, completedBy, completedAt, paramsJSON)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind, status = excluded.status,
+                requestedBy = excluded.requestedBy, requestedAt = excluded.requestedAt,
+                completedBy = excluded.completedBy, completedAt = excluded.completedAt,
+                paramsJSON = excluded.paramsJSON
+            """, arguments: [id,
+                             canonData["kind"]?.stringValue ?? "",
+                             canonData["status"]?.stringValue ?? "pending",
+                             canonData["requested_by"]?.stringValue,
+                             canonData["requested_at"]?.stringValue,
+                             canonData["completed_by"]?.stringValue,
+                             canonData["completed_at"]?.stringValue,
+                             WorkRequestStore.encode(params)])
+    }
+
     private func appSnapshot(_ dbc: Database, _ store: DocumentStore?) throws -> [String: [String: JSONValue]] {
         var out: [String: [String: JSONValue]] = [:]
         let cols = (["id"] + SyncEngine.appKinds.map { "a.\($0.0)" } + SyncEngine.appDocs.map { "a.\($0.1)" }).joined(separator: ", ")
@@ -417,6 +466,7 @@ public final class SyncEngine {
             try diff(entity: "application", current: try appSnapshot(dbc, store))
             try diff(entity: "application_event", current: try appEventSnapshot(dbc))
             try diff(entity: "application_schedule", current: try scheduleSnapshot(dbc))
+            try diff(entity: "work_request", current: try workRequestSnapshot(dbc))
 
             // Profile bridge — GATED by the `profile` category. Off ⇒ skip export
             // entirely (and never tombstone profile/me), keeping a device-specific
@@ -453,6 +503,11 @@ public final class SyncEngine {
                     guard SettingsSync.isModeled(path),
                           let cat = SettingsSync.category(for: path), settingsEnabled.contains(cat)
                     else { continue }
+                    // A model tier newly routed on-device drops out of the
+                    // export set — but that is "this device opted out", not
+                    // "delete this setting": a tombstone here would erase the
+                    // desktop's own model choice.
+                    if SettingsSync.isDeviceLocal(path, config: cfg) { continue }
                     records.append(ChangeRecord(entity: "setting", id: path, updatedAt: ts,
                                                 device: deviceId, deleted: true, data: nil))
                     try putSnapshot(dbc, "setting", path, ts, true, nil)
@@ -514,6 +569,11 @@ public final class SyncEngine {
                 do { try applySchedule(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application_schedule:\(key.id)"); stats.deferred += 1 }
             }
+            // Work requests have no dependencies — the fulfilling side derives
+            // the actual work from its own database.
+            for (key, rec) in winners where key.entity == "work_request" && !rec.deleted {
+                try applyWorkRequest(dbc, key.id, rec.data ?? [:]); stats.upserts += 1
+            }
             // Tombstones, children before parents. `triage` never tombstones
             // (a delete is a live 'deleted' status). Job tombstones are the
             // generic safety net for a physically-removed row.
@@ -525,6 +585,11 @@ public final class SyncEngine {
                 try dbc.execute(
                     sql: "UPDATE applications SET followUpAt = NULL, interviewAt = NULL WHERE id = ?",
                     arguments: [key.id])
+                stats.deletes += 1
+            }
+            // A work-request tombstone is the requester pruning old news.
+            for (key, rec) in winners where key.entity == "work_request" && rec.deleted {
+                try dbc.execute(sql: "DELETE FROM work_requests WHERE id = ?", arguments: [key.id])
                 stats.deletes += 1
             }
             for (key, rec) in winners where key.entity == "application_event" && rec.deleted {
@@ -694,6 +759,7 @@ public final class SyncEngine {
         let apps = try appSnapshot(dbc, store)
         let appEvents = try appEventSnapshot(dbc)
         let schedules = try scheduleSnapshot(dbc)
+        let workRequests = try workRequestSnapshot(dbc)
         // Re-read what we'd emit next for settings so a following export is a
         // no-op; only modeled paths in an enabled category were applied.
         let settingsExport = settingsCfg.map { SettingsSync.export($0, enabled: settingsEnabled) } ?? [:]
@@ -731,6 +797,9 @@ public final class SyncEngine {
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             case "application_schedule":
                 guard let known = schedules[key.id] else { continue }
+                dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
+            case "work_request":
+                guard let known = workRequests[key.id] else { continue }
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             default: continue
             }

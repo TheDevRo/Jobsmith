@@ -15,6 +15,7 @@ struct SyncSettingsView: View {
     @State private var showPicker = false
     @State private var syncing = false
     @State private var status = ""
+    @State private var handoff = SyncManager.shared.handoffEnabled()
     // One flag per sync category (jobsmith.sync.settings.<key>), seeded from the
     // registry defaults. Kept in @State so toggling re-renders; persisted to
     // UserDefaults via SyncManager.
@@ -75,6 +76,22 @@ struct SyncSettingsView: View {
             }
 
             Section {
+                Toggle("Let the desktop finish scoring", isOn: $handoff)
+                    .disabled(!enabled)
+                    .onChange(of: handoff) { _, on in
+                        SyncManager.shared.setHandoffEnabled(on)
+                    }
+            } header: {
+                Text("Desktop hand-off")
+            } footer: {
+                Text("When a scoring run can't finish here — you left the app, or your "
+                     + "AI server isn't reachable from your phone — leave a request in the "
+                     + "sync folder for your computer to score the rest and sync the "
+                     + "results back. Also turn on \"Finish scoring runs from your iPhone\" "
+                     + "in the desktop app's Sync settings.")
+            }
+
+            Section {
                 ForEach(SettingsSync.categories, id: \.key) { category in
                     categoryToggle(category)
                 }
@@ -83,10 +100,10 @@ struct SyncSettingsView: View {
             } footer: {
                 Text("Pick which groups of settings ride the shared folder. A group only "
                      + "syncs when it's on here AND on your other device.\n\n"
-                     + "AI Connection INCLUDES your AI API key — it travels in your sync folder "
-                     + "with the endpoint and model choices, so this device works without "
-                     + "re-entering it. Never synced: your LinkedIn cookie, ATS/Workday passwords, "
-                     + "Adzuna/USAJobs/BLS keys, and the sync folder itself.")
+                     + "AI Connection includes your AI endpoint API key, stored as plain text in "
+                     + "your sync folder alongside the endpoint and model choices, so this device "
+                     + "works without re-entering it. Never synced: your LinkedIn cookie, "
+                     + "ATS/Workday passwords, Adzuna/USAJobs/BLS keys, and the sync folder itself.")
             }
 
             Section {
@@ -116,6 +133,7 @@ struct SyncSettingsView: View {
             folderName = SyncManager.shared.folderName()
             interval = SyncManager.shared.syncIntervalSeconds()
             categoryOn = SyncSettingsView.readCategories()
+            handoff = SyncManager.shared.handoffEnabled()
         }
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {

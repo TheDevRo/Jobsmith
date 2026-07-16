@@ -80,6 +80,26 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(try store.inbox().count, 1)
         XCTAssertEqual(try store.knownExternalIDs(source: "greenhouse"), ["a", "b"])
     }
+
+    /// Clearing the inbox (soft-deleting every triage=="new" job) must leave
+    /// pipeline rows — any other triage — completely untouched.
+    func testDeletingAllInboxJobsLeavesPipelineIntact() throws {
+        let store = try makeStore()
+        try store.upsert([sample(externalId: "in-1"), sample(externalId: "in-2"),
+                          sample(externalId: "kept")])
+        let kept = try store.jobs().first { $0.externalId == "kept" }!
+        try store.setTriage("shortlisted", jobId: kept.id)
+
+        for job in try store.inbox() { try store.delete(jobId: job.id) }
+
+        XCTAssertTrue(try store.inbox().isEmpty)
+        let shortlisted = try store.jobs(triage: "shortlisted")
+        XCTAssertEqual(shortlisted.map(\.externalId), ["kept"])
+        // Soft delete: the rows survive (hidden) so a re-fetch of the same
+        // postings can't resurrect them into the inbox.
+        try store.upsert([sample(externalId: "in-1")])
+        XCTAssertTrue(try store.inbox().isEmpty)
+    }
 }
 
 final class ApplicationStoreTests: XCTestCase {
@@ -143,6 +163,67 @@ final class ConfigStoreTests: XCTestCase {
         ai.utilityModel = "tiny"
         XCTAssertEqual(ai.model(for: .utility), "tiny")
         XCTAssertEqual(ai.model(for: .strong), "mistral-7b")
+    }
+
+    // MARK: - Saved endpoints (switchable AI connections)
+
+    func testSavedEndpointsSurviveConfigRoundTrip() async throws {
+        let url = try tempConfigURL()
+        let store = ConfigStore(fileURL: url)
+        var config = await store.load()
+        config.ai.savedEndpoints = [
+            .init(name: "LM Studio", baseURL: "https://lmstudio.example/v1", apiKey: "",
+                  strongModel: "qwen3.5-9b-mtp"),
+            .init(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", apiKey: "sk-or-x",
+                  strongModel: "deepseek/deepseek-chat"),
+        ]
+        try await store.save(config)
+
+        let loaded = await ConfigStore(fileURL: url).load()
+        XCTAssertEqual(loaded.ai.savedEndpoints.map(\.name), ["LM Studio", "OpenRouter"])
+        XCTAssertEqual(loaded.ai.savedEndpoints[1].apiKey, "sk-or-x")
+    }
+
+    /// A config written before the field existed decodes to no presets.
+    func testConfigWithoutSavedEndpointsDecodesEmpty() throws {
+        let json = #"{"ai": {"baseURL": "http://x/v1"}}"#
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(config.ai.baseURL, "http://x/v1")
+        XCTAssertTrue(config.ai.savedEndpoints.isEmpty)
+    }
+
+    func testCaptureAndApplySwitchTheLiveConnection() {
+        var ai = AIConfig()
+        ai.baseURL = "https://lmstudio.example/v1"; ai.apiKey = ""
+        ai.strongModel = "qwen3.5-9b-mtp"; ai.fastModel = "qwen3.5-9b-mtp"
+        let lmstudio = ai.capture(name: "LM Studio")
+
+        let openrouter = AIConfig.SavedEndpoint(
+            name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", apiKey: "sk-or-x",
+            strongModel: "deepseek/deepseek-chat", fastModel: "meta-llama/llama-3.3-70b")
+        ai.savedEndpoints = [lmstudio, openrouter]
+
+        ai.apply(openrouter)
+        XCTAssertEqual(ai.baseURL, "https://openrouter.ai/api/v1")
+        XCTAssertEqual(ai.apiKey, "sk-or-x")
+        XCTAssertEqual(ai.strongModel, "deepseek/deepseek-chat")
+        XCTAssertEqual(ai.activeSavedEndpoint()?.name, "OpenRouter")
+
+        ai.apply(lmstudio)
+        XCTAssertEqual(ai.model(for: .strong), "qwen3.5-9b-mtp")
+        XCTAssertEqual(ai.activeSavedEndpoint()?.name, "LM Studio")
+    }
+
+    func testApplyKeepsOnDeviceTierAssignments() {
+        // "Score on-device" is a routing choice about the phone, not about any
+        // endpoint — switching servers must not silently move that work back
+        // to the network.
+        var ai = AIConfig()
+        ai.fastModel = AIConfig.onDeviceModelID
+        ai.apply(.init(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1",
+                       apiKey: "k", strongModel: "big", fastModel: "medium"))
+        XCTAssertEqual(ai.fastModel, AIConfig.onDeviceModelID)
+        XCTAssertEqual(ai.strongModel, "big")
     }
 
     // MARK: - Tolerant decode + corruption handling (REL-10)

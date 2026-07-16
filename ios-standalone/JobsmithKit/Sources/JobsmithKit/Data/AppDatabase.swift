@@ -192,6 +192,24 @@ public struct AppDatabase: Sendable {
             try db.create(indexOn: "search_runs", columns: ["state"])
         }
 
+        // Cross-device work hand-off ("desktop, finish this scoring run").
+        // Unlike search_runs this DOES sync — the whole point is that another
+        // device sees it. A request is a row: this device writes it `pending`,
+        // the fulfilling device flips it to `done`, plain last-writer-wins.
+        migrator.registerMigration("v6_work_requests") { db in
+            try db.create(table: "work_requests") { t in
+                t.primaryKey("id", .text)
+                t.column("kind", .text).notNull()          // score_all (more later)
+                t.column("status", .text).notNull().defaults(to: "pending")  // pending | done
+                t.column("requestedBy", .text)             // sync device id
+                t.column("requestedAt", .text)
+                t.column("completedBy", .text)
+                t.column("completedAt", .text)
+                t.column("paramsJSON", .text)              // JSON object, kind-specific
+            }
+            try db.create(indexOn: "work_requests", columns: ["status"])
+        }
+
         // How many times a LinkedIn detail scrape has failed to produce a
         // description for a job. Bounds the retry worklist: without it, a job
         // whose detail page never yields (page layout change, sustained

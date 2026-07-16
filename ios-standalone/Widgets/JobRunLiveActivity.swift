@@ -44,7 +44,7 @@ private struct AppLogo: View {
 struct JobRunLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: JobRunAttributes.self) { context in
-            LockScreenRunView(state: context.state)
+            LockScreenRunView(state: context.state, isStale: context.isStale)
                 .activityBackgroundTint(nil)
                 .activitySystemActionForegroundColor(RunPalette.ember)
         } dynamicIsland: { context in
@@ -55,10 +55,12 @@ struct JobRunLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(context.state.title)
+                        Text(context.isStale && context.state.phase != .done
+                             ? "No longer running" : context.state.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        Text(context.state.detail)
+                        Text(context.isStale && context.state.phase != .done
+                             ? "Open Jobsmith to pick it back up" : context.state.detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -182,29 +184,40 @@ private struct RunProgressBar: View {
 
 struct LockScreenRunView: View {
     let state: JobRunAttributes.ContentState
+    var isStale: Bool = false
+
+    /// The process that owned this run is gone (force-quit, crash) and never
+    /// resumed it. A card that keeps showing "Searching… 1 of 2" would be
+    /// lying — say so instead, and offer the same Stop intent as a cleanup
+    /// (it relaunches the app process, which retires the run and ends this
+    /// activity).
+    private var showsAsStale: Bool { isStale && state.phase != .done }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 AppLogo(size: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(state.title)
+                    Text(showsAsStale ? "No longer running" : state.title)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    Text(state.detail)
+                    Text(showsAsStale
+                         ? "Open Jobsmith to pick it back up" : state.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 HeadlineCount(state: state)
+                    .opacity(showsAsStale ? 0.5 : 1)
             }
             RunProgressBar(state: state)
+                .opacity(showsAsStale ? 0.5 : 1)
             if state.phase != .done {
                 HStack {
                     Spacer()
                     Button(intent: StopRunIntent()) {
-                        Text("Stop")
+                        Text(showsAsStale ? "Dismiss" : "Stop")
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 5)

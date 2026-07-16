@@ -24,4 +24,32 @@ final class SourceRegistryTests: XCTestCase {
         // Empty request estimates over all registered sources (non-zero).
         XCTAssertGreaterThan(SourceRegistry.estimatedDuration(for: []), .seconds(0))
     }
+
+    // MARK: enabledIDs — LinkedIn is governed by the flag, not set membership
+
+    func testEnabledIDsRequireMembershipForOrdinarySources() {
+        var config = AppConfig()
+        config.search.enabledSources = ["remoteok"]
+        config.search.linkedInEnabled = false
+        XCTAssertEqual(SourceRegistry.enabledIDs(for: config), ["remoteok"])
+    }
+
+    func testLinkedInEnabledByFlagAloneAfterSyncStripsMembership() {
+        // Settings sync's unfold removes "linkedin" from enabledSources and
+        // keeps it on the linkedInEnabled flag (SettingsSync rule #3). The
+        // registry must still fetch it, or every sync import silently turns
+        // LinkedIn off while the Settings toggle shows it on.
+        var config = AppConfig()
+        config.search.enabledSources = []          // post-unfold: no "linkedin" member
+        config.search.linkedInEnabled = true
+        XCTAssertEqual(SourceRegistry.enabledIDs(for: config), ["linkedin"])
+    }
+
+    func testLinkedInOffByFlagEvenWhenSetMembershipLingers() {
+        // The master switch wins over a stale set entry.
+        var config = AppConfig()
+        config.search.enabledSources = ["linkedin"]
+        config.search.linkedInEnabled = false
+        XCTAssertEqual(SourceRegistry.enabledIDs(for: config), [])
+    }
 }

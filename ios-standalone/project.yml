@@ -40,7 +40,7 @@ settings:
     SWIFT_VERSION: "5.9"
     # Tracks package.json, the version source of truth for the whole repo.
     MARKETING_VERSION: 0.2.4
-    CURRENT_PROJECT_VERSION: 23
+    CURRENT_PROJECT_VERSION: 31
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: NO
 
@@ -88,6 +88,10 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.thedevro.jobsmith.standalone.refresh
           - com.thedevro.jobsmith.standalone.processing
+          # Continued-processing (iOS 26+): user-started runs that keep
+          # executing after backgrounding. Wildcard by design — each run
+          # registers a unique id under this family (see ContinuedRun.swift).
+          - com.thedevro.jobsmith.standalone.continued.*
         CFBundleURLTypes:
           - CFBundleURLName: com.thedevro.jobsmith.standalone
             CFBundleURLSchemes:
@@ -156,6 +160,13 @@ targets:
     platform: iOS
     sources:
       - path: Widgets
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # The widget bundle is scanned separately for required-reason APIs, so it
+      # needs its own manifest resource — an undeclared one is an ITMS-91053
+      # rejection at upload.
+      - path: Widgets/PrivacyInfo.xcprivacy
+        buildPhase: resources
     # No entitlements: the Live Activity's data flows through ActivityKit, not
     # the App Group container, and an unneeded App Group here forces a custom
     # provisioning profile for the widget bundle id.

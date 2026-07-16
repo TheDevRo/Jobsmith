@@ -97,6 +97,11 @@ final class AppModel {
                 config.search.enabledSources = Set(
                     CommandLine.arguments[idx + 1].split(separator: ",").map(String.init))
             }
+            // Kick off a Score-all right after launch — for driving the app
+            // headlessly from the CLI (background-continuation experiments).
+            if CommandLine.arguments.contains("-AutoScoreOnLaunch") {
+                scoreAll(cap: config.ai.scoreAllCap)
+            }
             #endif
         }
         refresh()
@@ -370,7 +375,15 @@ final class AppModel {
         // Canned fixtures for UI tests / demo runs. DEBUG-only so the mock AI
         // responses can never ship in a Release/TestFlight build.
         if CommandLine.arguments.contains("-UseMockAI") {
-            return MockAIEngine.standardFixtures()
+            let mock = MockAIEngine.standardFixtures()
+            // "-MockAIDelay 20" makes each mock call take 20s, so a batch
+            // lasts long enough to test background continuation for real.
+            if let idx = CommandLine.arguments.firstIndex(of: "-MockAIDelay"),
+               CommandLine.arguments.indices.contains(idx + 1),
+               let secs = Double(CommandLine.arguments[idx + 1]) {
+                mock.setDelay(secs)
+            }
+            return mock
         }
         #endif
         return EngineRouter()
@@ -475,10 +488,19 @@ final class AppModel {
         scoreAllTotal = batch.count
         scoreAllDone = 0
         LiveActivityController.shared.scoringStarted(total: batch.count)
+        // On iOS 26+ ask the system to keep the run executing past
+        // backgrounding; if the scheduler reclaims it, cancelling the task
+        // parks the run through the ordinary pause path below.
+        ContinuedRun.begin(.scoring, total: batch.count) { [weak self] in
+            self?.scoreAllTask?.cancel()
+        }
         scoreAllTask = Task { @MainActor in
             var bgTask = UIBackgroundTaskIdentifier.invalid
             bgTask = UIApplication.shared.beginBackgroundTask(withName: "jobsmith.scoring") {
-                self.scoreAllTask?.cancel()
+                // The ~30s window closing only matters when nothing longer is
+                // holding the process open — with a continued-processing task
+                // live, its expiration handler owns cancelling the run.
+                if !ContinuedRun.isKeepingAlive { self.scoreAllTask?.cancel() }
                 UIApplication.shared.endBackgroundTask(bgTask)
                 bgTask = .invalid
             }
@@ -491,12 +513,29 @@ final class AppModel {
 
             var failure: String?
             var paused = false
+            var pauseReason: String?
             for job in batch {
                 if Task.isCancelled { break }
                 do {
-                    _ = try await scoreOne(job)
+                    try await scoreOneWaitingOutRateLimits(job)
                 } catch let error as ScoringError {
-                    if case .interrupted = error { paused = true; break }
+                    if case .interrupted(let detail) = error {
+                        paused = true
+                        pauseReason = detail
+                        break
+                    }
+                    // A refusal is about this one job (on-device guardrails,
+                    // posting too long) — skip it and keep scoring the rest,
+                    // instead of aborting the whole batch on job 3 of 25.
+                    if case .refused(let detail) = error {
+                        activityStore.log("score_skipped",
+                                          "Skipped \(job.title): \(detail)", jobId: job.id)
+                        scoreAllDone += 1
+                        LiveActivityController.shared.scoringProgress(done: scoreAllDone,
+                                                                      total: scoreAllTotal)
+                        ContinuedRun.progress(.scoring, done: scoreAllDone, total: scoreAllTotal)
+                        continue
+                    }
                     failure = "Scoring stopped: \(error.localizedDescription)"
                     break
                 } catch {
@@ -506,6 +545,7 @@ final class AppModel {
                 scoreAllDone += 1
                 LiveActivityController.shared.scoringProgress(done: scoreAllDone,
                                                               total: scoreAllTotal)
+                ContinuedRun.progress(.scoring, done: scoreAllDone, total: scoreAllTotal)
             }
             let done = scoreAllDone
             // Cancellation is how the background window closes, so it parks the
@@ -517,9 +557,18 @@ final class AppModel {
 
             isScoringAll = false
             scoreAllTask = nil
+            // A parked or failed run must not let the system pill fill to
+            // 100% and say "done" — that reads as "complete" with most of
+            // the batch still unscored.
+            ContinuedRun.end(.scoring, finished: !paused && failure == nil)
 
             if paused && ScoringIntent.isPending {
                 isScoringPaused = true
+                // The run is parked; if the user opted in, also leave a request
+                // in the sync folder so the desktop can finish it meanwhile.
+                // Whoever gets there first wins — the resume path re-derives
+                // "what's left" from the database either way.
+                requestDesktopHandoffIfEnabled()
             } else {
                 isScoringPaused = false
                 ScoringIntent.clear()
@@ -531,12 +580,21 @@ final class AppModel {
             if isScoringPaused {
                 LiveActivityController.shared.scoringPaused(done: done, total: scoreAllTotal)
             } else {
+                // `cancelled` without a pending intent is the user's own Stop
+                // (cancelScoreAll clears the intent first) — its card should
+                // leave promptly, not linger like a completion notice.
                 LiveActivityController.shared.scoringEnded(done: done, total: scoreAllTotal,
-                                                           failed: failure != nil)
+                                                           failed: failure != nil,
+                                                           stopped: cancelled)
             }
             refresh()
+            // The pause reason is the difference between "iOS suspended us"
+            // and "the on-device model is rate-limited" — worth recording.
+            let pausedNote = paused
+                ? " (paused — will resume" + (pauseReason.map { ": \($0)" } ?? "") + ")"
+                : ""
             activityStore.log("scored_batch",
-                "Scored \(done) job\(done == 1 ? "" : "s")\(paused ? " (paused — will resume)" : "")")
+                "Scored \(done) job\(done == 1 ? "" : "s")\(pausedNote)")
         }
     }
 
@@ -602,6 +660,42 @@ final class AppModel {
         return true
     }
 
+    /// Hand a parked scoring run to the desktop: file a `work_request` in the
+    /// sync folder (opt-in, off by default) and push a sync cycle so it lands
+    /// before the app suspends. The desktop scores what's still unscored with
+    /// its own AI connection and the results converge back as ordinary job
+    /// facts — `resumeScoringIfNeeded` then finds nothing left and retires the
+    /// intent. This is the path that works when the endpoint (LM Studio on the
+    /// home LAN) is unreachable from wherever the phone is.
+    private func requestDesktopHandoffIfEnabled() {
+        guard SyncManager.shared.handoffEnabled(), SyncManager.shared.isEnabled() else { return }
+        let store = WorkRequestStore(database)
+        let deviceId = SyncManager.shared.deviceId()
+        // One pending request from *this* device is enough — a run that parks
+        // repeatedly must not pile up commands (each would be a fresh batch on
+        // the desktop). Scoped to our own device id so a peer's imported
+        // request never masks ours.
+        guard ((try? store.hasPending(kind: WorkRequest.kindScoreAll,
+                                      requestedBy: deviceId)) ?? true) == false else { return }
+        let pool = ScoringIntent.pending?.candidates == .pipeline ? "pipeline" : "inbox"
+        let params: [String: JSONValue] = [
+            "cap": .int(config.ai.scoreAllCap),
+            "pool": .string(pool),
+        ]
+        do {
+            try store.create(kind: WorkRequest.kindScoreAll, params: params,
+                             requestedBy: deviceId)
+        } catch {
+            activityStore.log("handoff_failed", "Couldn't queue the desktop hand-off: \(error.localizedDescription)")
+            return
+        }
+        activityStore.log("handoff_requested", "Asked the desktop to finish scoring")
+        Task {
+            try? await SyncManager.shared.syncNow(db: database, configStore: configStore,
+                                                  deviceLabel: UIDevice.current.name)
+        }
+    }
+
     /// Score-all, but awaitable — a background task has to know when the work is
     /// done before it reports the window finished.
     func scoreAllAndWait(cap: Int, candidates: [Job]? = nil) async {
@@ -617,6 +711,10 @@ final class AppModel {
     /// background window discovering that. This probes the cheap `/models`
     /// endpoint and gives up quickly.
     func isAIEndpointReachable(timeout: Duration = .seconds(5)) async -> Bool {
+        // Scoring routed to Apple's on-device model needs no endpoint at all —
+        // probing HTTP here would wrongly veto background scoring whenever the
+        // phone is away from the LAN, which is precisely when on-device shines.
+        if config.ai.usesOnDevice(for: .fast) && AppleOnDeviceEngine.isAvailable { return true }
         let engine = aiEngine
         let aiConfig = config.ai
         return await withTaskGroup(of: Bool?.self) { group in
@@ -642,6 +740,39 @@ final class AppModel {
                                reasoning: result.reasoning,
                                matchReport: result.matchReportJSON)
         return result
+    }
+
+    /// `scoreOne` with patience: while a continued-processing task is keeping
+    /// the process alive, a transient interruption — most often iOS
+    /// rate-limiting on-device inference for backgrounded apps — is waited
+    /// out and retried, instead of parking a run that iOS is still happy to
+    /// keep executing. There is deliberately no attempt cap: the rate limit's
+    /// duration is undocumented and the continued task's own expiry (which
+    /// cancels us) is the system's word on when to give up. Without the
+    /// keep-alive the interruption propagates and the run parks as before.
+    private func scoreOneWaitingOutRateLimits(_ job: Job) async throws {
+        var backoff: Duration = .seconds(15)
+        var attempts = 0
+        while true {
+            do {
+                _ = try await scoreOne(job)
+                return
+            } catch let error as ScoringError {
+                guard case .interrupted(let detail) = error,
+                      ContinuedRun.isKeepingAlive, !Task.isCancelled
+                else { throw error }
+                attempts += 1
+                if attempts == 1 {
+                    activityStore.log("score_backoff",
+                                      "Waiting to retry in the background: \(detail)",
+                                      jobId: job.id)
+                }
+                LiveActivityController.shared.scoringWaiting(done: scoreAllDone,
+                                                             total: scoreAllTotal)
+                try? await Task.sleep(for: backoff)
+                backoff = min(backoff * 2, .seconds(60))
+            }
+        }
     }
 
     func tailor(_ job: Job) async {
@@ -811,6 +942,12 @@ final class AppModel {
         searchStopRequested = false
         try? searchRunStore.setState(id: run.id, .running)
         LiveActivityController.shared.searchStarted(sourcesTotal: sources.count)
+        // On iOS 26+ ask the system to keep the run executing past
+        // backgrounding. Expiration cancels the pipeline, which is safe —
+        // everything collected is committed — and parks the run as usual.
+        ContinuedRun.begin(.search, total: sources.count) { [weak self] in
+            self?.searchWorkTask?.cancel()
+        }
 
         let pipeline = FetchPipeline()
         // Subscribe to the progress stream *before* running so the opening
@@ -821,6 +958,8 @@ final class AppModel {
             for await progress in stream {
                 self.fetchProgress = progress
                 LiveActivityController.shared.searchProgress(progress)
+                ContinuedRun.progress(.search, done: progress.sourcesDone,
+                                      total: progress.sourcesTotal)
             }
         }
 
@@ -836,8 +975,10 @@ final class AppModel {
             // The window is closing. Cancelling is safe now — everything the
             // pipeline collected is already committed — and it's what lets the
             // sources report themselves interrupted rather than being frozen
-            // mid-request and losing the run.
-            work.cancel()
+            // mid-request and losing the run. With a continued-processing task
+            // live, though, the process isn't going anywhere — its expiration
+            // handler owns the cancel.
+            if !ContinuedRun.isKeepingAlive { work.cancel() }
             UIApplication.shared.endBackgroundTask(bgTask)
             bgTask = .invalid
         }
@@ -845,6 +986,9 @@ final class AppModel {
             isFetching = false
             fetchProgress = nil
             searchWorkTask = nil
+            // The defer runs after the completion handling below has settled
+            // `isSearchPaused` — a parked search must not read as "complete".
+            ContinuedRun.end(.search, finished: !isSearchPaused)
             refresh()
             if bgTask != .invalid {
                 UIApplication.shared.endBackgroundTask(bgTask)
@@ -952,6 +1096,14 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    /// Clear the inbox: soft-delete every untriaged posting. Pipeline jobs
+    /// are a different triage ("shortlisted" and beyond), so they are
+    /// untouched by construction. Rides the same undo-able path as a
+    /// Pipeline multi-select delete.
+    func deleteAllInboxPostings() {
+        deleteJobs(Set(inbox.map(\.id)))
     }
 
     /// Clear every tracked posting and its tailored documents, plus the fetch

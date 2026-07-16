@@ -22,6 +22,8 @@ struct AIConnectionSettingsView: View {
     @State private var utilityModel = ""
     @State private var testing = false
     @State private var status: ConnectionStatus?
+    @State private var showSavePrompt = false
+    @State private var presetName = ""
 
     private var availableModels: [String] { status?.models ?? [] }
     private var onDeviceAvailable: Bool { AppleOnDeviceEngine.isAvailable }
@@ -70,6 +72,7 @@ struct AIConnectionSettingsView: View {
 
     var body: some View {
         Form {
+            savedEndpointsSection
             endpointSection
             tierSection(tier: .strong, selection: $strongModel,
                         title: "Resume & cover letters",
@@ -110,9 +113,104 @@ struct AIConnectionSettingsView: View {
         }
     }
 
+    /// The one-tap switcher. Selecting a preset fills the fields, persists the
+    /// switch immediately (unlike the fields, which flush on disappear — a
+    /// switch is an explicit "use this now"), and re-probes the endpoint so
+    /// the model pickers refresh. Saving captures the CURRENT typed fields.
+    private var savedEndpointsSection: some View {
+        Section {
+            ForEach(model.config.ai.savedEndpoints) { endpoint in
+                Button {
+                    applyPreset(endpoint)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(endpoint.name)
+                                .foregroundStyle(.primary)
+                            Text(endpoint.baseURL)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if isActive(endpoint) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                                .accessibilityLabel("Active")
+                        }
+                    }
+                }
+                .accessibilityLabel("Switch to \(endpoint.name)")
+            }
+            .onDelete { offsets in
+                model.saveConfig { $0.ai.savedEndpoints.remove(atOffsets: offsets) }
+            }
+            Button {
+                presetName = model.config.ai.savedEndpoints
+                    .first { isActive($0) }?.name ?? suggestedPresetName
+                showSavePrompt = true
+            } label: {
+                Label("Save current endpoint…", systemImage: "plus.circle")
+            }
+            .disabled(baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
+        } header: {
+            Eyebrow(text: "Saved endpoints")
+        } footer: {
+            Text("Keep LM Studio, OpenRouter, and any other servers here — keys and model choices included — and switch between them in one tap. Saved only on this device.")
+        }
+        .alert("Save endpoint", isPresented: $showSavePrompt) {
+            TextField("Name", text: $presetName)
+            Button("Save") { savePreset() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saving with an existing preset's name replaces it.")
+        }
+    }
+
+    private func isActive(_ endpoint: AIConfig.SavedEndpoint) -> Bool {
+        endpoint.baseURL == baseURL.trimmingCharacters(in: .whitespaces)
+            && endpoint.apiKey == apiKey
+    }
+
+    /// Default preset name: the endpoint's host ("openrouter.ai").
+    private var suggestedPresetName: String {
+        URL(string: baseURL.trimmingCharacters(in: .whitespaces))?.host ?? ""
+    }
+
+    private func savePreset() {
+        let name = presetName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        var snapshot = model.config.ai
+        snapshot.baseURL = baseURL.trimmingCharacters(in: .whitespaces)
+        snapshot.apiKey = apiKey
+        snapshot.strongModel = strongModel
+        snapshot.fastModel = fastModel
+        snapshot.utilityModel = utilityModel
+        model.saveConfig { config in
+            if let i = config.ai.savedEndpoints.firstIndex(where: { $0.name == name }) {
+                config.ai.savedEndpoints[i] = snapshot.capture(
+                    name: name, id: config.ai.savedEndpoints[i].id)
+            } else {
+                config.ai.savedEndpoints.append(snapshot.capture(name: name))
+            }
+        }
+    }
+
+    private func applyPreset(_ endpoint: AIConfig.SavedEndpoint) {
+        model.saveConfig { $0.ai.apply(endpoint) }
+        let ai = model.config.ai
+        baseURL = ai.baseURL
+        apiKey = ai.apiKey
+        strongModel = ai.strongModel
+        fastModel = ai.fastModel
+        utilityModel = ai.utilityModel
+        status = nil
+        Task { await test() }
+    }
+
     private var endpointSection: some View {
         Section {
-            TextField("http://192.168.1.7:1234/v1", text: $baseURL)
+            TextField("http://192.168.1.x:1234/v1", text: $baseURL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

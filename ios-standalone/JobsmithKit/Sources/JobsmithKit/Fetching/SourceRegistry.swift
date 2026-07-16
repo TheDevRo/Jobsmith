@@ -27,8 +27,17 @@ public enum SourceRegistry {
 
     /// The sources a run should actually use: registered, switched on by the
     /// user, and available. The single answer to "what are we about to fetch".
+    ///
+    /// LinkedIn's on/off state is `linkedInEnabled` alone, not membership in
+    /// `enabledSources` — settings sync strips "linkedin" from the set on every
+    /// import (it folds the id into the flag), so requiring membership here
+    /// silently disabled LinkedIn after a sync while the Settings toggle,
+    /// which reads the flag, still showed it on.
     public static func enabledIDs(for config: AppConfig) -> [String] {
-        allIDs.filter { config.search.enabledSources.contains($0) && isAvailable($0, config: config) }
+        allIDs.filter { id in
+            guard isAvailable(id, config: config) else { return false }
+            return id == LinkedInSource.id || config.search.enabledSources.contains(id)
+        }
     }
 
     public static func source(for id: String) -> (any JobSource)? {

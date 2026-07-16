@@ -13,6 +13,7 @@ struct InboxView: View {
     @State private var pastedURL = ""
     @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
     @State private var showScoreAllConfirm = false
+    @State private var showDeleteAllConfirm = false
     @State private var searchQuery = ""
     @State private var showSearch = false
     /// Empty = all boards. Non-empty restricts the deck to those source slugs.
@@ -91,6 +92,15 @@ struct InboxView: View {
                 Button("Cancel", role: .cancel) { pastedURL = "" }
             } message: {
                 Text("Paste any job posting link — LinkedIn, Greenhouse, or any ATS page.")
+            }
+            .confirmationDialog("Delete all \(model.inbox.count) inbox posting\(model.inbox.count == 1 ? "" : "s")?",
+                                isPresented: $showDeleteAllConfirm, titleVisibility: .visible) {
+                Button("Delete \(model.inbox.count)", role: .destructive) {
+                    model.deleteAllInboxPostings()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Clears every untriaged posting. Your Pipeline — shortlisted, applied, and beyond — is not affected. You can Undo right after.")
             }
             .confirmationDialog("\(unscoredCount) unscored job\(unscoredCount == 1 ? "" : "s")",
                                 isPresented: $showScoreAllConfirm, titleVisibility: .visible) {
@@ -173,6 +183,13 @@ struct InboxView: View {
                 Label("Score jobs (\(unscoredCount))", systemImage: "flame")
             }
             .disabled(unscoredCount == 0 || model.isScoringAll)
+            Divider()
+            Button(role: .destructive) {
+                showDeleteAllConfirm = true
+            } label: {
+                Label("Delete all in inbox (\(model.inbox.count))", systemImage: "trash")
+            }
+            .disabled(model.inbox.isEmpty)
         } label: {
             Label("Sort, filter, score", systemImage: "ellipsis.circle")
         }

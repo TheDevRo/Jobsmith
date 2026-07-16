@@ -61,12 +61,17 @@ final class LiveActivityController {
     }
 
     func searchCompleted(newJobs: Int, stopped: Bool) {
-        scheduleEnd(.init(
+        let state = JobRunAttributes.ContentState(
             phase: .done, kind: .search, completed: 1, total: 1, jobsFound: newJobs,
             title: stopped ? "Search stopped" : "Search complete",
             detail: stopped
                 ? "Kept everything found so far"
-                : "\(newJobs) new job\(newJobs == 1 ? "" : "s") in your Inbox"))
+                : "\(newJobs) new job\(newJobs == 1 ? "" : "s") in your Inbox")
+        // A deliberate stop ends the chain — nothing will morph the card, and
+        // the user is looking at the screen right now. End it through the
+        // system immediately (a scheduled in-process end dies with a
+        // force-quit, which left "stopped" cards lingering for hours).
+        if stopped { endQuickly(state) } else { scheduleEnd(state) }
     }
 
     // MARK: - Scoring
@@ -84,19 +89,33 @@ final class LiveActivityController {
             throttled: true)
     }
 
+    /// The run is alive but its current call was interrupted and is backing
+    /// off — usually iOS rate-limiting on-device inference in the background.
+    /// Saying so beats a counter that sits frozen for minutes.
+    func scoringWaiting(done: Int, total: Int) {
+        push(.init(
+            phase: .scoring, kind: .scoring, completed: done, total: total, jobsFound: 0,
+            title: "Scoring matches",
+            detail: "Interrupted — retrying in the background"),
+            throttled: false)
+    }
+
     func scoringPaused(done: Int, total: Int) {
         push(.init(
             phase: .paused, kind: .scoring, completed: done, total: total, jobsFound: 0,
             title: "Scoring paused",
-            detail: "Finishes when the AI endpoint is reachable"),
+            detail: "Resumes when you return to Jobsmith"),
             throttled: false)
     }
 
-    func scoringEnded(done: Int, total: Int, failed: Bool) {
-        scheduleEnd(.init(
+    func scoringEnded(done: Int, total: Int, failed: Bool, stopped: Bool = false) {
+        let state = JobRunAttributes.ContentState(
             phase: .done, kind: .scoring, completed: done, total: max(total, 1), jobsFound: done,
-            title: failed ? "Scoring stopped" : "Scoring complete",
-            detail: "Scored \(done) job\(done == 1 ? "" : "s")"))
+            title: failed ? "Scoring stopped" : (stopped ? "Scoring stopped" : "Scoring complete"),
+            detail: "Scored \(done) job\(done == 1 ? "" : "s")")
+        // Same reasoning as searchCompleted: a user-stop ends now, through
+        // the system; only natural completions linger as a result card.
+        if stopped { endQuickly(state) } else { scheduleEnd(state) }
     }
 
     // MARK: - Lifecycle
@@ -123,6 +142,20 @@ final class LiveActivityController {
         guard let activity else { return }
         self.activity = nil
         Task { await activity.end(nil, dismissalPolicy: .immediate) }
+    }
+
+    /// End with a final state that stays visible just long enough to read,
+    /// registered with the system right away — so it happens even if the user
+    /// force-quits the app a moment later.
+    private func endQuickly(_ state: JobRunAttributes.ContentState) {
+        pendingEnd?.cancel()
+        pendingEnd = nil
+        guard let activity else { return }
+        self.activity = nil
+        Task {
+            await activity.end(ActivityContent(state: state, staleDate: nil),
+                               dismissalPolicy: .after(.now + 4))
+        }
     }
 
     // MARK: - Plumbing
