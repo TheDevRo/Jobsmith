@@ -102,6 +102,24 @@ class TestExtractJson:
         result = _extract_json(text)
         assert result[0]["field_id"] == "f-0"
 
+    def test_single_quotes_and_trailing_commas_repaired(self):
+        """The Attempt-2 fallback repairs Python-style single quotes and
+        trailing commas into strict JSON — without evaluating the text."""
+        text = (
+            "[{'field_id': 'f-0', 'value': 'Jane', 'action': 'fill',},]"
+        )
+        result = _extract_json(text)
+        assert result == [
+            {"field_id": "f-0", "value": "Jane", "action": "fill"}
+        ]
+
+    def test_commas_inside_string_values_survive_repair(self):
+        """Trailing-comma stripping is string-aware: a literal ',}' inside a
+        quoted value must not be mangled."""
+        text = "{'value': 'a, b, c', 'note': 'ends here',}"
+        result = _extract_json(text)
+        assert result == {"value": "a, b, c", "note": "ends here"}
+
 
 # ---------------------------------------------------------------------------
 # map_fields_to_values — mocked LLM

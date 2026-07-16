@@ -16,7 +16,6 @@ generate_answer(question, profile, job) → str
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import logging
@@ -425,8 +424,8 @@ def _build_field_map_user(
 # ---------------------------------------------------------------------------
 
 # A real answer-bank/field-map payload is a few KB; anything past this is either
-# a runaway generation or an attempt to blow the literal parser's stack.
-_MAX_LITERAL_EVAL_CHARS = 200_000
+# a runaway generation or an attempt to blow the repair pass's stack.
+_MAX_JSON_REPAIR_CHARS = 200_000
 
 
 def _extract_json(text: str) -> list | dict:
@@ -434,8 +433,10 @@ def _extract_json(text: str) -> list | dict:
     Strip markdown fences and parse JSON from LLM output.
 
     Fallback chain (handles quirks of local LLMs):
-      1. json.loads      — standard JSON
-      2. ast.literal_eval — Python-style dicts with single quotes
+      1. json.loads             — standard JSON
+      2. json.loads(_normalize) — Python-style single quotes / trailing commas,
+                                   repaired to strict JSON WITHOUT evaluating the
+                                   model output as code
 
     Leading prose before the first [ or { is trimmed.
     Trailing prose after the matching closing ] or } is trimmed using a
@@ -443,7 +444,8 @@ def _extract_json(text: str) -> list | dict:
     parsing.
 
     Pattern from AIHawk: local models frequently return single-quoted dicts
-    or prepend/append commentary around the JSON payload.
+    or prepend/append commentary around the JSON payload. We repair those
+    quirks textually rather than handing the string to any Python evaluator.
     """
     text = text.strip()
 
@@ -473,23 +475,101 @@ def _extract_json(text: str) -> list | dict:
     except json.JSONDecodeError:
         pass
 
-    # Attempt 2: Python-style dict/list (single quotes, trailing commas, etc.)
+    # Attempt 2: repair Python-style near-JSON (single-quoted strings/keys,
+    # trailing commas) into strict JSON and parse it with json.loads.
     #
-    # ast.literal_eval is NOT eval: it walks a parsed AST and accepts only
-    # literals — no calls, no attribute access, no name lookups — so malformed or
-    # hostile model output cannot execute code here. The one way it does bite is
-    # resource exhaustion: CPython's parser recurses, so a deeply nested literal
-    # can exhaust the C stack. Cap the input rather than reach for a JSON5 dep.
-    if len(text) <= _MAX_LITERAL_EVAL_CHARS:
+    # This deliberately does NOT use ast.literal_eval or any other evaluator:
+    # the model output is only ever transformed textually and handed to the
+    # strict JSON parser, so malformed or hostile output cannot execute code.
+    # Cap the input so the char-by-char repair pass can't be turned into a
+    # resource-exhaustion vector by a runaway generation.
+    if len(text) <= _MAX_JSON_REPAIR_CHARS:
         try:
-            result = ast.literal_eval(text)
+            result = json.loads(_normalize_json_like(text))
             if isinstance(result, (list, dict)):
                 return result
-        except (ValueError, SyntaxError, MemoryError, RecursionError):
+        except json.JSONDecodeError:
             pass
 
     # Give up — caller will retry with a stricter prompt
     raise json.JSONDecodeError("Cannot parse LLM output as JSON or Python literal", text, 0)
+
+
+def _normalize_json_like(text: str) -> str:
+    """
+    Best-effort repair of near-JSON emitted by local models so it parses as
+    strict JSON, without evaluating it as code.
+
+    Two conservative, string-aware transforms:
+      * unambiguous single-quoted strings/keys → double-quoted
+      * trailing commas before a closing ] or } removed
+
+    Both passes track string state so commas or quotes *inside* string values
+    are left untouched. Genuinely ambiguous input (e.g. an apostrophe inside a
+    single-quoted value) simply won't parse and falls through to the caller's
+    error path — same outcome as before, with no code evaluation.
+    """
+    return _strip_trailing_commas(_single_to_double_quotes(text))
+
+
+def _single_to_double_quotes(text: str) -> str:
+    """Convert single-quoted strings/keys to double-quoted, skipping over any
+    already-double-quoted spans so their contents are preserved verbatim."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_double = False   # inside a "…" span (leave verbatim)
+    in_single = False   # inside a '…' span we are rewriting to "…"
+    while i < n:
+        ch = text[i]
+        if in_double:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if ch == '"':
+                in_double = False
+            i += 1; continue
+        if in_single:
+            if ch == "\\" and i + 1 < n:
+                out.append(ch); out.append(text[i + 1]); i += 2; continue
+            if ch == '"':
+                out.append('\\"'); i += 1; continue   # escape bare " inside
+            if ch == "'":
+                out.append('"'); in_single = False; i += 1; continue
+            out.append(ch); i += 1; continue
+        # Outside any string
+        if ch == '"':
+            in_double = True; out.append(ch); i += 1; continue
+        if ch == "'":
+            in_single = True; out.append('"'); i += 1; continue
+        out.append(ch); i += 1
+    return "".join(out)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """Drop commas that immediately precede a closing ] or } (ignoring
+    whitespace), skipping over double-quoted strings."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if ch == '"':
+                in_string = False
+            i += 1; continue
+        if ch == '"':
+            in_string = True; out.append(ch); i += 1; continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "]}":
+                i += 1; continue   # drop this trailing comma
+        out.append(ch); i += 1
+    return "".join(out)
 
 
 def _trim_trailing_prose(text: str) -> str:

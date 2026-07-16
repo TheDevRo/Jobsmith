@@ -372,7 +372,7 @@ function renderFailedApplications(apps) {
             : '';
 
         return `
-            <div class="review-card" id="failed-${app.id}">
+            <div class="review-card" id="failed-${escapeHtml(app.id)}">
                 <div class="review-card-header">
                     <div>
                         <div class="review-card-title">${escapeHtml(app.title)}</div>
@@ -388,11 +388,11 @@ function renderFailedApplications(apps) {
                 ${displayMessage ? `<div class="failed-reason ${isReset ? 'failed-reason-reset' : ''}">${escapeHtml(displayMessage)}</div>` : ''}
                 <div class="review-card-actions">
                     <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
-                    ${app.resume_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/resume" download>Download Resume</a>` : ''}
-                    ${app.cover_letter_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/cover-letter" download>Download Cover Letter</a>` : ''}
+                    ${app.resume_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/resume" download>Download Resume</a>` : ''}
+                    ${app.cover_letter_content ? `<a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/cover-letter" download>Download Cover Letter</a>` : ''}
                     <a class="btn btn-secondary btn-sm" href="/api/jobs/${escapeHtml(app.job_id)}/screenshots" target="_blank" rel="noopener">View Screenshots</a>
-                    ${canRetry && window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="retryAutoApply('${app.id}')">Retry Auto-Apply</button>` : ''}
-                    <button class="btn btn-primary btn-sm" onclick="requeueApplication('${app.id}')">Requeue</button>
+                    ${canRetry && window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="retryAutoApply('${escapeHtml(app.id)}')">Retry Auto-Apply</button>` : ''}
+                    <button class="btn btn-primary btn-sm" onclick="requeueApplication('${escapeHtml(app.id)}')">Requeue</button>
                     <button class="btn btn-green btn-sm" onclick="failedMarkApplied('${escapeHtml(app.id)}')">Mark as Applied</button>
                     <button class="btn btn-secondary btn-sm" onclick="failedDismiss('${escapeHtml(app.id)}')">Dismiss</button>
                 </div>
@@ -464,7 +464,7 @@ function renderSubmittedApplications(apps) {
         const appliedDate = app.applied_at ? timeAgo(app.applied_at) : timeAgo(app.created_at);
 
         return `
-            <div class="review-card" id="submitted-${app.id}">
+            <div class="review-card" id="submitted-${escapeHtml(app.id)}">
                 <div class="review-card-header">
                     <div>
                         <div class="review-card-title">${escapeHtml(app.title)}</div>
@@ -478,22 +478,22 @@ function renderSubmittedApplications(apps) {
                 </div>
                 ${app.status === 'applied' ? renderOutcomeControls(app) : ''}
                 ${app.error_message ? `<div style="font-size:12px;color:${app.status === 'applied' ? 'var(--accent-green)' : 'var(--accent-red)'};margin:8px 0">${escapeHtml(app.error_message)}</div>` : ''}
-                ${isApplying ? `<div id="apply-progress-${app.id}" class="apply-progress-bar" style="font-size:11px;color:var(--accent-blue);margin:6px 0;padding:6px 8px;background:var(--bg-hover);border-radius:4px">Starting automation…</div>` : ''}
+                ${isApplying ? `<div id="apply-progress-${escapeHtml(app.id)}" class="apply-progress-bar" style="font-size:11px;color:var(--accent-blue);margin:6px 0;padding:6px 8px;background:var(--bg-hover);border-radius:4px">Starting automation…</div>` : ''}
                 <div class="review-tabs">
-                    <div class="review-tab active" onclick="switchSubmittedTab(this, '${app.id}', 'resume')">Tailored Resume</div>
-                    <div class="review-tab" onclick="switchSubmittedTab(this, '${app.id}', 'cover')">Cover Letter</div>
-                    <div class="review-tab" onclick="switchSubmittedTab(this, '${app.id}', 'autofill')">Autofill Report</div>
-                    <div class="review-tab" onclick="switchSubmittedTab(this, '${app.id}', 'emb')">Embellishments</div>
+                    <div class="review-tab active" onclick="switchSubmittedTab(this, '${escapeHtml(app.id)}', 'resume')">Tailored Resume</div>
+                    <div class="review-tab" onclick="switchSubmittedTab(this, '${escapeHtml(app.id)}', 'cover')">Cover Letter</div>
+                    <div class="review-tab" onclick="switchSubmittedTab(this, '${escapeHtml(app.id)}', 'autofill')">Autofill Report</div>
+                    <div class="review-tab" onclick="switchSubmittedTab(this, '${escapeHtml(app.id)}', 'emb')">Embellishments</div>
                 </div>
-                <div class="review-content" id="submitted-content-${app.id}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
+                <div class="review-content" id="submitted-content-${escapeHtml(app.id)}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
                 <div class="review-card-actions">
                     ${isApplying ? `<button class="btn btn-danger btn-sm" onclick="forceStopApply()" title="Stop automation and close browser">Force Stop</button><button class="btn btn-warning btn-sm" onclick="pauseApply()" title="Freeze automation — browser stays open for manual interaction">Pause</button>` : ''}
                     <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
-                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/resume" download>Download Resume</a>
-                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/cover-letter" download>Download Cover Letter</a>
-                    <button class="btn btn-secondary btn-sm" onclick="viewScreenshots('${app.job_id}')">Screenshots</button>
-                    <button class="btn btn-secondary btn-sm" onclick="editContent('${app.id}')">Edit</button>
-                    <button class="btn btn-secondary btn-sm" onclick="requeueApplication('${app.id}')">Requeue</button>
+                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/resume" download>Download Resume</a>
+                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/cover-letter" download>Download Cover Letter</a>
+                    <button class="btn btn-secondary btn-sm" onclick="viewScreenshots('${escapeHtml(app.job_id)}')">Screenshots</button>
+                    <button class="btn btn-secondary btn-sm" onclick="editContent('${escapeHtml(app.id)}')">Edit</button>
+                    <button class="btn btn-secondary btn-sm" onclick="requeueApplication('${escapeHtml(app.id)}')">Requeue</button>
                 </div>
             </div>
         `;
@@ -508,12 +508,23 @@ function renderSubmittedApplications(apps) {
 
 let _applyProgressPolls = {};  // appId -> intervalId
 
+// Stop polling a run that never reports done — a wedged apply would otherwise
+// keep the 2s poll alive forever. 10 minutes is well past any real apply.
+const _APPLY_POLL_CEILING_MS = 10 * 60 * 1000;
+
 function startApplyProgressPoll(appId) {
     if (_applyProgressPolls[appId]) return;
+    const startedAt = Date.now();
     _applyProgressPolls[appId] = setInterval(async () => {
         try {
-            const data = await api(`/api/applications/${appId}/apply-progress`);
             const el = document.getElementById(`apply-progress-${appId}`);
+            if (Date.now() - startedAt > _APPLY_POLL_CEILING_MS) {
+                clearInterval(_applyProgressPolls[appId]);
+                delete _applyProgressPolls[appId];
+                if (el) el.textContent = 'Still applying after 10 minutes — use Force Stop if it\'s stuck.';
+                return;
+            }
+            const data = await api(`/api/applications/${appId}/apply-progress`);
             if (!el) {
                 clearInterval(_applyProgressPolls[appId]);
                 delete _applyProgressPolls[appId];
@@ -587,7 +598,7 @@ function renderReviewQueue(apps) {
     container.innerHTML = apps.map(app => {
         const isPaused = app.status === 'paused';
         return `
-            <div class="review-card" id="review-${app.id}">
+            <div class="review-card" id="review-${escapeHtml(app.id)}">
                 <div class="review-card-header">
                     <div>
                         <div class="review-card-title">${escapeHtml(app.title)}</div>
@@ -601,30 +612,30 @@ function renderReviewQueue(apps) {
                 <div class="review-score">${app.fit_reasoning ? escapeHtml(app.fit_reasoning) : ''}</div>
                 ${renderReviewMatchChips(app)}
                 <div class="review-tabs">
-                    <div class="review-tab active" onclick="switchReviewTab(this, '${app.id}', 'resume')">Tailored Resume</div>
-                    <div class="review-tab" onclick="switchReviewTab(this, '${app.id}', 'cover')">Cover Letter</div>
-                    <div class="review-tab" onclick="switchReviewTab(this, '${app.id}', 'job')">Job Description</div>
-                    <div class="review-tab" onclick="switchReviewTab(this, '${app.id}', 'autofill')">Autofill Report</div>
-                    <div class="review-tab" onclick="switchReviewTab(this, '${app.id}', 'emb')">Embellishments</div>
+                    <div class="review-tab active" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'resume')">Tailored Resume</div>
+                    <div class="review-tab" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'cover')">Cover Letter</div>
+                    <div class="review-tab" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'job')">Job Description</div>
+                    <div class="review-tab" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'autofill')">Autofill Report</div>
+                    <div class="review-tab" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'emb')">Embellishments</div>
                 </div>
-                <div class="review-content" id="content-${app.id}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
+                <div class="review-content" id="content-${escapeHtml(app.id)}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
                 ${isPaused ? `<div style="margin:8px 0 4px 0;padding:8px 10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--accent-orange);font-size:12px;color:var(--accent-orange)">&#9889; Automation is paused — the browser window is still open for manual interaction. Click <strong>Resume</strong> to continue automation.</div>` : ''}
                 <div class="review-card-actions">
                     ${isPaused ? `
-                        <button class="btn btn-primary btn-sm" onclick="resumeApply('${app.id}')">Resume</button>
+                        <button class="btn btn-primary btn-sm" onclick="resumeApply('${escapeHtml(app.id)}')">Resume</button>
                         <button class="btn btn-danger btn-sm" onclick="forceStopApply()">Force Stop</button>
-                        <button class="btn btn-danger btn-sm" onclick="rejectApp('${app.id}')">Reject</button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectApp('${escapeHtml(app.id)}')">Reject</button>
                         <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     ` : `
-                        ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="autoApply('${app.id}')">Auto Apply</button>` : ''}
-                        <button class="btn btn-assist btn-sm" onclick="launchAssist('${app.job_id}')">Apply Assist</button>
-                        <button class="btn btn-green btn-sm" onclick="markAppApplied('${app.id}')">Mark Applied</button>
-                        <button class="btn btn-danger btn-sm" onclick="rejectApp('${app.id}')">Reject</button>
+                        ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="autoApply('${escapeHtml(app.id)}')">Auto Apply</button>` : ''}
+                        <button class="btn btn-assist btn-sm" onclick="launchAssist('${escapeHtml(app.job_id)}')">Apply Assist</button>
+                        <button class="btn btn-green btn-sm" onclick="markAppApplied('${escapeHtml(app.id)}')">Mark Applied</button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectApp('${escapeHtml(app.id)}')">Reject</button>
                     `}
-                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/resume" download>Download Resume</a>
-                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${app.job_id}/cover-letter" download>Download Cover Letter</a>
-                    <button class="btn btn-secondary btn-sm" onclick="editContent('${app.id}')">Edit</button>
-                    <button class="btn btn-assist btn-sm" onclick="openAiEditModal('${app.id}')">AI Edit</button>
+                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/resume" download>Download Resume</a>
+                    <a class="btn btn-secondary btn-sm" href="/api/resumes/${escapeHtml(app.job_id)}/cover-letter" download>Download Cover Letter</a>
+                    <button class="btn btn-secondary btn-sm" onclick="editContent('${escapeHtml(app.id)}')">Edit</button>
+                    <button class="btn btn-assist btn-sm" onclick="openAiEditModal('${escapeHtml(app.id)}')">AI Edit</button>
                 </div>
             </div>
         `;

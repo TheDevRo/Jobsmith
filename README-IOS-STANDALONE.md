@@ -177,5 +177,8 @@ pages that block embedded web views or require a login.
   processing runs are the reliable path.
 - **Background refresh is opportunistic** — iOS decides when. Manual fetch
   is always primary.
+- **Sync only runs while the app is open** — the folder-sync pass happens when
+  the app is in the foreground (on launch and while you use it). There is no
+  background sync pass yet, so open the app on each device to reconcile changes.
 - **App Store**: guest scraping of job boards is ToS-gray; this app is
   built for personal sideloading, not review.

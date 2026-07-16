@@ -235,7 +235,7 @@ function selectJob(jobId) {
 
         <div class="detail-section">
             <h4>Description</h4>
-            <div class="detail-description">${escapeHtml(job.description || 'No description available').substring(0, 3000)}</div>
+            <div class="detail-description">${escapeHtml((job.description || 'No description available').substring(0, 3000))}</div>
         </div>
 
         <div class="detail-actions">

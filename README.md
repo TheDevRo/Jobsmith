@@ -47,6 +47,15 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **FlareSolverr integration** — Bypasses Cloudflare challenges on protected job boards
 - **Modern dashboard** — Sidebar navigation (**Inbox** → **Pipeline** → **Activity**), split-pane job feed, real-time notifications, batch controls with stop/pause
 - **Folder sync (desktop ↔ iOS)** — Optional serverless two-way sync of jobs, applications, and your profile through a shared folder (iCloud Drive, Dropbox, …). No account and no server — each device reads and writes the same folder (last-writer-wins merge); ATS login passwords are never written to the folder. Configure in **Settings → Sync**.
+    - **The sync folder is trusted.** There is no signing or access control on its contents — anyone (or any app) with write access to that folder can alter or delete your synced jobs, applications, and profile, and your devices will merge those changes. Only sync through a folder you control; don't share it.
+    - **Docker users must mount the sync folder as a volume.** The engine writes inside the container, so an un-mounted path syncs nowhere. Add the folder to your compose service, e.g.:
+      ```yaml
+      services:
+        jobsmith:
+          volumes:
+            - ${JOBSMITH_SYNC_FOLDER:-./sync-folder}:/app/sync-folder
+      ```
+      then set `sync.folder: /app/sync-folder` in **Settings → Sync**.
 - **Native iOS app** — A fully standalone SwiftUI app (`ios-standalone/`) runs the whole pipeline on-device (fetch, score, tailor, review, apply) and syncs with the desktop; see [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md)
 
 ## Architecture

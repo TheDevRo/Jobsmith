@@ -369,6 +369,14 @@ function startFetchPoll() {
             const barEl = document.getElementById('fetch-progress-bar');
             const spinnerEl = document.getElementById('fetch-spinner');
 
+            // Navigated away mid-tick: the status card is gone. Tear the poll
+            // down instead of dereferencing nulls into the swallowed catch
+            // (which would leak the interval).
+            if (!textEl || !barEl) {
+                stopFetchPoll();
+                return;
+            }
+
             textEl.textContent = s.detail || 'Working...';
 
             let pct = 0;

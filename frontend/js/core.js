@@ -850,7 +850,7 @@ function clearNotifications() {
 }
 
 // ---- API Helpers ----
-async function api(path, options = {}) {
+async function api(path, options = {}, _retried = false) {
     try {
         const resp = await fetch(`${API}${path}`, {
             headers: { 'Content-Type': 'application/json', ...options.headers },
@@ -860,8 +860,13 @@ async function api(path, options = {}) {
             // The backend only challenges callers that aren't on its own machine
             // (LAN / Docker — where the container sees us as the bridge gateway,
             // not 127.0.0.1). Trade the token for a session cookie, then retry.
+            // Cap at a single retry: an endpoint that stays 401 after the token
+            // exchange must surface an error, not spin forever.
+            if (_retried) {
+                throw new Error('HTTP 401 — still unauthorized after providing a token');
+            }
             await promptForToken();
-            return api(path, options);
+            return api(path, options, true);
         }
         if (!resp.ok) {
             const err = await resp.text();
