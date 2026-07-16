@@ -2,7 +2,7 @@
 name = "app"
 # Keep in sync with package.json — scripts/bump_version.sh rewrites both and
 # scripts/release.sh refuses to tag when they disagree.
-version = "0.2.4"
+version = "0.2.5"
 description = "Jobsmith desktop shell"
 authors = ["TheDevRo"]
 license = ""

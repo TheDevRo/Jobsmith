@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.4 -->
+<!-- notes-updated-for: 0.2.5 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -40,10 +40,26 @@ stays that way.
   container runs as a non-root user bound to loopback by default.
 - **Apply fixes** — Workday file uploads were being skipped (file inputs now
   resolve deterministically), and tailored documents attach during in-app apply.
+- **iOS → desktop hand-off (opt-in).** When your phone can't finish a scoring
+  run, it can file a work request into the sync folder; a desktop with the new
+  "fulfill work requests from iPhone" toggle picks it up, scores the right pool,
+  and the results sync back. On the phone, a user-started run now keeps going
+  after you background the app (iOS 26+), with a Live Activity tracking it.
+- **Sync you can trust.** The sync engine no longer risks truncating a device's
+  change log when iCloud evicts it, waits for not-yet-downloaded peer logs
+  instead of merging a partial folder, and appends are now atomic. The sync
+  contract itself is published at
+  [jobsmith-sync](https://github.com/TheDevRo/jobsmith-sync), with conformance
+  vectors both apps must pass.
+- **Honest scores.** If the AI server is unreachable mid-batch, affected jobs
+  now stay unscored and are retried later — previously they were silently
+  branded 0% fit forever.
 - **iOS** — a long search now survives leaving the app; importing a PDF résumé
   no longer drops every employment date; LinkedIn sign-in leads the setup wizard
   and, when connected, your own session is used for LinkedIn searches instead of
-  anonymous guest access.
+  anonymous guest access. A stale LinkedIn session no longer dead-ends the apply
+  browser in a redirect loop — it falls back to guest view and offers a fresh
+  sign-in.
 
 ## macOS app (Apple Silicon)
 

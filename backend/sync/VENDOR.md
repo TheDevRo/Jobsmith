@@ -1,6 +1,7 @@
 # Vendored sync contract
 
-The files below are **copied** from the `jobsmith-sync` contract repo — the
+The files below are **copied** from the
+[`jobsmith-sync`](https://github.com/TheDevRo/jobsmith-sync) contract repo — the
 single source of truth for the sync format, merge rules, profile mapping, JSON
 schemas, and conformance vectors. They are vendored here so the backend has no
 runtime dependency on a sibling checkout.

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jobsmith Assist",
-  "version": "0.2.4",
-  "description": "Scan, autofill, and attach tailored resumes \u2014 fully on-device with the Jobsmith app.",
+  "version": "0.2.5",
+  "description": "Scan, autofill, and attach tailored resumes — fully on-device with the Jobsmith app.",
   "permissions": [
     "storage",
     "activeTab",

@@ -1,16 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Jobsmith Assist",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Scan, autofill, and attach tailored resumes for the job tab you're on.",
-  "permissions": ["storage", "activeTab", "scripting", "webNavigation", "cookies"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "webNavigation",
+    "cookies"
+  ],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://*.linkedin.com/*",
     "https://*.indeed.com/*"
   ],
-  "optional_host_permissions": ["<all_urls>"],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "scripts": [
       "common/storage.js",
@@ -25,14 +33,23 @@
         "http://localhost/assist/launch/*",
         "http://127.0.0.1/assist/launch/*"
       ],
-      "js": ["common/storage.js", "common/handshake.js", "assist_handshake.js"],
+      "js": [
+        "common/storage.js",
+        "common/handshake.js",
+        "assist_handshake.js"
+      ],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel.html"],
-      "matches": ["http://*/*", "https://*/*"]
+      "resources": [
+        "sidepanel.html"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
     }
   ],
   "options_ui": {
@@ -53,7 +70,9 @@
       "id": "jobsmith@localhost",
       "strict_min_version": "116.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
