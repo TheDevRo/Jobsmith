@@ -45,6 +45,12 @@ if [ "$VERSION" != "$CARGO_VERSION" ]; then
     exit 1
 fi
 
+if [ "$VERSION" != "$EXT_VERSION" ]; then
+    echo "ERROR: package.json ($VERSION) != extension manifest ($EXT_VERSION)" >&2
+    echo "       run: scripts/bump_version.sh $VERSION" >&2
+    exit 1
+fi
+
 BRANCH="$(git branch --show-current)"
 if [ "$BRANCH" != "main" ]; then
     echo "ERROR: releases are cut from main (on '$BRANCH')" >&2
