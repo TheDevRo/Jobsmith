@@ -8,7 +8,8 @@ import Foundation
 /// feature — one build setting, no code surgery, and sideload/TestFlight
 /// builds are unaffected.
 ///
-/// `isEnabled(_:)` adds the user's own Settings toggle (default on) on top.
+/// `isEnabled(_:)` adds the user's own Settings toggle (default off — the user
+/// opts in, so a fresh install never contacts LinkedIn) on top.
 ///
 /// Deliberately absent: any remote kill switch and any notion of *who* is
 /// running the app. Whatever a reviewer sees is exactly what every user of

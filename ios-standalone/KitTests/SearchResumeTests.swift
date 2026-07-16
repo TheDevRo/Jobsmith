@@ -399,6 +399,7 @@ final class LinkedInCheckpointTests: XCTestCase {
         config.search.keywords = ["engineer"]
         config.search.locations = ["Remote"]
         config.search.maxAgeDays = 7
+        config.search.linkedInEnabled = true  // opt-in default is now off
         return config
     }
 
@@ -514,6 +515,7 @@ final class LinkedInGuestModeTests: XCTestCase {
         config.search.keywords = ["engineer"]
         config.search.locations = ["Remote"]
         config.search.maxAgeDays = 7
+        config.search.linkedInEnabled = true  // opt-in default is now off
         return config
     }
 
@@ -593,6 +595,7 @@ final class PipelineInterruptionTests: XCTestCase {
         config.search.keywords = ["engineer"]
         config.search.locations = ["Remote"]
         config.search.maxAgeDays = 7
+        config.search.linkedInEnabled = true  // opt-in default is now off
         return config
     }
 

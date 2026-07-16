@@ -335,6 +335,81 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertFalse(onDisk.contains("legacy_cookie_value"))
     }
 
+    /// AI bearer keys are live credentials too: `ai.apiKey` and every saved
+    /// endpoint's key round-trip through the secret store, and must not sit in
+    /// the plaintext JSON — while the in-memory config (what settings-sync
+    /// reads) keeps carrying them.
+    func testAIKeysDoNotLandInPlaintextJSON() async throws {
+        let url = try tempConfigURL()
+        let secrets = FakeSecretStore()
+        let store = ConfigStore(fileURL: url, secrets: secrets)
+
+        var config = await store.load()
+        config.ai.apiKey = "sk-live-SECRET"
+        config.ai.baseURL = "http://x/v1"
+        config.ai.savedEndpoints = [
+            .init(id: "ep-1", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1",
+                  apiKey: "sk-or-ENDPOINT"),
+        ]
+        try await store.save(config)
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("sk-live-SECRET"))
+        XCTAssertFalse(onDisk.contains("sk-or-ENDPOINT"))
+        // Non-secret AI fields stay in the file. (JSONEncoder escapes "/", so
+        // match a slash-free substring of the endpoint URL.)
+        XCTAssertTrue(onDisk.contains("openrouter.ai"))
+        XCTAssertEqual(secrets.get(.aiAPIKey), "sk-live-SECRET")
+        XCTAssertEqual(secrets.get(.savedEndpointAPIKey("ep-1")), "sk-or-ENDPOINT")
+
+        // A fresh store rehydrates both keys from the secret store.
+        let reloaded = await ConfigStore(fileURL: url, secrets: secrets).load()
+        XCTAssertEqual(reloaded.ai.apiKey, "sk-live-SECRET")
+        XCTAssertEqual(reloaded.ai.savedEndpoints.first?.apiKey, "sk-or-ENDPOINT")
+    }
+
+    /// Deleting a saved endpoint must clear its Keychain entry — no orphaned
+    /// bearer token left behind for a preset the user removed.
+    func testDeletingSavedEndpointClearsItsSecret() async throws {
+        let url = try tempConfigURL()
+        let secrets = FakeSecretStore()
+        let store = ConfigStore(fileURL: url, secrets: secrets)
+
+        var config = await store.load()
+        config.ai.savedEndpoints = [
+            .init(id: "ep-1", name: "A", baseURL: "https://a/v1", apiKey: "key-a"),
+            .init(id: "ep-2", name: "B", baseURL: "https://b/v1", apiKey: "key-b"),
+        ]
+        try await store.save(config)
+        XCTAssertEqual(secrets.get(.savedEndpointAPIKey("ep-1")), "key-a")
+
+        // Remove the first endpoint.
+        config.ai.savedEndpoints.removeAll { $0.id == "ep-1" }
+        try await store.save(config)
+
+        XCTAssertNil(secrets.get(.savedEndpointAPIKey("ep-1")))
+        XCTAssertEqual(secrets.get(.savedEndpointAPIKey("ep-2")), "key-b")
+    }
+
+    /// A legacy config with plaintext AI keys migrates them into the secret
+    /// store on first load and strips them from the file.
+    func testLegacyPlaintextAIKeysMigrate() async throws {
+        let url = try tempConfigURL()
+        let json = #"{"ai": {"apiKey": "legacy-ai-key", "savedEndpoints": [{"id": "ep-9", "name": "X", "baseURL": "https://x/v1", "apiKey": "legacy-ep-key", "strongModel": "", "fastModel": "", "utilityModel": ""}]}}"#
+        try Data(json.utf8).write(to: url)
+
+        let secrets = FakeSecretStore()
+        let loaded = await ConfigStore(fileURL: url, secrets: secrets).load()
+        XCTAssertEqual(loaded.ai.apiKey, "legacy-ai-key")
+        XCTAssertEqual(loaded.ai.savedEndpoints.first?.apiKey, "legacy-ep-key")
+        XCTAssertEqual(secrets.get(.aiAPIKey), "legacy-ai-key")
+        XCTAssertEqual(secrets.get(.savedEndpointAPIKey("ep-9")), "legacy-ep-key")
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("legacy-ai-key"))
+        XCTAssertFalse(onDisk.contains("legacy-ep-key"))
+    }
+
     /// The documented fallback: when the Keychain is unavailable (an unsigned
     /// sideload with no App Group), the cookie stays in the JSON rather than
     /// being dropped — the feature keeps working, just less privately.

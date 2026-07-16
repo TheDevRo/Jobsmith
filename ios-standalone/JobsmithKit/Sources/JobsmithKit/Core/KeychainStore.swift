@@ -1,14 +1,28 @@
 import Foundation
 import Security
 
-/// The few config values that are live credentials rather than settings — today
-/// just the LinkedIn `li_at` session cookie, which is an account-takeover token
-/// if it ever leaves the device in cleartext.
-public enum SecretKey: String, Sendable, CaseIterable {
-    case linkedInCookie = "linkedin.li_at"
+/// The config values that are live credentials rather than settings — the
+/// LinkedIn session cookies (account-takeover tokens if they ever leave the
+/// device in cleartext) and the AI endpoint bearer keys.
+///
+/// A struct rather than an enum because some keys are dynamic: each saved AI
+/// endpoint carries its own key, keyed by the endpoint's (stable) id. Static
+/// members cover the fixed keys; `savedEndpointAPIKey(_:)` mints per-endpoint
+/// ones. `rawValue` is the Keychain account name.
+public struct SecretKey: RawRepresentable, Hashable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+
+    public static let linkedInCookie = SecretKey(rawValue: "linkedin.li_at")
     /// LinkedIn `JSESSIONID` — a session cookie whose value is also the
     /// `csrf-token` the Voyager API requires for authenticated actions.
-    case linkedInJSessionId = "linkedin.jsessionid"
+    public static let linkedInJSessionId = SecretKey(rawValue: "linkedin.jsessionid")
+    /// The live AI endpoint's bearer token (`ai.apiKey`).
+    public static let aiAPIKey = SecretKey(rawValue: "ai.apiKey")
+    /// A saved AI connection's bearer token, keyed by the endpoint's stable id.
+    public static func savedEndpointAPIKey(_ id: String) -> SecretKey {
+        SecretKey(rawValue: "savedEndpoint.\(id).apiKey")
+    }
 }
 
 /// Where those credentials live. An abstraction only so `ConfigStore` can be

@@ -76,7 +76,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
                 ashbyBoards: [String] = [], workableAccounts: [String] = [],
                 recruiteeCompanies: [String] = [],
                 enabledSources: Set<String> = ["remoteok", "weworkremotely", "arbeitnow", "greenhouse"],
-                linkedInEnabled: Bool = true) {
+                linkedInEnabled: Bool = false) {
         self.keywords = keywords; self.locations = locations
         self.excludeKeywords = excludeKeywords; self.minSalary = minSalary
         self.maxAgeDays = maxAgeDays; self.remoteOnly = remoteOnly
@@ -140,6 +140,9 @@ public struct AIConfig: Codable, Equatable, Sendable {
         public var id: String
         public var name: String
         public var baseURL: String
+        /// Bearer token. Like the live `AIConfig.apiKey`, `ConfigStore` keeps it
+        /// out of the plaintext JSON, in the Keychain under
+        /// `SecretKey.savedEndpointAPIKey(id)`.
         public var apiKey: String
         public var strongModel: String
         public var fastModel: String
@@ -160,10 +163,11 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// OpenAI-compatible endpoint, e.g. http://192.168.1.x:1234/v1 (LM Studio)
     /// or https://openrouter.ai/api/v1.
     public var baseURL: String
-    /// Bearer token. Stored here (App Group JSON) rather than a shared
-    /// Keychain group: keychain sharing needs team-prefixed access groups
-    /// that break free-account sideloads, and the desktop app keeps the same
-    /// key in plaintext config.yaml. The container is app-sandboxed.
+    /// Bearer token for the live endpoint. A live credential, so `ConfigStore`
+    /// round-trips it through the device Keychain (`SecretKey.aiAPIKey`) rather
+    /// than this struct's JSON — see `SecretStore`. It stays a plain property so
+    /// callers (and the opt-in settings sync, which reads the in-memory value)
+    /// don't have to care; the Keychain redirect is at-rest only.
     public var apiKey: String
     /// Per-tier model assignment. Each holds an endpoint model name, the
     /// on-device sentinel (`onDeviceModelID`), or "" to fall back down the

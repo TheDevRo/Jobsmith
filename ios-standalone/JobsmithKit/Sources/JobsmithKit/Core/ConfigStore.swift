@@ -6,9 +6,12 @@ import Foundation
 /// Two secrecy rules live here rather than in `AppConfig`:
 ///  - the file is written with `completeUntilFirstUserAuthentication` protection,
 ///    so it is encrypted at rest but still readable by background fetches;
-///  - the LinkedIn `li_at` cookie is round-tripped through the Keychain
-///    (`KeychainStore`) instead of the JSON, falling back to plaintext only when
-///    the Keychain is unavailable. Callers keep using `config.apiKeys.linkedInCookie`.
+///  - live credentials — the LinkedIn `li_at`/`JSESSIONID` cookies and the AI
+///    endpoint bearer keys (`ai.apiKey` and each `savedEndpoints[].apiKey`) —
+///    are round-tripped through the Keychain (`KeychainStore`) instead of the
+///    JSON, falling back to plaintext only when the Keychain is unavailable.
+///    Callers keep using the plain in-memory properties; the redirect is
+///    at-rest only, so `SyncManager.configToDict` still sees the live values.
 public actor ConfigStore {
     public static let shared = ConfigStore()
 
@@ -55,15 +58,22 @@ public actor ConfigStore {
         }
 
         var rewriteForLegacyPlaintext = false
-        if config.apiKeys.linkedInCookie.isEmpty {
-            config.apiKeys.linkedInCookie = secrets.get(.linkedInCookie) ?? ""
-        } else if secrets.set(config.apiKeys.linkedInCookie, for: .linkedInCookie) {
-            rewriteForLegacyPlaintext = true
+        // Rehydrate a secret from the Keychain when the JSON slot is empty;
+        // otherwise the JSON still carries a legacy plaintext value — push it
+        // into the Keychain and flag the file for rewrite-without-it.
+        func rehydrate(_ value: inout String, _ key: SecretKey) {
+            if value.isEmpty {
+                value = secrets.get(key) ?? ""
+            } else if secrets.set(value, for: key) {
+                rewriteForLegacyPlaintext = true
+            }
         }
-        if config.apiKeys.linkedInJSessionId.isEmpty {
-            config.apiKeys.linkedInJSessionId = secrets.get(.linkedInJSessionId) ?? ""
-        } else if secrets.set(config.apiKeys.linkedInJSessionId, for: .linkedInJSessionId) {
-            rewriteForLegacyPlaintext = true
+        rehydrate(&config.apiKeys.linkedInCookie, .linkedInCookie)
+        rehydrate(&config.apiKeys.linkedInJSessionId, .linkedInJSessionId)
+        rehydrate(&config.ai.apiKey, .aiAPIKey)
+        for i in config.ai.savedEndpoints.indices {
+            rehydrate(&config.ai.savedEndpoints[i].apiKey,
+                      .savedEndpointAPIKey(config.ai.savedEndpoints[i].id))
         }
         if rewriteForLegacyPlaintext {
             // Legacy plaintext credential(s) on disk — now in the Keychain;
@@ -76,22 +86,38 @@ public actor ConfigStore {
     }
 
     public func save(_ config: AppConfig) throws {
+        let previous = cached
         try persist(config)
         cached = config
+        // A saved endpoint that was deleted leaves an orphaned Keychain entry —
+        // clear the key for every endpoint id present before but gone now.
+        if let previous {
+            let liveIDs = Set(config.ai.savedEndpoints.map(\.id))
+            for ep in previous.ai.savedEndpoints where !liveIDs.contains(ep.id) {
+                secrets.set("", for: .savedEndpointAPIKey(ep.id))
+            }
+        }
         for continuation in continuations.values {
             continuation.yield(config)
         }
     }
 
-    /// Encode and write, keeping the LinkedIn cookie out of the JSON whenever
-    /// the Keychain accepted it.
+    /// Encode and write, keeping live credentials (LinkedIn cookies and AI
+    /// bearer keys) out of the JSON whenever the Keychain accepted them.
     private func persist(_ config: AppConfig) throws {
         var onDisk = config
-        if secrets.set(config.apiKeys.linkedInCookie, for: .linkedInCookie) {
-            onDisk.apiKeys.linkedInCookie = ""
+        // Divert a secret to the Keychain; on success blank its JSON slot so the
+        // credential never lands in the plaintext file.
+        func divert(_ value: String, _ key: SecretKey, _ slot: inout String) {
+            if secrets.set(value, for: key) { slot = "" }
         }
-        if secrets.set(config.apiKeys.linkedInJSessionId, for: .linkedInJSessionId) {
-            onDisk.apiKeys.linkedInJSessionId = ""
+        divert(config.apiKeys.linkedInCookie, .linkedInCookie, &onDisk.apiKeys.linkedInCookie)
+        divert(config.apiKeys.linkedInJSessionId, .linkedInJSessionId, &onDisk.apiKeys.linkedInJSessionId)
+        divert(config.ai.apiKey, .aiAPIKey, &onDisk.ai.apiKey)
+        for i in onDisk.ai.savedEndpoints.indices {
+            divert(config.ai.savedEndpoints[i].apiKey,
+                   .savedEndpointAPIKey(config.ai.savedEndpoints[i].id),
+                   &onDisk.ai.savedEndpoints[i].apiKey)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

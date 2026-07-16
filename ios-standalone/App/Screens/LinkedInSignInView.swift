@@ -35,6 +35,16 @@ struct LinkedInSignInSheet: View {
                     .background(RoundedRectangle(cornerRadius: 16).fill(.thickMaterial))
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                Text("You sign in on linkedin.com itself. Only two session cookies are kept — stored in this device's Keychain, never synced off the device — and are used solely to show postings and Easy Apply as you.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(.bar)
+            }
             .navigationTitle("Sign in to LinkedIn")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -52,7 +62,15 @@ private struct LinkedInWebView: UIViewRepresentable {
     let onExtracted: (String, String?, String?) -> Void
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        // Ephemeral store: the LinkedIn session lives only for this sheet. The
+        // two cookies we keep (li_at/JSESSIONID) are copied out to the Keychain
+        // via the completion; when the view is torn down the store — and the
+        // rest of the logged-in session — is discarded rather than lingering in
+        // the app's shared cookie jar. The cookie read below still works: it
+        // reads from this store's own httpCookieStore.
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         webView.load(URLRequest(url: URL(string: "https://www.linkedin.com/login")!))
