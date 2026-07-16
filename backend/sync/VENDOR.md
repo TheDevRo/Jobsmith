@@ -5,7 +5,7 @@ single source of truth for the sync format, merge rules, profile mapping, JSON
 schemas, and conformance vectors. They are vendored here so the backend has no
 runtime dependency on a sibling checkout.
 
-Vendored from `jobsmith-sync` @ `0dc5bec`:
+Vendored from `jobsmith-sync` @ `24983f4`:
 
 - `merge.py`        ← `reference/merge.py`
 - `profile_map.py`  ← `reference/profile_map.py`

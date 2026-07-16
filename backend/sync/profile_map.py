@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from jobsmith-sync@0dc5bec (reference/profile_map.py). Do not edit here —
+# VENDORED from jobsmith-sync@24983f4 (reference/profile_map.py). Do not edit here —
 # see backend/sync/VENDOR.md.
 """Reference profile normalization (see spec/PROFILE.md).
 
