@@ -252,6 +252,28 @@ final class DetailWorklistTests: XCTestCase {
         XCTAssertEqual(pending.first?.source, "linkedin")
         XCTAssertTrue(pending.allSatisfy { !$0.url.isEmpty }, "URLs survive the round trip")
     }
+
+    /// A job whose detail page has failed `maxAttempts` times is written off:
+    /// retrying it every run forever is how a dead backlog ate the whole
+    /// detail budget. Least-tried jobs come first, so retries rotate through
+    /// the backlog instead of hammering the same few.
+    func testWorklistWritesOffRepeatedFailuresAndOrdersByAttempts() throws {
+        let db = try AppDatabase.inMemory()
+        let store = JobStore(db)
+        try store.upsert([linkedInJob("li-1", description: ""),
+                          linkedInJob("li-2", description: ""),
+                          linkedInJob("li-3", description: "")])
+
+        try store.recordDetailAttempts(source: "linkedin", externalIds: ["li-1", "li-2", "li-1"])
+        try store.recordDetailAttempts(source: "linkedin", externalIds: ["li-1"])
+
+        let pending = try store.jobsNeedingDescription(source: "linkedin", maxAttempts: 3)
+        XCTAssertEqual(pending.map(\.externalId), ["li-3", "li-2"],
+                       "li-1 hit the cap and is written off; the untried job goes first")
+
+        let capped = try store.jobsNeedingDescription(source: "linkedin", maxAttempts: 3, limit: 1)
+        XCTAssertEqual(capped.map(\.externalId), ["li-3"], "limit bounds one run's worklist")
+    }
 }
 
 // MARK: - LinkedIn checkpointing over a stubbed network
@@ -263,12 +285,19 @@ final class LinkedInStubProtocol: URLProtocol {
     nonisolated(unsafe) static var cardsPerPage = 2
     /// Pages at or beyond this `start` come back empty, ending pagination.
     nonisolated(unsafe) static var emptyFromStart = 50
+    /// Overrides the detail-page body — set to something without the guest
+    /// markup to simulate LinkedIn serving the logged-in SPA shell.
+    nonisolated(unsafe) static var detailBody: String?
+    /// Set when any request arrived carrying a Cookie header.
+    nonisolated(unsafe) static var sawCookieHeader = false
     private static let lock = NSLock()
 
     static func reset() {
         lock.lock(); requested = []; lock.unlock()
         cardsPerPage = 2
         emptyFromStart = 50
+        detailBody = nil
+        sawCookieHeader = false
     }
 
     static func record(_ url: String) {
@@ -291,6 +320,9 @@ final class LinkedInStubProtocol: URLProtocol {
     override func startLoading() {
         let url = request.url!
         Self.record(url.absoluteString)
+        if request.value(forHTTPHeaderField: "Cookie") != nil {
+            Self.sawCookieHeader = true
+        }
 
         let body: String
         if url.absoluteString.contains("search") {
@@ -298,7 +330,7 @@ final class LinkedInStubProtocol: URLProtocol {
             let start = Int(comps?.queryItems?.first { $0.name == "start" }?.value ?? "0") ?? 0
             body = start >= Self.emptyFromStart ? "<ul></ul>" : Self.searchHTML(start: start)
         } else {
-            body = Self.detailHTML()
+            body = Self.detailBody ?? Self.detailHTML()
         }
 
         let response = HTTPURLResponse(url: url, statusCode: 200,
@@ -449,6 +481,88 @@ final class LinkedInCheckpointTests: XCTestCase {
         let enriched = delivered.first { $0.externalId == "li-3900000001" }
         XCTAssertEqual(enriched?.description, "Detailed description of the role.",
                        "the leftover job gets its description on the resumed run")
+    }
+}
+
+// MARK: - Guest-only fetching and the blocked-detail breaker
+
+/// LinkedIn answers cookie-bearing guest requests with redirect loops, 429s,
+/// or the logged-in SPA shell (observed 2026-07-15: 0/102 descriptions).
+/// These tests pin the two defenses: the session cookie never rides along,
+/// and a detail phase that yields nothing trips a breaker instead of
+/// grinding out its whole budget.
+final class LinkedInGuestModeTests: XCTestCase {
+    private var realSession: URLSession!
+
+    override func setUp() {
+        super.setUp()
+        LinkedInStubProtocol.reset()
+        realSession = HTTPClient.session
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LinkedInStubProtocol.self]
+        HTTPClient.session = URLSession(configuration: config)
+    }
+
+    override func tearDown() {
+        HTTPClient.session = realSession
+        LinkedInStubProtocol.reset()
+        super.tearDown()
+    }
+
+    private func config() -> AppConfig {
+        var config = AppConfig()
+        config.search.keywords = ["engineer"]
+        config.search.locations = ["Remote"]
+        config.search.maxAgeDays = 7
+        return config
+    }
+
+    private func linkedInJob(_ id: String) -> NormalizedJob {
+        NormalizedJob(source: "linkedin", externalId: id, title: "Engineer \(id)",
+                      company: "Acme", location: "Remote",
+                      url: "https://www.linkedin.com/jobs/view/engineer-at-acme-\(id)",
+                      description: "", isRemote: true)
+    }
+
+    /// Even a signed-in user is fetched as a guest: the cookie flips LinkedIn
+    /// into blocking/SPA behavior on exactly these endpoints, and it would put
+    /// the user's own account in front of LinkedIn's automation detection.
+    func testSessionCookieNeverSentToGuestEndpoints() async throws {
+        var config = config()
+        config.apiKeys.linkedInCookie = "AQEDAtestcookievalue"
+
+        let source = LinkedInSource(database: try AppDatabase.inMemory())
+        _ = try await source.fetchJobs(config: config, knownExternalIDs: [],
+                                       resumeCursor: nil) { _, _ in }
+
+        XCTAssertFalse(LinkedInStubProtocol.requested.isEmpty, "the fetch actually ran")
+        XCTAssertFalse(LinkedInStubProtocol.sawCookieHeader,
+                       "no request may carry the user's session")
+    }
+
+    /// When every early detail page comes back description-less (SPA shell,
+    /// bot wall, markup change), the run aborts as blocked instead of failing
+    /// identically through minutes of remaining worklist — and the probed jobs
+    /// are counted against their retry cap.
+    func testDetailPhaseTripsBreakerWhenNothingYieldsDescriptions() async throws {
+        let db = try AppDatabase.inMemory()
+        let store = JobStore(db)
+        try store.upsert((1...6).map { linkedInJob("li-390000000\($0)") })
+        LinkedInStubProtocol.detailBody = "<html><body><div id=\"app\"></div></body></html>"
+
+        let source = LinkedInSource(database: db)
+        let cursor = LinkedInCursor(searchDone: true)
+        do {
+            _ = try await source.fetchJobs(config: config(), knownExternalIDs: [],
+                                           resumeCursor: cursor.encoded) { _, _ in }
+            XCTFail("expected SourceBlockedError")
+        } catch is SourceBlockedError {
+            // expected
+        }
+
+        let unprobed = try store.jobsNeedingDescription(source: "linkedin", maxAttempts: 1)
+        XCTAssertEqual(unprobed.count, 1,
+                       "the five probes were recorded; only the sixth job is still untried")
     }
 }
 

@@ -201,13 +201,43 @@ public struct JobStore: Sendable {
     /// Stored postings from `source` that still have no description — the work
     /// left over when a detail phase was interrupted. Returned as fetch-shaped
     /// jobs so a resumed run can carry straight on enriching them.
-    public func jobsNeedingDescription(source: String) throws -> [NormalizedJob] {
+    ///
+    /// Jobs whose detail scrape has already failed `maxAttempts` times are left
+    /// out: at that point the page is judged to never yield (layout change,
+    /// posting gone), and retrying it every run is what let the backlog eat the
+    /// whole detail budget. Least-tried first, so retries rotate through the
+    /// backlog across runs instead of hammering the same jobs.
+    public func jobsNeedingDescription(source: String, maxAttempts: Int = Int.max,
+                                       limit: Int? = nil) throws -> [NormalizedJob] {
         try db.writer.read { dbc in
-            try Job
-                .filter(Column("source") == source && Column("description") == "")
-                .filter(Column("triage") != "deleted")
-                .fetchAll(dbc)
+            try Job.fetchAll(dbc, sql: """
+                SELECT jobs.* FROM jobs
+                LEFT JOIN detail_attempts da
+                    ON da.source = jobs.source AND da.externalId = jobs.externalId
+                WHERE jobs.source = ? AND jobs.description = '' AND jobs.triage != 'deleted'
+                    AND COALESCE(da.attempts, 0) < ?
+                ORDER BY COALESCE(da.attempts, 0) ASC, jobs.dateDiscovered DESC
+                LIMIT ?
+                """, arguments: [source, maxAttempts, limit ?? -1])
                 .map(NormalizedJob.init(from:))
+        }
+    }
+
+    /// Count one failed detail scrape against each of `externalIds`, pushing
+    /// them toward the `maxAttempts` cutoff in `jobsNeedingDescription`.
+    public func recordDetailAttempts(source: String, externalIds: [String]) throws {
+        guard !externalIds.isEmpty else { return }
+        let now = ISO8601DateFormatter().string(from: Date())
+        try db.writer.write { dbc in
+            for externalId in externalIds {
+                try dbc.execute(sql: """
+                    INSERT INTO detail_attempts (source, externalId, attempts, lastAttemptAt)
+                    VALUES (?, ?, 1, ?)
+                    ON CONFLICT(source, externalId) DO UPDATE SET
+                        attempts = attempts + 1,
+                        lastAttemptAt = excluded.lastAttemptAt
+                    """, arguments: [source, externalId, now])
+            }
         }
     }
 

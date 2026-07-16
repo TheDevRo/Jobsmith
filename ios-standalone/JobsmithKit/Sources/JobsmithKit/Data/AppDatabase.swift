@@ -192,6 +192,23 @@ public struct AppDatabase: Sendable {
             try db.create(indexOn: "search_runs", columns: ["state"])
         }
 
+        // How many times a LinkedIn detail scrape has failed to produce a
+        // description for a job. Bounds the retry worklist: without it, a job
+        // whose detail page never yields (page layout change, sustained
+        // blocking) is re-scraped on every single run, forever — 2026-07-15
+        // that backlog was making each search grind through its full detail
+        // budget for nothing. Device-local, like search_runs: the other device
+        // runs its own scrapes and keeps its own score.
+        migrator.registerMigration("v7_detail_attempts") { db in
+            try db.create(table: "detail_attempts") { t in
+                t.column("source", .text).notNull()
+                t.column("externalId", .text).notNull()
+                t.column("attempts", .integer).notNull().defaults(to: 0)
+                t.column("lastAttemptAt", .text)
+                t.primaryKey(["source", "externalId"])
+            }
+        }
+
         return migrator
     }
 }

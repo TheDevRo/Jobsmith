@@ -36,10 +36,16 @@ struct LinkedInCursor: Codable, Sendable, Equatable {
     }
 }
 
-/// LinkedIn job search — port of `job_sources/linkedin.py`. Runs as the
-/// signed-in user when they have connected their account (`LinkedInFeature`),
-/// and falls back to the public guest endpoints when they haven't; the request
-/// shape is the same either way, only the session cookie differs.
+/// LinkedIn job search — port of `job_sources/linkedin.py`. Always fetches
+/// the public guest endpoints anonymously, even when the user has connected
+/// their account. Attaching `li_at` to these endpoints was tried (build 22/23)
+/// and it broke both phases: LinkedIn 302-redirects a cookie-bearing guest
+/// search to itself until it 429s, and serves the detail page as the logged-in
+/// SPA shell with none of the JSON-LD or guest markup the parser reads —
+/// verified 2026-07-15, zero descriptions out of 102 jobs. Anonymous requests
+/// from the same network get clean 200s. Running the user's own session
+/// through a scraper also exposes *their account* to LinkedIn's automation
+/// bans, which is a risk only they should take, knowingly.
 ///
 /// Two phases: search with proper
 /// filter parameters, then a detail-page fetch per new job to extract the
@@ -76,17 +82,21 @@ public struct LinkedInSource: JobSource {
     /// single page fetch.
     static let detailCheckpointSize = 5
 
-    /// Desktop Chrome headers (the shared preset matches the Python header dict
-    /// exactly), carrying the user's own `li_at` session when they have signed
-    /// in. Signed in is the preferred mode: LinkedIn serves a real logged-in
-    /// user more of its own pages than it serves an anonymous one, and it is
-    /// the mode a user can revoke at any time from their own account. Without a
-    /// cookie these are the guest headers, unchanged — the fallback.
-    static func headers(cookie: String?) -> [String: String] {
-        var headers = HTTPClient.browserHeaders
-        if let cookie, !cookie.isEmpty { headers["Cookie"] = "li_at=\(cookie)" }
-        return headers
-    }
+    /// Ceiling on detail pages attempted in one run. The worklist self-limits
+    /// when scraping works (descriptions get filled), but when it doesn't, the
+    /// backlog otherwise grows without bound and every run grinds the full
+    /// detail budget re-failing it.
+    static let maxDetailPerRun = 150
+
+    /// A job whose detail page has failed to yield a description this many
+    /// times is written off — see `JobStore.jobsNeedingDescription`.
+    static let maxDetailAttempts = 3
+
+    /// If this many detail fetches complete without a single description and
+    /// none has succeeded yet, LinkedIn is blocking us (or changed its markup);
+    /// finishing the remaining budget would be minutes of the same. Abort the
+    /// phase and surface `SourceBlockedError` instead.
+    static let blockedProbeSize = 5
 
     private let database: AppDatabase?
 
@@ -111,7 +121,8 @@ public struct LinkedInSource: JobSource {
         let excludePatterns = JobFilters.compileExcludes(config.search.excludeKeywords)
         let maxAgeDays = config.search.maxAgeDays ?? 7
 
-        let headers = Self.headers(cookie: LinkedInFeature.cookie(config))
+        // Guest headers, never the user's session — see the type comment.
+        let headers = HTTPClient.browserHeaders
         let timeFilter = LinkedInGuestAPI.timeFilter(maxAgeDays: maxAgeDays)
         let hasRemote = locations.contains {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "remote"
@@ -260,9 +271,15 @@ public struct LinkedInSource: JobSource {
         // whole board every run.
         var pending = results.filter { !knownExternalIDs.contains($0.externalId) }
         if let database {
-            let stored = (try? JobStore(database).jobsNeedingDescription(source: "linkedin")) ?? []
+            let stored = (try? JobStore(database).jobsNeedingDescription(
+                source: "linkedin", maxAttempts: Self.maxDetailAttempts,
+                limit: Self.maxDetailPerRun)) ?? []
             let have = Set(pending.map(\.externalId))
             pending += stored.filter { !have.contains($0.externalId) && !knownExternalIDs.contains($0.externalId) }
+        }
+        // This run's fresh finds keep priority; the stored backlog fills the rest.
+        if pending.count > Self.maxDetailPerRun {
+            pending = Array(pending.prefix(Self.maxDetailPerRun))
         }
 
         if !pending.isEmpty {
@@ -273,8 +290,9 @@ public struct LinkedInSource: JobSource {
             let limiter = AsyncLimiter(Self.detailConcurrency)
 
             let jobs = pending
-            let details = await withTaskGroup(of: (Int, LinkedInDetailParser.Detail?).self,
-                                              returning: [Int: LinkedInDetailParser.Detail].self) { group in
+            let (details, failedIDs, blocked) = await withTaskGroup(
+                of: (Int, LinkedInDetailParser.Detail?).self,
+                returning: ([Int: LinkedInDetailParser.Detail], [String], Bool).self) { group in
                 for index in jobs.indices {
                     let url = jobs[index].url
                     group.addTask {
@@ -291,7 +309,26 @@ public struct LinkedInSource: JobSource {
                 }
                 var collected: [Int: LinkedInDetailParser.Detail] = [:]
                 var batch: [NormalizedJob] = []
+                // Attempts that genuinely ran and yielded no description. A
+                // fetch skipped because the budget expired proves nothing about
+                // the job, so it neither counts against it nor trips the breaker.
+                var failed: [String] = []
+                var anySucceeded = false
                 for await (index, detail) in group {
+                    let gotDescription = !(detail?.description?.isEmpty ?? true)
+                    if gotDescription {
+                        anySucceeded = true
+                    } else if !detailBudget.isExpired {
+                        failed.append(jobs[index].externalId)
+                        // Every probe came back description-less: LinkedIn is
+                        // blocking us or the page changed shape. The remaining
+                        // worklist would burn minutes of budget the same way.
+                        if !anySucceeded && failed.count >= Self.blockedProbeSize {
+                            group.cancelAll()
+                            if !batch.isEmpty { await onCheckpoint(batch, cursor.encoded) }
+                            return (collected, failed, true)
+                        }
+                    }
                     guard let detail else { continue }
                     collected[index] = detail
                     var enriched = jobs[index]
@@ -305,7 +342,16 @@ public struct LinkedInSource: JobSource {
                     }
                 }
                 if !batch.isEmpty { await onCheckpoint(batch, cursor.encoded) }
-                return collected
+                return (collected, failed, false)
+            }
+
+            if let database, !failedIDs.isEmpty {
+                try? JobStore(database).recordDetailAttempts(source: "linkedin",
+                                                             externalIds: failedIDs)
+            }
+            if blocked {
+                throw SourceBlockedError(
+                    "linkedin: first \(failedIDs.count) detail pages yielded no description")
             }
 
             // Merge back into this attempt's own results, which are what the

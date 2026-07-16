@@ -27,10 +27,13 @@ public enum LinkedInFeature {
         isBuildEnabled && config.search.linkedInEnabled
     }
 
-    /// The user's own `li_at` session, captured by the in-app sign-in. When it
-    /// is present LinkedIn is fetched as the user, which is both the mode
-    /// LinkedIn's own terms contemplate and the one that survives the guest
-    /// authwall; guest scraping is the fallback for people who don't sign in.
+    /// The user's own `li_at` session, captured by the in-app sign-in. Used
+    /// only to read their own profile during onboarding — never for job
+    /// fetching. Sending it to the guest job endpoints was tried and LinkedIn
+    /// answers a cookie-bearing request with redirect loops, 429s, or the
+    /// logged-in SPA shell none of which the parsers can read (2026-07-15:
+    /// 0/102 descriptions signed in, 102/102 as guest). It also puts the
+    /// user's own account in front of LinkedIn's automation detection.
     public static func cookie(_ config: AppConfig) -> String? {
         let cookie = config.apiKeys.linkedInCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         return cookie.isEmpty ? nil : cookie

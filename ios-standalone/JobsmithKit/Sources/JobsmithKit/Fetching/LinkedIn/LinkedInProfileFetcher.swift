@@ -63,7 +63,13 @@ public enum LinkedInProfileFetcher {
         guard let url = normalizeProfileURL(input) else { throw BadURLError() }
 
         var request = URLRequest(url: url, timeoutInterval: 30)
-        for (key, value) in LinkedInSource.headers(cookie: cookie) {
+        // Browser headers, plus the user's own session when they signed in.
+        // This is the one place the cookie belongs on a request: the user
+        // reading their own profile page. The job fetcher must never carry it —
+        // see the `LinkedInSource` type comment.
+        var headers = HTTPClient.browserHeaders
+        if let cookie, !cookie.isEmpty { headers["Cookie"] = "li_at=\(cookie)" }
+        for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
         let (data, response) = try await HTTPClient.session.data(for: request)
