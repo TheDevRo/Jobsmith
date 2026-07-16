@@ -70,7 +70,7 @@ case "emit":
     try! text.write(to: changes.appendingPathComponent("IOSDEV.jsonl"), atomically: true, encoding: .utf8)
 
 case "merge":
-    let merged = SyncMerge.merge(SyncMerge.loadLogs(folder))
+    let merged = SyncMerge.merge(try! SyncMerge.loadLogs(folder))
     print(merged.canonicalString())
 
 case "registry":

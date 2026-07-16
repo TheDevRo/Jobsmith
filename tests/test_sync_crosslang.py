@@ -43,7 +43,8 @@ pytestmark = pytest.mark.skipif(
 def tool(tmp_path_factory):
     out = tmp_path_factory.mktemp("swifttool") / "sync-crosslang"
     sources = [str(SYNC_SRC / f) for f in
-               ("JSONValue.swift", "SyncMerge.swift", "SyncEntities.swift", "SettingsSync.swift")]
+               ("JSONValue.swift", "SyncMerge.swift", "SyncFile.swift",
+                "SyncEntities.swift", "SettingsSync.swift")]
     subprocess.run(["swiftc", "-O", *sources, str(TOOL_SRC), "-o", str(out)], check=True)
     return out
 

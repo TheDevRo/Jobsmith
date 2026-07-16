@@ -521,22 +521,56 @@ public final class SyncEngine {
     }
 
     private func appendLog(_ folder: URL, _ records: [ChangeRecord]) throws {
+        let fm = FileManager.default
         let changes = folder.appendingPathComponent("changes")
-        try FileManager.default.createDirectory(at: changes, withIntermediateDirectories: true)
+        try fm.createDirectory(at: changes, withIntermediateDirectories: true)
         let logURL = changes.appendingPathComponent("\(deviceId).jsonl")
+
+        // Only this device ever writes this log, so its history is unrecoverable
+        // if we clobber it. iCloud may have evicted it to a `.icloud` placeholder;
+        // pull it back before we touch it. (The whole export runs under the
+        // caller's NSFileCoordinator write, so this download races nothing else.)
+        SyncFile.materialize(logURL)
+
+        // Encode the new lines once.
         let encoder = JSONEncoder()
-        var text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        var payload = Data()
         for rec in records {
-            text += String(data: try encoder.encode(rec), encoding: .utf8)! + "\n"
+            payload.append(try encoder.encode(rec))
+            payload.append(0x0A)  // '\n'
         }
-        try text.write(to: logURL, atomically: true, encoding: .utf8)
+
+        if fm.fileExists(atPath: logURL.path) {
+            // The log exists — TRUE APPEND onto real history. Never read-all /
+            // rewrite-all: if the file is present but unreadable (evicted
+            // mid-download, provider error, permissions) we must abort, not
+            // truncate. FileHandle open/seek/write surfaces exactly that.
+            guard let handle = try? FileHandle(forWritingTo: logURL) else {
+                throw SyncError.logUnavailable(logURL)
+            }
+            defer { try? handle.close() }
+            do {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: payload)
+            } catch {
+                throw SyncError.logUnavailable(logURL)
+            }
+        } else if SyncFile.isEvicted(logURL, fileManager: fm) {
+            // No real file, but a placeholder remains after the materialize
+            // attempt: the history is offloaded and never arrived. Writing now
+            // would replace it with only these new lines — abort and retry later.
+            throw SyncError.logUnavailable(logURL)
+        } else {
+            // Genuinely no log yet — start a fresh one.
+            try payload.write(to: logURL, options: .atomic)
+        }
     }
 
     // MARK: import
 
     @discardableResult
     public func importChanges(from folder: URL) throws -> ImportStats {
-        let logs = SyncMerge.loadLogs(folder)
+        let logs = try SyncMerge.loadLogs(folder)
         let winners = SyncMerge.winners(logs)
         var stats = ImportStats()
         let store = store(folder)

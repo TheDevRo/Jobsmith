@@ -29,7 +29,7 @@ final class SyncConformanceTests: XCTestCase {
 
     func testVectorsMatchExpected() throws {
         for folder in vectorFolders() {
-            let records = SyncMerge.loadLogs(folder)
+            let records = try SyncMerge.loadLogs(folder)
             let actual = SyncMerge.merge(records).strippingAnnotations()
 
             let expectedData = try Data(contentsOf: folder.appendingPathComponent("expected.json"))
@@ -39,9 +39,9 @@ final class SyncConformanceTests: XCTestCase {
         }
     }
 
-    func testInvariants() {
+    func testInvariants() throws {
         for folder in vectorFolders() {
-            let records = SyncMerge.loadLogs(folder)
+            let records = try SyncMerge.loadLogs(folder)
             let base = SyncMerge.merge(records)
 
             XCTAssertEqual(SyncMerge.merge(records.reversed()), base,

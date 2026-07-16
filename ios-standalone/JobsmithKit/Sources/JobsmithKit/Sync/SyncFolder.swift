@@ -77,9 +77,14 @@ public struct SyncFolder {
     @discardableResult
     public func compactOwnLog(_ deviceId: String) throws -> Int {
         let ownLog = logURL(for: deviceId)
+        // Pull the log back if iCloud evicted it, so compaction sees real
+        // history instead of silently skipping (a nil read here is safe — we
+        // just return 0 without rewriting — but skipping compaction forever is
+        // not what we want).
+        SyncFile.materialize(ownLog)
         guard let text = try? String(contentsOf: ownLog, encoding: .utf8) else { return 0 }
 
-        let winners = SyncMerge.winners(SyncMerge.loadLogs(root))
+        let winners = SyncMerge.winners(try SyncMerge.loadLogs(root))
         var kept: [String] = []
         var seen = Set<SyncMerge.Key>()
         var dropped = 0

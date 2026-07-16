@@ -96,13 +96,42 @@ public enum SyncMerge {
     }
 
     /// Read and concatenate every `changes/*.jsonl` under a folder.
-    public static func loadLogs(_ folder: URL) -> [ChangeRecord] {
+    ///
+    /// iCloud can evict a peer's log to a `.{device}.jsonl.icloud` placeholder,
+    /// which does NOT match `*.jsonl` — globbing only real files would silently
+    /// drop that peer's changes and stall convergence with no signal. So we
+    /// detect placeholders, request their download, and wait bounded; if a log
+    /// is still unavailable afterwards we throw `.logUnavailable` so the caller
+    /// can surface "still syncing" and retry, rather than merging a partial view.
+    public static func loadLogs(_ folder: URL, fileManager: FileManager = .default,
+                                materializeTimeout: TimeInterval = 5) throws -> [ChangeRecord] {
         let changes = folder.appendingPathComponent("changes")
-        guard let entries = try? FileManager.default.contentsOfDirectory(
+        guard let entries = try? fileManager.contentsOfDirectory(
             at: changes, includingPropertiesForKeys: nil) else { return [] }
+
+        // Materialize any evicted peer logs before reading. A placeholder that
+        // won't come back within the window is a hard stop, not a skip.
+        let placeholders = entries.filter { SyncFile.isPlaceholderName($0.lastPathComponent) }
+        for placeholder in placeholders {
+            let real = SyncFile.realURL(forPlaceholder: placeholder)
+            guard real.pathExtension == "jsonl" else { continue }  // not our log
+            if !SyncFile.materialize(real, timeout: materializeTimeout, fileManager: fileManager) {
+                throw SyncError.logUnavailable(real)
+            }
+        }
+        // Re-enumerate so freshly-downloaded logs show up as real `.jsonl` files.
+        let visible = placeholders.isEmpty ? entries
+            : ((try? fileManager.contentsOfDirectory(at: changes, includingPropertiesForKeys: nil)) ?? entries)
+
         var records: [ChangeRecord] = []
-        for url in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        for url in visible.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
         where url.pathExtension == "jsonl" {
+            // A real `.jsonl` that still can't be read (evicted mid-download) is
+            // also a hard stop — reading a partial peer view stalls convergence.
+            if SyncFile.isEvicted(url, fileManager: fileManager),
+               !SyncFile.materialize(url, timeout: materializeTimeout, fileManager: fileManager) {
+                throw SyncError.logUnavailable(url)
+            }
             if let text = try? String(contentsOf: url, encoding: .utf8) {
                 records.append(contentsOf: parseLog(text))
             }
