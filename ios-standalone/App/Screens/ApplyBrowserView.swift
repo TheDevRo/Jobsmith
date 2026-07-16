@@ -467,8 +467,19 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// /authwall (its bot check flags WKWebView guests as "scraping" and
     /// redirects a page that loaded fine). The redirect is cancelled so the
     /// posting stays visible; this flag lets the view offer sign-in, which
-    /// also covers a stored-but-stale li_at session.
+    /// also covers a stored-but-stale li_at session. Also set when a stale
+    /// stored session makes LinkedIn 302-loop the initial load (see
+    /// recoverFromLinkedInRedirectLoop).
     @Published private(set) var hitAuthwall = false
+
+    /// True when `start` injected stored LinkedIn session cookies — the
+    /// precondition for the redirect-loop recovery below (a pure guest load
+    /// that loops has nothing to clear, so retrying can't help it).
+    private var injectedLinkedInSession = false
+
+    /// One-shot guard so a posting that loops even as a guest surfaces the
+    /// error instead of reloading forever.
+    private var didRetryAsGuestAfterRedirectLoop = false
 
     /// Set once a linkedin.com /jobs/ page finishes rendering — the signal
     /// that a later /authwall navigation is the client-side bounce (cancel it)
@@ -786,6 +797,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: Error) {
         NSLog("[Apply] provisional navigation failed: %@", error.localizedDescription)
+        if recoverFromLinkedInRedirectLoop(webView, error) { return }
         reportLoadFailure(error)
     }
 
@@ -843,6 +855,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         initialURL = url
         renderedLinkedInJobPage = false
         hitAuthwall = false
+        didRetryAsGuestAfterRedirectLoop = false
         var cookies: [HTTPCookie] = []
         if let liAtCookie, !liAtCookie.isEmpty,
            let cookie = Self.linkedInSessionCookie(value: liAtCookie) {
@@ -852,8 +865,43 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
            let cookie = Self.linkedInJSessionCookie(value: jsessionId) {
             cookies.append(cookie)
         }
+        injectedLinkedInSession = !cookies.isEmpty
         guard !cookies.isEmpty else { load(url); return }
         setCookies(cookies, thenLoad: url)
+    }
+
+    /// A stale stored `li_at` makes LinkedIn 302-loop the very first load
+    /// (posting → authwall/checkpoint → posting …, because the cookie is
+    /// neither a valid guest nor a valid session) until CFNetwork fails with
+    /// NSURLErrorHTTPTooManyRedirects — nothing ever renders, so the
+    /// rendered-page authwall cancel above never gets a chance. Recover by
+    /// clearing the injected session cookies and retrying once as a guest
+    /// (the search-referer guest path is the known-good one), and raise
+    /// `hitAuthwall` so the banner offers a fresh sign-in for the dead
+    /// session. Returns true when recovery was started (skip the error UI).
+    private func recoverFromLinkedInRedirectLoop(_ failedView: WKWebView,
+                                                 _ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.code == NSURLErrorHTTPTooManyRedirects,
+              failedView === webView,
+              injectedLinkedInSession, !didRetryAsGuestAfterRedirectLoop,
+              let url = initialURL,
+              url.host?.lowercased().hasSuffix("linkedin.com") == true
+        else { return false }
+        didRetryAsGuestAfterRedirectLoop = true
+        injectedLinkedInSession = false
+        hitAuthwall = true
+        NSLog("[Apply] LinkedIn redirect loop with stored session — clearing cookies, retrying as guest")
+        Task { @MainActor in
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            let stale = await store.allCookies().filter {
+                $0.domain.lowercased().hasSuffix("linkedin.com")
+                    && ($0.name == "li_at" || $0.name == "JSESSIONID")
+            }
+            for cookie in stale { await store.deleteCookie(cookie) }
+            self.load(url)
+        }
+        return true
     }
 
     /// Set each cookie in turn (the store's completion fires per-cookie), then
