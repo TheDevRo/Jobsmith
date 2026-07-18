@@ -137,7 +137,8 @@ function _stageTopCardHtml(job) {
         <div class="deck-tcard b2" aria-hidden="true"></div>
         <div class="deck-tcard b1" aria-hidden="true"></div>
         <div class="deck-tcard deck-top">
-            <span class="deck-stamp" aria-hidden="true">SHORTLIST</span>
+            <span class="deck-stamp stamp-shortlist" aria-hidden="true">SHORTLIST</span>
+            <span class="deck-stamp stamp-pass" aria-hidden="true">PASS</span>
             <div class="deck-co">
                 <span class="deck-logo" aria-hidden="true">${escapeHtml(initial)}</span>
                 <div class="deck-co-who">

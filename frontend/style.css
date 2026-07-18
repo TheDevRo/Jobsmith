@@ -295,8 +295,10 @@ body {
     color: var(--text-primary);
 }
 
+/* Topbar hamburger is the MOBILE affordance only (the sidebar is off-canvas
+   there); on desktop the toggle lives inside the sidebar (.rail-toggle). */
 .sidebar-toggle {
-    display: block;
+    display: none;
     background: none;
     border: none;
     color: var(--text-secondary);
@@ -305,13 +307,32 @@ body {
 }
 .sidebar-toggle:hover { color: var(--text-primary); }
 
-/* Desktop sidebar collapse: above the mobile breakpoint the toggle slides the
-   rail away and gives the content column the full width (deck stage benefits
-   most). Mobile (<=900px) keeps its existing .open overlay behaviour. */
+.rail-toggle {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+}
+.rail-toggle:hover { color: var(--text-primary); background: var(--bg-hover); }
+.rail-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Desktop sidebar collapse → icon rail. One variable drives both the rail
+   width and the content margin; labels hide, icons stay clickable. */
 @media (min-width: 901px) {
-    body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
-    body.sidebar-collapsed .main-wrapper { margin-left: 0; }
-    .main-wrapper { transition: margin-left 0.3s ease; }
+    body.sidebar-collapsed { --sidebar-width: 68px; }
+    body.sidebar-collapsed .sidebar-brand > svg,
+    body.sidebar-collapsed .sidebar-brand > span,
+    body.sidebar-collapsed .nav-item span { display: none; }
+    body.sidebar-collapsed .sidebar-brand { justify-content: center; }
+    body.sidebar-collapsed .rail-toggle { margin-left: 0; }
+    body.sidebar-collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+    .sidebar { transition: width 0.25s ease, transform 0.3s ease; }
+    .main-wrapper { transition: margin-left 0.25s ease; }
 }
 @media (prefers-reduced-motion: reduce) {
     .sidebar, .main-wrapper { transition: none; }
@@ -433,6 +454,14 @@ main {
     flex: 1;
     padding: 28px;
     max-width: 1400px;
+}
+
+/* Deck layout: the triage stage and the board are edge-to-edge experiences —
+   lift the readable-page cap for those two views only (dashboard/settings
+   keep it). */
+body.layout-deck main:has(> #jobs.tab-content.active),
+body.layout-deck main:has(> #review.tab-content.active) {
+    max-width: none;
 }
 
 .tab-content { display: none; }
@@ -3691,49 +3720,60 @@ body.layout-deck #jobs.jobs-mode-stage .inbox-stage { display: flex; }
 .deck-qcount b { color: var(--text-secondary); font-family: var(--font-rounded); }
 .deck-qempty { font-size: 12px; color: var(--text-muted); padding: 6px 9px; }
 
-.deck-stage { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 28px 24px 20px; min-width: 0; }
-.deck-deck { position: relative; width: min(760px, 100%); flex: 1; max-height: min(600px, 66vh); min-height: 380px; }
+/* The stage is a size container: card typography scales with the space the
+   card actually has (cqi), so collapsing the sidebar visibly grows the text. */
+.deck-stage { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 24px 28px 20px; min-width: 0; container-type: inline-size; }
+.deck-deck { position: relative; width: 100%; flex: 1; min-height: 380px; }
 .deck-tcard {
     position: absolute; inset: 0; background: var(--bg-secondary); border: 1px solid var(--border);
-    border-radius: 18px; box-shadow: var(--shadow-lg); padding: 28px 32px; display: flex; flex-direction: column; gap: 14px;
+    border-radius: 18px; box-shadow: var(--shadow-lg); padding: clamp(28px, 3.4cqi, 48px) clamp(32px, 4cqi, 56px);
+    display: flex; flex-direction: column; gap: clamp(14px, 1.4cqi, 20px);
 }
 .deck-tcard.b1 { transform: translateY(-12px) scale(.965); opacity: .5; z-index: 1; }
 .deck-tcard.b2 { transform: translateY(-23px) scale(.93); opacity: .25; z-index: 0; }
 .deck-top { z-index: 2; transition: transform .24s ease, opacity .24s ease; }
 .deck-top.fling-left  { transform: translateX(-140%) rotate(-12deg); opacity: 0; }
 .deck-top.fling-right { transform: translateX(140%) rotate(12deg); opacity: 0; }
+/* Verdict stamps are invisible at rest — they flash only while the card
+   flings, like the iOS drag overlay (a resting stamp read as a glitch). */
 .deck-stamp {
-    position: absolute; top: 20px; right: -6px; transform: rotate(12deg);
-    font-family: var(--font-rounded); font-weight: 800; font-size: 15px; letter-spacing: .12em;
-    color: var(--accent); border: 2.5px solid var(--accent); border-radius: 8px; padding: 6px 10px; opacity: .16;
+    position: absolute; top: 20px;
+    font-family: var(--font-rounded); font-weight: 800; font-size: clamp(15px, 1.6cqi, 20px); letter-spacing: .12em;
+    border-radius: 8px; padding: 6px 10px; opacity: 0; pointer-events: none;
 }
+.deck-stamp.stamp-shortlist { right: 2px; transform: rotate(12deg); color: var(--accent); border: 2.5px solid var(--accent); }
+.deck-stamp.stamp-pass { left: 2px; transform: rotate(-12deg); color: var(--accent-red); border: 2.5px solid var(--accent-red); }
+.deck-top.fling-right .deck-stamp.stamp-shortlist { opacity: .9; }
+.deck-top.fling-left  .deck-stamp.stamp-pass { opacity: .9; }
 .deck-co { display: flex; align-items: center; gap: 10px; }
 .deck-logo {
     width: 38px; height: 38px; border-radius: 10px; background: var(--bg-hover);
     display: grid; place-items: center; font-weight: 700; font-size: 15px; color: var(--text-secondary); flex: none;
 }
-.deck-co-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
-.deck-co-meta { font-size: 11px; color: var(--text-muted); }
+.deck-co-name { font-weight: 600; font-size: clamp(13px, 1.3cqi, 16px); color: var(--text-primary); }
+.deck-co-meta { font-size: clamp(11px, 1.1cqi, 13.5px); color: var(--text-muted); }
 .deck-heat { margin-left: auto; }
-.deck-title { margin: 2px 0 0; font-size: clamp(21px, 2vw, 26px); line-height: 1.22; font-weight: 700; letter-spacing: -.01em; font-family: var(--font-rounded); color: var(--text-primary); }
+.deck-title { margin: 2px 0 0; font-size: clamp(22px, 2.6cqi, 36px); line-height: 1.2; font-weight: 700; letter-spacing: -.01em; font-family: var(--font-rounded); color: var(--text-primary); }
 .deck-facts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.deck-fact { font-size: 11px; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--bg-card); }
+.deck-fact { font-size: clamp(11px, 1.15cqi, 14px); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; background: var(--bg-card); }
 .deck-fact.money { color: var(--accent-green); border-color: color-mix(in srgb, var(--accent-green) 35%, transparent); }
 .deck-fact.est { color: var(--text-muted); font-style: italic; }
 .deck-whyfits { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.deck-whyfits li { display: flex; gap: 8px; font-size: 13.5px; color: var(--text-secondary); }
+.deck-whyfits li { display: flex; gap: 8px; font-size: clamp(13.5px, 1.35cqi, 17px); color: var(--text-secondary); max-width: 95ch; }
 .deck-whyfits svg { flex: none; color: var(--accent); margin-top: 2px; }
+/* The snippet takes whatever height the card has left and fades out at the
+   bottom — adapts to any card size (no fixed line count, no mid-line clip).
+   On unscored cards (no why-it-fits bullets) it naturally carries the card. */
 .deck-snippet {
-    font-size: 12.5px; line-height: 1.55; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin: auto 0 0;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: clamp(12.5px, 1.3cqi, 16px); line-height: 1.6; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin: auto 0 0;
+    flex: 0 1 auto; min-height: 0; overflow: hidden; max-width: 100ch;
+    -webkit-mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
 }
-/* Unscored cards have no why-it-fits bullets — let the description carry the
-   card instead of leaving a hole (cf. user screenshot 2026-07-17). */
-.deck-tcard:not(:has(.deck-whyfits)) .deck-snippet { -webkit-line-clamp: 9; }
 .deck-verdicts { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .deck-verdict {
-    display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600;
-    border-radius: 12px; padding: 11px 18px; cursor: pointer;
+    display: flex; align-items: center; gap: 9px; font-size: clamp(13px, 1.2cqi, 15.5px); font-weight: 600;
+    border-radius: 12px; padding: clamp(11px, 1.1cqi, 14px) clamp(18px, 1.8cqi, 26px); cursor: pointer;
     border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); transition: var(--transition);
 }
 .deck-verdict.pass:hover { color: var(--accent-red); border-color: var(--accent-red); }
