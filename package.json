@@ -1,6 +1,6 @@
 {
   "name": "jobsmith",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Jobsmith - Self-hosted job application automation",
   "private": true,
   "dependencies": {

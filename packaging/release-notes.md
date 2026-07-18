@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.5 -->
+<!-- notes-updated-for: 0.2.6 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -14,52 +14,32 @@ Docker image — all built from the same tag.
 
 ## What's new in __VERSION__
 
-**Jobsmith is now open source, under the AGPL-3.0.** Self-hosting is free and
-stays that way.
+**A redesigned desktop experience.** The desktop app and Docker dashboard get a
+standalone UI of their own — inspired by the iOS app, built for a keyboard and
+a big screen. Functionally everything is unchanged: same backend, same data,
+same sync.
 
-- **Docker: your settings survive a restart.** This is the big one. Anything you
-  saved in the Settings UI — profile, keywords, AI endpoint — was being silently
-  discarded when the container restarted, because the config write replaced the
-  symlink to your mounted config instead of writing through it. Fixed. Docker
-  users should re-enter any settings that went missing.
-- **Settings sync across devices (opt-in).** Sync your app configuration —
-  search criteria, resume and honesty preferences, ranking weights, AI
-  connection, prompt overrides — across your devices and the iOS app, on top of
-  the same serverless folder sync your jobs and profile already use. It's
-  per-category and off by default (profile aside); machine-local values stay on
-  the device.
-- **Five resume styles** — `executive`, `ledger`, `banner`, `compact`, `swiss`,
-  each with a selectable accent color and embedded PDF fonts, all still
-  ATS-friendly. The style picker now shows you the resume each one produces.
-- **Pipeline intelligence** — application outcome tracking, follow-up reminders,
-  auto-ghosting of stale applications, a duplicate-application guard, and a
-  digest weighted by what actually converts for you.
-- **Security pass** — the dashboard API is authenticated, SSRF and XSS holes are
-  closed, `javascript:` URLs are blocked in the frontend, the extension no
-  longer requests `<all_urls>` and validates its RPC senders, and the Docker
-  container runs as a non-root user bound to loopback by default.
-- **Apply fixes** — Workday file uploads were being skipped (file inputs now
-  resolve deterministically), and tailored documents attach during in-app apply.
-- **iOS → desktop hand-off (opt-in).** When your phone can't finish a scoring
-  run, it can file a work request into the sync folder; a desktop with the new
-  "fulfill work requests from iPhone" toggle picks it up, scores the right pool,
-  and the results sync back. On the phone, a user-started run now keeps going
-  after you background the app (iOS 26+), with a Live Activity tracking it.
-- **Sync you can trust.** The sync engine no longer risks truncating a device's
-  change log when iCloud evicts it, waits for not-yet-downloaded peer logs
-  instead of merging a partial folder, and appends are now atomic. The sync
-  contract itself is published at
-  [jobsmith-sync](https://github.com/TheDevRo/jobsmith-sync), with conformance
-  vectors both apps must pass.
-- **Honest scores.** If the AI server is unreachable mid-batch, affected jobs
-  now stay unscored and are retried later — previously they were silently
-  branded 0% fit forever.
-- **iOS** — a long search now survives leaving the app; importing a PDF résumé
-  no longer drops every employment date; LinkedIn sign-in leads the setup wizard
-  and, when connected, your own session is used for LinkedIn searches instead of
-  anonymous guest access. A stale LinkedIn session no longer dead-ends the apply
-  browser in a redirect loop — it falls back to guest view and offers a fresh
-  sign-in.
+- **Inbox is now a triage stage.** New jobs arrive as one big card — fit ring,
+  salary, "why it fits", description — with an Up Next rail beside it. Pass /
+  Open / Shortlist with the buttons or entirely from the keyboard (`←` pass,
+  `→` shortlist, `Enter` open, `T` shortlist + tailor now, `U` undo). Prefer
+  the old list? Press `L` or use the toggle.
+- **Pipeline is a kanban board.** Shortlisted → Tailoring → Ready to review →
+  Applied → Needs attention, with drag-and-drop between stages (each drop maps
+  to the exact action the buttons already performed) and a drop-to-pass zone.
+- **Click any posting to peek.** Anywhere outside the classic layout, clicking
+  a job pops its full detail out in place — score, fit analysis, description,
+  and every action — without navigating away. `Esc` closes.
+- **⌘K command palette** — jump anywhere, kick off fetch/score/tailor runs, or
+  search your jobs from one keystroke.
+- **A calmer shell** — collapsible icon-rail sidebar, a run console with live
+  logs in place of the old action-card grid, a dashboard digest column, and a
+  global "Now" rail showing what's running.
+- **Prefer the old UI?** Settings → Layout → Classic brings the previous
+  dashboard back, pixel-identical.
+- **Fixed along the way** — HTML5 drag-and-drop now works inside the macOS
+  shell, and the pipeline funnel no longer over-asks the API and errors on
+  large pipelines.
 
 ## macOS app (Apple Silicon)
 
