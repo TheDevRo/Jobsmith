@@ -67,6 +67,24 @@ async function jobsmithFetchFile(path, filename) {
   });
 }
 
+// ---- Workday one-tap auth -------------------------------------------------
+
+// The Workday email + password (from the desktop config). Localhost-only; the
+// password never leaves the machine except into the page the user is applying on.
+async function jobsmithWorkdayCredentials() {
+  return jobsmithFetch("/api/ext/workday_credentials");
+}
+
+// Registry state for a tenant host — whether an account is already known.
+async function jobsmithWorkdayAccount(host) {
+  return jobsmithFetch(`/api/ext/workday_account?host=${encodeURIComponent(host)}`);
+}
+
+// Report an auth success so every device remembers the tenant.
+async function jobsmithReportWorkdayAccount(payload) {
+  return jobsmithFetch("/api/ext/workday_account", { method: "POST", body: payload });
+}
+
 async function jobsmithHealth() {
   // Health is unauthenticated; call without a token so it still works
   // before the user has configured one.
@@ -77,4 +95,8 @@ async function jobsmithHealth() {
 }
 
 // Expose to other extension scripts via window/global
-this.Jobsmith = { jobsmithGetConfig, jobsmithSetConfig, jobsmithFetch, jobsmithFetchFile, jobsmithHealth, DEFAULT_BACKEND };
+this.Jobsmith = {
+  jobsmithGetConfig, jobsmithSetConfig, jobsmithFetch, jobsmithFetchFile, jobsmithHealth,
+  jobsmithWorkdayCredentials, jobsmithWorkdayAccount, jobsmithReportWorkdayAccount,
+  DEFAULT_BACKEND,
+};

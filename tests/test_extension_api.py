@@ -191,3 +191,74 @@ def test_extension_import_rejects_empty_cookies(client, token_path, import_dirs)
     r = client.post("/api/ext/sessions/import", headers={"X-Jobsmith-Token": token},
                     json={"domain": "indeed", "cookies": []})
     assert r.status_code == 400
+
+
+# ---- Workday one-tap auth (credentials + tenant registry) -----------------
+
+@pytest.fixture
+def workday_client(token_path):
+    cfg = {
+        "profile": {
+            "full_name": "Test User", "email": "test@example.com",
+            "workday_email": "jobs@example.com", "workday_password": "s3cret",
+        },
+        "ai": {"base_url": "http://localhost:1234/v1", "model": "fake"},
+    }
+    app = FastAPI()
+    app.include_router(extension_api.build_router(lambda: cfg))
+    return TestClient(app)
+
+
+def test_workday_credentials_requires_token(workday_client):
+    assert workday_client.get("/api/ext/workday_credentials").status_code == 401
+
+
+def test_workday_credentials_returns_configured(workday_client, token_path):
+    token = extension_api.get_or_create_token()
+    r = workday_client.get("/api/ext/workday_credentials", headers={"X-Jobsmith-Token": token})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is True
+    assert body["email"] == "jobs@example.com"
+    assert body["password"] == "s3cret"
+
+
+def test_workday_credentials_unconfigured(token_path):
+    app = FastAPI()
+    app.include_router(extension_api.build_router(lambda: {"profile": {}}))
+    client = TestClient(app)
+    token = extension_api.get_or_create_token()
+    r = client.get("/api/ext/workday_credentials", headers={"X-Jobsmith-Token": token})
+    assert r.status_code == 200
+    assert r.json()["configured"] is False
+
+
+def test_workday_account_report_and_read(workday_client, token_path, tmp_path, monkeypatch):
+    import asyncio
+    from backend import database as dbmod
+
+    monkeypatch.setattr(dbmod, "DB_PATH", tmp_path / "reg.db")
+    asyncio.run(dbmod.init_db())
+    token = extension_api.get_or_create_token()
+    hdr = {"X-Jobsmith-Token": token}
+    host = "acme.wd5.myworkdayjobs.com"
+
+    # Unknown tenant → not found.
+    r = workday_client.get(f"/api/ext/workday_account?host={host}", headers=hdr)
+    assert r.status_code == 200 and r.json()["found"] is False
+
+    # Report an account creation that is pending verification.
+    r = workday_client.post("/api/ext/workday_account", headers=hdr,
+                            json={"tenant_host": host, "action": "account_created",
+                                  "email": "jobs@example.com", "pending": True})
+    assert r.status_code == 200
+    assert r.json()["account"]["status"] == "pending_verification"
+
+    # It is now known.
+    r = workday_client.get(f"/api/ext/workday_account?host={host}", headers=hdr)
+    assert r.json()["found"] is True
+
+    # A later sign-in promotes it to active.
+    r = workday_client.post("/api/ext/workday_account", headers=hdr,
+                            json={"tenant_host": host, "action": "signed_in"})
+    assert r.json()["account"]["status"] == "active"

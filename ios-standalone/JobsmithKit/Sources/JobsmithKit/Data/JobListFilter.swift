@@ -25,6 +25,36 @@ public enum JobListFilter {
         }
     }
 
+    /// The standing pay gate for the Inbox deck. Unlike the fetch-time
+    /// min-salary filter (which only rejects jobs *proven* to pay under the
+    /// floor, and rejects them permanently), this runs over stored jobs on
+    /// every display, so both settings flip instantly and retroactively:
+    ///
+    /// - `minSalary` hides jobs whose stated pay annualizes below the floor —
+    ///   the same lenient rule the fetch gate applies, re-applied here so jobs
+    ///   stored before the floor was raised disappear too.
+    /// - `requireStatedPay` additionally hides jobs with no stated pay or an
+    ///   unknown pay period. It is ignored without a floor (the settings UI
+    ///   only offers it as a companion toggle).
+    ///
+    /// `hiddenNoPay` counts only the strict-mode hides, so the UI can badge
+    /// "N hidden — no stated pay" and the mode reads as reversible, not lossy.
+    public static func applyPayFilter(_ jobs: [Job], minSalary: Int?,
+                                      requireStatedPay: Bool) -> (jobs: [Job], hiddenNoPay: Int) {
+        guard let minSalary, minSalary != 0 else { return (jobs, 0) }
+        var hiddenNoPay = 0
+        let kept = jobs.filter { job in
+            guard let annual = JobFilters.statedAnnualPay(salaryMin: job.salaryMin,
+                                                          salaryMax: job.salaryMax,
+                                                          salaryPeriod: job.salaryPeriod) else {
+                if requireStatedPay { hiddenNoPay += 1; return false }
+                return true
+            }
+            return annual >= minSalary
+        }
+        return (kept, hiddenNoPay)
+    }
+
     /// Distinct source slugs present in `jobs`, ordered by display name — the
     /// options offered in the "Job board" filter menu.
     public static func availableBoards(in jobs: [Job]) -> [String] {

@@ -10,7 +10,7 @@
     "entity": {
       "enum": ["job", "triage", "application", "application_event",
                "application_schedule", "answer", "profile", "setting",
-               "work_request"]
+               "work_request", "ats_account"]
     },
     "id": { "type": "string", "minLength": 1 },
     "updated_at": {

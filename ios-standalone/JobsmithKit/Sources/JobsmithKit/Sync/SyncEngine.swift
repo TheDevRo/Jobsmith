@@ -389,6 +389,55 @@ public final class SyncEngine {
                              WorkRequestStore.encode(params)])
     }
 
+    /// The per-tenant ATS account registry (`ats_account`). Keyed by
+    /// "{provider}:{tenantHost}", flat last-writer-wins; no password ever.
+    /// Must match the desktop's AtsAccountAdapter (backend/sync/entities.py).
+    private func atsAccountSnapshot(_ dbc: Database) throws -> [String: [String: JSONValue]] {
+        var out: [String: [String: JSONValue]] = [:]
+        for row in try Row.fetchAll(dbc, sql: "SELECT * FROM ats_accounts") {
+            let provider = (row["provider"] as String?) ?? "workday"
+            let host = (row["tenantHost"] as String?) ?? ""
+            var data: [String: JSONValue] = [
+                "provider": .string(provider),
+                "tenant_host": .string(host),
+                "status": .string((row["status"] as String?) ?? "active"),
+            ]
+            data["email"] = (row["email"] as String?).map(JSONValue.string) ?? .null
+            data["created_at"] = (row["createdAt"] as String?).map(JSONValue.string) ?? .null
+            data["last_sign_in_at"] = (row["lastSignInAt"] as String?).map(JSONValue.string) ?? .null
+            data["updated_at"] = (row["updatedAt"] as String?).map(JSONValue.string) ?? .null
+            out["\(provider):\(host)"] = data
+        }
+        return out
+    }
+
+    private func applyAtsAccount(_ dbc: Database, _ id: String, _ canonData: [String: JSONValue]) throws {
+        // The id is authoritative for the key columns: "{provider}:{tenantHost}".
+        let provider: String
+        let host: String
+        if let colon = id.firstIndex(of: ":") {
+            provider = String(id[..<colon])
+            host = String(id[id.index(after: colon)...])
+        } else {
+            provider = canonData["provider"]?.stringValue ?? "workday"
+            host = canonData["tenant_host"]?.stringValue ?? id
+        }
+        try dbc.execute(sql: """
+            INSERT INTO ats_accounts
+                (tenantHost, provider, email, status, createdAt, lastSignInAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tenantHost) DO UPDATE SET
+                provider = excluded.provider, email = excluded.email,
+                status = excluded.status, createdAt = excluded.createdAt,
+                lastSignInAt = excluded.lastSignInAt, updatedAt = excluded.updatedAt
+            """, arguments: [host, provider,
+                             canonData["email"]?.stringValue,
+                             canonData["status"]?.stringValue ?? "active",
+                             canonData["created_at"]?.stringValue,
+                             canonData["last_sign_in_at"]?.stringValue,
+                             canonData["updated_at"]?.stringValue])
+    }
+
     private func appSnapshot(_ dbc: Database, _ store: DocumentStore?) throws -> [String: [String: JSONValue]] {
         var out: [String: [String: JSONValue]] = [:]
         let cols = (["id"] + SyncEngine.appKinds.map { "a.\($0.0)" } + SyncEngine.appDocs.map { "a.\($0.1)" }).joined(separator: ", ")
@@ -467,6 +516,7 @@ public final class SyncEngine {
             try diff(entity: "application_event", current: try appEventSnapshot(dbc))
             try diff(entity: "application_schedule", current: try scheduleSnapshot(dbc))
             try diff(entity: "work_request", current: try workRequestSnapshot(dbc))
+            try diff(entity: "ats_account", current: try atsAccountSnapshot(dbc))
 
             // Profile bridge — GATED by the `profile` category. Off ⇒ skip export
             // entirely (and never tombstone profile/me), keeping a device-specific
@@ -608,6 +658,10 @@ public final class SyncEngine {
             for (key, rec) in winners where key.entity == "work_request" && !rec.deleted {
                 try applyWorkRequest(dbc, key.id, rec.data ?? [:]); stats.upserts += 1
             }
+            // ATS accounts have no dependencies either — a flat per-tenant registry.
+            for (key, rec) in winners where key.entity == "ats_account" && !rec.deleted {
+                try applyAtsAccount(dbc, key.id, rec.data ?? [:]); stats.upserts += 1
+            }
             // Tombstones, children before parents. `triage` never tombstones
             // (a delete is a live 'deleted' status). Job tombstones are the
             // generic safety net for a physically-removed row.
@@ -624,6 +678,12 @@ public final class SyncEngine {
             // A work-request tombstone is the requester pruning old news.
             for (key, rec) in winners where key.entity == "work_request" && rec.deleted {
                 try dbc.execute(sql: "DELETE FROM work_requests WHERE id = ?", arguments: [key.id])
+                stats.deletes += 1
+            }
+            // An ats_account tombstone is the user removing a saved account.
+            for (key, rec) in winners where key.entity == "ats_account" && rec.deleted {
+                let host = key.id.firstIndex(of: ":").map { String(key.id[key.id.index(after: $0)...]) } ?? key.id
+                try dbc.execute(sql: "DELETE FROM ats_accounts WHERE tenantHost = ?", arguments: [host])
                 stats.deletes += 1
             }
             for (key, rec) in winners where key.entity == "application_event" && rec.deleted {
@@ -794,6 +854,7 @@ public final class SyncEngine {
         let appEvents = try appEventSnapshot(dbc)
         let schedules = try scheduleSnapshot(dbc)
         let workRequests = try workRequestSnapshot(dbc)
+        let atsAccounts = try atsAccountSnapshot(dbc)
         // Re-read what we'd emit next for settings so a following export is a
         // no-op; only modeled paths in an enabled category were applied.
         let settingsExport = settingsCfg.map { SettingsSync.export($0, enabled: settingsEnabled) } ?? [:]
@@ -834,6 +895,9 @@ public final class SyncEngine {
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             case "work_request":
                 guard let known = workRequests[key.id] else { continue }
+                dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
+            case "ats_account":
+                guard let known = atsAccounts[key.id] else { continue }
                 dataJSON = canon((rec.data ?? [:]).merging(known) { _, new in new })
             default: continue
             }

@@ -142,8 +142,14 @@ public struct JobStore: Sendable {
 
     public func setTriage(_ triage: String, jobId: String) throws {
         try db.writer.write {
-            try $0.execute(sql: "UPDATE jobs SET triage = ? WHERE id = ?",
-                           arguments: [triage, jobId])
+            // Any triage that isn't 'deleted' clears the recycle-bin timestamp —
+            // so restoring a job (or a shake-undo of a delete) cleans it for free.
+            // A CASE keeps deletedAt intact for the (unused here) 'deleted' case.
+            try $0.execute(sql: """
+                UPDATE jobs
+                SET triage = ?, deletedAt = CASE WHEN ? = 'deleted' THEN deletedAt ELSE NULL END
+                WHERE id = ?
+                """, arguments: [triage, triage, jobId])
         }
     }
 
@@ -246,9 +252,41 @@ public struct JobStore: Sendable {
     /// (symmetric with shortlist). The row stays to hold the 'deleted' state, so
     /// a later fetch of the same posting can't silently re-discover it.
     public func delete(jobId: String) throws {
+        let now = ISO8601DateFormatter().string(from: Date())
         try db.writer.write { dbc in
-            try dbc.execute(sql: "UPDATE jobs SET triage = 'deleted' WHERE id = ?",
-                            arguments: [jobId])
+            try dbc.execute(sql: "UPDATE jobs SET triage = 'deleted', deletedAt = ? WHERE id = ?",
+                            arguments: [now, jobId])
+        }
+    }
+
+    /// Soft-deleted jobs — the Recently Deleted (recycle bin) contents, most
+    /// recently deleted first. Falls back to lastSeen/dateDiscovered for rows
+    /// deleted before deletedAt existed (backfilled on migration, but be safe).
+    public func recentlyDeleted() throws -> [Job] {
+        try db.writer.read {
+            try Job.fetchAll($0, sql: """
+                SELECT * FROM jobs WHERE triage = 'deleted'
+                ORDER BY COALESCE(deletedAt, lastSeen, dateDiscovered) DESC
+                """)
+        }
+    }
+
+    /// Empty the recycle bin: hard-delete every soft-deleted job and its
+    /// application rows in one transaction. Deleting the applications mirrors
+    /// SyncEngine.deleteJob; application_events cascade from applications.
+    /// Returns how many jobs were removed. Once gone, a re-fetch of the same
+    /// (source, externalId) inserts it fresh — the posting is discoverable again.
+    @discardableResult
+    public func purgeDeleted() throws -> Int {
+        try db.writer.write { dbc in
+            let count = try Int.fetchOne(
+                dbc, sql: "SELECT COUNT(*) FROM jobs WHERE triage = 'deleted'") ?? 0
+            try dbc.execute(sql: """
+                DELETE FROM applications
+                WHERE jobId IN (SELECT id FROM jobs WHERE triage = 'deleted')
+                """)
+            try dbc.execute(sql: "DELETE FROM jobs WHERE triage = 'deleted'")
+            return count
         }
     }
 

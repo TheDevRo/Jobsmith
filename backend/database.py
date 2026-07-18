@@ -117,6 +117,21 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
                 params       TEXT
             )"""),
     (27, "CREATE INDEX IF NOT EXISTS idx_work_requests_status ON work_requests(status)"),
+    # Per-tenant ATS accounts (the `ats_account` sync entity). Workday requires a
+    # separate account per company tenant ({company}.wd{N}.myworkdayjobs.com);
+    # this table remembers which tenants already have one so every surface can go
+    # straight to sign-in instead of re-deriving "sign in vs create" from the DOM.
+    # NEVER stores a password — only the email, status, and timestamps.
+    (28, """CREATE TABLE IF NOT EXISTS ats_accounts (
+                tenant_host     TEXT PRIMARY KEY,
+                provider        TEXT NOT NULL DEFAULT 'workday',
+                email           TEXT,
+                status          TEXT NOT NULL DEFAULT 'active',
+                created_at      TEXT,
+                last_sign_in_at TEXT,
+                updated_at      TEXT
+            )"""),
+    (29, "CREATE INDEX IF NOT EXISTS idx_ats_accounts_provider ON ats_accounts(provider)"),
 ]
 
 

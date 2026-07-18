@@ -19,6 +19,10 @@ public struct SecretKey: RawRepresentable, Hashable, Sendable {
     public static let linkedInJSessionId = SecretKey(rawValue: "linkedin.jsessionid")
     /// The live AI endpoint's bearer token (`ai.apiKey`).
     public static let aiAPIKey = SecretKey(rawValue: "ai.apiKey")
+    /// The Workday ATS account password, used for one-tap sign-in / create
+    /// account in the Apply browser. A live credential — never synced, never
+    /// written to the plaintext config; round-tripped through the Keychain.
+    public static let workdayPassword = SecretKey(rawValue: "ats.workday.password")
     /// A saved AI connection's bearer token, keyed by the endpoint's stable id.
     public static func savedEndpointAPIKey(_ id: String) -> SecretKey {
         SecretKey(rawValue: "savedEndpoint.\(id).apiKey")

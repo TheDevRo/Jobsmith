@@ -127,6 +127,7 @@ struct RootTabView: View {
         ) {
             Button("Yes, I applied") { model.resolvePendingApply(applied: true) }
             Button("Not yet — keep it in the pipeline") { model.resolvePendingApply(applied: false) }
+            Button("This job wasn't for me", role: .destructive) { model.resolvePendingApplyNotForMe() }
             Button("Still working on it", role: .cancel) {}
         }
         .task {

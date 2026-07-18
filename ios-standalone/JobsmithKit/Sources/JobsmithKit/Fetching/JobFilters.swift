@@ -191,6 +191,45 @@ public enum JobFilters {
         return (minV, maxV, period)
     }
 
+    /// Parse the profile's free-text desired salary ("$85k", "40/hr",
+    /// "120,000", "$80k–$100k") into an annual floor for the pay filter.
+    ///
+    /// Unlike `parseSalaryFromText`, which digs money out of description prose
+    /// and must be paranoid about bonuses and gift cards, this reads a field
+    /// the user labeled "desired salary" — so no "$" or period cue is required
+    /// and the first number wins (a range's lower end is the floor). Period
+    /// falls back to magnitude ("40" reads hourly, "85000" annual). Returns
+    /// nil when no plausible salary is present ("negotiable").
+    public static func parseDesiredAnnualSalary(_ text: String?) -> Int? {
+        guard let text, !text.isEmpty else { return nil }
+        let pattern = "([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*([kK](?![A-Za-z]))?"
+        let ns = text as NSString
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              let amount = money(ns.substring(with: m.range(at: 1)),
+                                 hasK: m.range(at: 2).location != NSNotFound,
+                                 promoteShorthand: false) else { return nil }
+        var period = detectPayPeriod(text)
+        if period == "unknown" { period = inferPeriod(fromAmount: amount) }
+        let bounds = period == "hourly" ? 2...500 : 10_000...2_000_000
+        guard bounds.contains(amount) else { return nil }
+        return normalizeToAnnual(amount, period: period)
+    }
+
+    /// A job's stated pay, annualized — nil when the posting states no salary
+    /// or states one with an unknown period (annualizing a bare number is
+    /// unreliable; see the min-salary comment in `passesGlobalFilters`).
+    /// Prefers the upper bound, matching the lenient fetch-time gate.
+    public static func statedAnnualPay(salaryMin: Int?, salaryMax: Int?,
+                                       salaryPeriod: String?) -> Int? {
+        var amount = salaryMax
+        if amount == nil || amount == 0 { amount = salaryMin }
+        guard let amount, amount != 0 else { return nil }
+        let period = (salaryPeriod ?? "unknown").lowercased()
+        guard period == "hourly" || period == "annual" else { return nil }
+        return normalizeToAnnual(amount, period: period)
+    }
+
     /// Parse a captured amount string ("120,000", "25.50", "120") into whole
     /// dollars, applying the "k" multiplier when present — or, for a shorthand
     /// range end like the "150" in "$120–150k", when the sibling carried it.
@@ -310,15 +349,11 @@ public enum JobFilters {
         // unreliable (a $990/wk stipend inferred hourly becomes ~$2M and clears
         // any floor), so ambiguous salaries pass — same posture as "no salary =
         // pass".
-        if let minSalary = search.minSalary, minSalary != 0 {
-            var amount = job.salaryMax
-            if amount == nil || amount == 0 { amount = job.salaryMin }
-            let period = (job.salaryPeriod ?? "unknown").lowercased()
-            if let amount, amount != 0, period == "hourly" || period == "annual" {
-                if let annual = normalizeToAnnual(amount, period: period), annual < minSalary {
-                    return false
-                }
-            }
+        if let minSalary = search.minSalary, minSalary != 0,
+           let annual = statedAnnualPay(salaryMin: job.salaryMin, salaryMax: job.salaryMax,
+                                        salaryPeriod: job.salaryPeriod),
+           annual < minSalary {
+            return false
         }
 
         // Location — only if locations are configured.

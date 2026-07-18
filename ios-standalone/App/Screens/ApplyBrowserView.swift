@@ -25,7 +25,23 @@ struct ApplyBrowserView: View {
     @State private var didStart = false
     @State private var showLinkedInSignIn = false
 
+    // Workday one-tap auth: the on-page auth state ("create"|"signin"|"none"),
+    // the tenant host, whether this device already knows an account for it, and
+    // an in-flight guard.
+    @State private var workdayState = "none"
+    @State private var workdayTenant = ""
+    @State private var workdayKnown = false
+    @State private var workdayBusy = false
+    // Debounces the Workday re-check driven by SPA URL changes (see the
+    // controller.pageURL onChange below).
+    @State private var workdayRecheckTask: Task<Void, Never>?
+
     private var jobURL: URL? { URL(string: job.url) }
+
+    private var workdayEmail: String { model.config.apiKeys.workdayEmail }
+    private var workdayPassword: String { model.config.apiKeys.workdayPassword }
+    private var workdayConfigured: Bool { !workdayEmail.isEmpty && !workdayPassword.isEmpty }
+    private var showWorkdayBanner: Bool { workdayState == "signin" || workdayState == "create" }
 
     private var isLinkedIn: Bool {
         jobURL?.host?.lowercased().hasSuffix("linkedin.com") ?? false
@@ -90,6 +106,9 @@ struct ApplyBrowserView: View {
             if needsLinkedInSignIn {
                 linkedInSignInBanner
             }
+            if showWorkdayBanner {
+                workdayBanner
+            }
             bottomBar
         }
         // Let the keyboard cover the toolbar instead of squeezing the layout:
@@ -107,6 +126,27 @@ struct ApplyBrowserView: View {
             if opened {
                 showStatus("The site opened a new window — back returns to the posting.",
                            autoHideAfter: 6)
+            }
+        }
+        .onChange(of: controller.isLoading) { _, loading in
+            // Once a page settles, re-check whether it's a Workday auth wall so
+            // the one-tap banner can appear (or disappear after a sign-in).
+            if !loading { Task { await refreshWorkdayState() } }
+        }
+        .onChange(of: controller.pageURL) { _, _ in
+            // SPA route changes (Workday is a React SPA) never toggle isLoading,
+            // so the load-complete hook above misses the auth wall. Real loads
+            // fire this KVO several times mid-flight — skip those; the isLoading
+            // hook covers them once the page settles.
+            guard !controller.isLoading else { return }
+            workdayRecheckTask?.cancel()
+            workdayRecheckTask = Task {
+                await refreshWorkdayState()
+                // Workday renders the form a beat after the URL changes; one
+                // delayed re-check catches it.
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                guard !Task.isCancelled else { return }
+                await refreshWorkdayState()
             }
         }
         .onChange(of: controller.loadError) { _, error in
@@ -239,6 +279,102 @@ struct ApplyBrowserView: View {
         }
         if let url = jobURL {
             controller.start(url: url, cookies: result.cookies)
+        }
+    }
+
+    // MARK: - Workday one-tap auth
+
+    private var workdayBanner: some View {
+        // The registry wins over the DOM heuristic for the label: a known tenant
+        // is always "Sign in", even if Workday defaulted to the create form.
+        let creating = workdayState == "create" && !workdayKnown
+        return HStack(spacing: 10) {
+            Image(systemName: "building.2")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(creating ? "Create your Workday account" : "Sign in to Workday")
+                    .font(.footnote.weight(.semibold))
+                Text(workdayConfigured
+                     ? "Uses your Workday email + password from Settings."
+                     : "Add your Workday email + password in Settings first.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button(creating ? "Create" : "Sign in") {
+                Task { await doWorkdayAuth(creating: creating) }
+            }
+            .font(.footnote.weight(.semibold))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(!workdayConfigured || workdayBusy)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+    }
+
+    private func refreshWorkdayState() async {
+        let host = (controller.currentURL ?? jobURL)?.host?.lowercased() ?? ""
+        guard host.hasSuffix("myworkdayjobs.com") else {
+            workdayState = "none"
+            return
+        }
+        do {
+            let (state, tenant) = try await controller.workdayAuthState()
+            workdayState = state
+            workdayTenant = tenant.isEmpty ? host : tenant
+            let known = (try? AtsAccountStore(model.database).get(workdayTenant)) ?? nil
+            workdayKnown = known != nil
+        } catch {
+            workdayState = "none"
+        }
+    }
+
+    private func doWorkdayAuth(creating: Bool) async {
+        guard workdayConfigured else {
+            showStatus("Add your Workday email + password in Settings.")
+            return
+        }
+        workdayBusy = true
+        showStatus(creating ? "Creating your Workday account…" : "Signing in to Workday…")
+        do {
+            let out = try await controller.workdayAuth(email: workdayEmail, password: workdayPassword)
+            let ok = out["ok"] as? Bool ?? false
+            let action = out["action"] as? String ?? ""
+            let message = out["message"] as? String
+            let pending = out["pending"] as? Bool ?? false
+            if ok {
+                recordWorkdayAccount(action: action, pending: pending)
+                showStatus(message ?? (action == "account_created" ? "Account created." : "Signed in."),
+                           autoHideAfter: 5)
+                // The page navigates past the auth wall; re-check after it lands.
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                await refreshWorkdayState()
+            } else {
+                showStatus(message ?? "Workday sign-in failed.")
+            }
+        } catch {
+            showStatus("Workday error: \(error.localizedDescription)")
+        }
+        workdayBusy = false
+    }
+
+    /// Remember the tenant in the synced registry (never a password).
+    private func recordWorkdayAccount(action: String, pending: Bool) {
+        guard !workdayTenant.isEmpty else { return }
+        let store = AtsAccountStore(model.database)
+        if action == "account_created" {
+            try? store.upsert(tenantHost: workdayTenant, email: workdayEmail,
+                              status: pending ? AtsAccount.statusPending : AtsAccount.statusActive)
+        } else {
+            let existing = (try? store.get(workdayTenant)) ?? nil
+            if existing == nil {
+                try? store.upsert(tenantHost: workdayTenant, email: workdayEmail)
+            } else {
+                try? store.markSignedIn(workdayTenant)
+            }
         }
     }
 
@@ -475,6 +611,10 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     @Published private(set) var estimatedProgress: Double = 0
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
+    /// The current URL, republished via KVO. Unlike `isLoading`, `\.url` fires
+    /// for pushState/same-document navigations — the signal that a React SPA
+    /// (Workday) routed to its auth wall without a real page load.
+    @Published private(set) var pageURL: URL?
     /// True while a `window.open` child is mounted; the back button closes it
     /// (the page's own `window.close()` is the only other way out).
     @Published private(set) var hasPopup = false
@@ -597,6 +737,10 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] wv, _ in
                 let value = wv.canGoForward
                 Task { @MainActor in self?.canGoForward = value }
+            },
+            view.observe(\.url, options: [.initial, .new]) { [weak self] wv, _ in
+                let value = wv.url
+                Task { @MainActor in self?.pageURL = value }
             },
         ]
     }
@@ -995,6 +1139,31 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         let dict = out as? [String: Any] ?? [:]
         return dict["results"] as? [[String: Any]] ?? []
     }
+
+    /// Register workday_auth.js and read the on-page auth state
+    /// ("create" | "signin" | "none") plus the tenant host.
+    func workdayAuthState() async throws -> (state: String, tenantHost: String) {
+        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.workdayAuth)
+        let out = try await activeWebView.callAsyncJavaScript(
+            "return window.__jobsmithWorkdayAuthState();",
+            arguments: [:],
+            contentWorld: .page)
+        let dict = out as? [String: Any] ?? [:]
+        return (dict["state"] as? String ?? "none",
+                (dict["tenantHost"] as? String ?? "").lowercased())
+    }
+
+    /// Fill + submit the Workday auth form. The password is passed as a bound
+    /// argument (never interpolated into the script string), the same way
+    /// document bytes are passed to fill.js.
+    func workdayAuth(email: String, password: String) async throws -> [String: Any] {
+        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.workdayAuth)
+        let out = try await activeWebView.callAsyncJavaScript(
+            "return await window.__jobsmithWorkdayAuth(email, password);",
+            arguments: ["email": email, "password": password],
+            contentWorld: .page)
+        return out as? [String: Any] ?? [:]
+    }
 }
 
 private struct ApplyWebView: UIViewRepresentable {
@@ -1012,6 +1181,7 @@ private struct ApplyWebView: UIViewRepresentable {
 enum ApplyScripts {
     static let snapshot = load("snapshot")
     static let fill = load("fill")
+    static let workdayAuth = load("workday_auth")
 
     private static func load(_ name: String) -> String {
         guard let url = Bundle.main.url(forResource: name, withExtension: "js"),

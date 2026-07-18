@@ -39,6 +39,9 @@ public struct Job: Codable, Equatable, Sendable, Identifiable,
     public var timesSeen: Int
     /// JSON salary estimate (market data), distinct from stated salary.
     public var salaryEstimate: String?
+    /// When this job was soft-deleted (triage='deleted'), or nil if it isn't.
+    /// Powers the Recently Deleted screen's ordering. Device-local — not synced.
+    public var deletedAt: String?
 
     public init(from normalized: NormalizedJob) {
         self.id = UUID().uuidString
@@ -67,6 +70,7 @@ public struct Job: Codable, Equatable, Sendable, Identifiable,
         self.lastSeen = nil
         self.timesSeen = 1
         self.salaryEstimate = nil
+        self.deletedAt = nil
     }
 
     public var tagList: [String] {

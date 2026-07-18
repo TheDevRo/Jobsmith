@@ -25,8 +25,18 @@ struct InboxView: View {
     @ScaledMetric(relativeTo: .title2) private var triageButtonSize: CGFloat = 58
 
     private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
+    /// The standing pay gate runs before the session filters (search text,
+    /// board picker): it's a settings-driven view of the inbox, and its hidden
+    /// count is badged below the deck so strict mode reads as reversible.
+    /// Pipeline deliberately skips it — those jobs were hand-triaged, and a
+    /// filter must never hide something the user explicitly kept.
+    private var payFiltered: (jobs: [Job], hiddenNoPay: Int) {
+        JobListFilter.applyPayFilter(model.inbox,
+                                     minSalary: model.config.search.minSalary,
+                                     requireStatedPay: model.config.search.requireStatedPay)
+    }
     private var filteredInbox: [Job] {
-        JobListFilter.apply(model.inbox, query: searchQuery, boards: selectedBoards)
+        JobListFilter.apply(payFiltered.jobs, query: searchQuery, boards: selectedBoards)
     }
     private var sortedInbox: [Job] { sort.sorted(filteredInbox, conversion: model.conversionBySource) }
     private var availableBoards: [String] { JobListFilter.availableBoards(in: model.inbox) }
@@ -61,6 +71,12 @@ struct InboxView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { if showSearch { closeSearch() } }
+                        if payFiltered.hiddenNoPay > 0 {
+                            Text("\(payFiltered.hiddenNoPay) hidden — no stated pay")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 6)
+                        }
                     }
                 }
               }

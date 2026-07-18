@@ -446,6 +446,138 @@ async function doClearHighlights() {
   }
 }
 
+// ---- Workday one-tap auth ----------------------------------------------
+//
+// On a Workday tenant ({company}.wd{N}.myworkdayjobs.com) we inject
+// common/workday_auth.js (same executeScript path as snapshot/fill), read the
+// auth state, and offer a one-tap "Sign in" / "Create account" card that fills
+// the email + password from the backend and submits — the most painful part of
+// every Workday application. Nothing about the password is stored in the panel.
+
+const WORKDAY_HOST_SUFFIX = "myworkdayjobs.com";
+let workdayCtx = null;  // { tab, state, tenantHost, credentials } for the visible card
+
+function workdayHostOf(url) {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h.endsWith(WORKDAY_HOST_SUFFIX) ? h : null;
+  } catch (_) { return null; }
+}
+
+function hideWorkdayCard() {
+  workdayCtx = null;
+  const card = $("workdayCard");
+  if (card) card.hidden = true;
+}
+
+async function refreshWorkdayCard() {
+  const card = $("workdayCard");
+  if (!card) return;
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id || !workdayHostOf(tab.url || "")) { hideWorkdayCard(); return; }
+
+    // Read the on-page auth state (create vs signin vs none).
+    await execFiles({ tabId: tab.id }, ["common/workday_auth.js"]);
+    const res = await execCall({ tabId: tab.id }, "__jobsmithWorkdayAuthState", []);
+    const info = res && res[0] && res[0].result;
+    if (!info || info.state === "none") { hideWorkdayCard(); return; }
+
+    const tenantHost = info.tenantHost;
+    const [creds, registry] = await Promise.all([
+      Jobsmith.jobsmithWorkdayCredentials().catch(() => ({ configured: false })),
+      Jobsmith.jobsmithWorkdayAccount(tenantHost).catch(() => ({ found: false })),
+    ]);
+    workdayCtx = { tab, state: info.state, tenantHost, credentials: creds };
+
+    // The registry wins over the DOM heuristic for the label: a known tenant is
+    // always "Sign in", even if Workday defaulted to showing the create form.
+    const known = !!(registry && registry.found);
+    const creating = info.state === "create" && !known;
+    const btn = $("workdayAuthBtn");
+    const status = $("workdayStatus");
+    status.textContent = "";
+    status.className = "wd-status";
+    $("workdayTitle").textContent = creating
+      ? `Create account at ${tenantHost}`
+      : `Sign in to ${tenantHost}`;
+
+    if (!creds.configured) {
+      $("workdayHint").textContent = "Add your Workday email + password in Jobsmith Settings, then reopen this page.";
+      btn.disabled = true;
+      btn.textContent = creating ? "Create account" : "Sign in";
+    } else {
+      $("workdayHint").textContent = "Uses your Workday email + password from Settings.";
+      btn.disabled = false;
+      btn.textContent = creating ? "Create account" : "Sign in";
+    }
+    if (known && registry.account && registry.account.status === "pending_verification") {
+      status.textContent = "This account is awaiting email verification — check your inbox.";
+      status.className = "wd-status warn";
+    }
+    card.hidden = false;
+  } catch (e) {
+    // No site access / injection blocked / offline — just hide the card.
+    console.debug("refreshWorkdayCard skipped:", e && e.message);
+    hideWorkdayCard();
+  }
+}
+
+async function doWorkdayAuth() {
+  if (!workdayCtx) return;
+  const { tenantHost, credentials } = workdayCtx;
+  const status = $("workdayStatus");
+  const btn = $("workdayAuthBtn");
+  if (!credentials || !credentials.configured) {
+    status.textContent = "Set your Workday email + password in Settings first.";
+    status.className = "wd-status warn";
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = "Signing in to Workday…";
+  status.className = "wd-status";
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id || !workdayHostOf(tab.url || "")) {
+      hideWorkdayCard();
+      return;
+    }
+    await execFiles({ tabId: tab.id }, ["common/workday_auth.js"]);
+    const res = await execCall(
+      { tabId: tab.id },
+      "__jobsmithWorkdayAuth",
+      [credentials.email, credentials.password]
+    );
+    const out = res && res[0] && res[0].result;
+    if (!out || !out.ok) {
+      status.textContent = out && out.message ? out.message : "Workday sign-in failed.";
+      status.className = "wd-status err";
+      btn.disabled = false;
+      return;
+    }
+    // Remember the tenant on every device.
+    try {
+      await Jobsmith.jobsmithReportWorkdayAccount({
+        tenant_host: tenantHost,
+        action: out.action,   // "signed_in" | "account_created"
+        email: credentials.email,
+        pending: !!out.pending,
+      });
+    } catch (e) {
+      console.debug("report workday account failed:", e && e.message);
+    }
+    status.textContent = out.message || (out.action === "account_created" ? "Account created." : "Signed in.");
+    status.className = out.pending ? "wd-status warn" : "wd-status ok";
+    showToast(out.action === "account_created" ? "Workday account created" : "Signed in to Workday");
+    // The page navigated past the auth wall — rescan and refresh the card.
+    setTimeout(() => { autoScanIfReady(); refreshWorkdayCard(); }, 1200);
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    status.className = "wd-status err";
+    btn.disabled = false;
+  }
+}
+
 // ---- Job loading + drag tiles ------------------------------------------
 
 function setTileState(tile, { label, hint, file, downloadBtn }) {
@@ -676,6 +808,7 @@ ext.storage.local.get(["lastJobId"], (out) => {
 $("scan").addEventListener("click", doScan);
 $("autofill").addEventListener("click", doAutofill);
 $("clear").addEventListener("click", doClearHighlights);
+$("workdayAuthBtn").addEventListener("click", doWorkdayAuth);
 
 // Auto-scan on/off switch. Persists to config and gates all background
 // scanning/polling. Turning it on kicks an immediate scan so the panel
@@ -771,6 +904,9 @@ async function checkActiveJobHint(silent = false) {
 }
 
 async function autoScanIfReady() {
+  // The Workday auth card is independent of auto-scan (it must appear even in
+  // manual mode), so refresh it before the auto-scan gate.
+  refreshWorkdayCard();
   if (!autoScanOn) return;
   try {
     const tab = await activeTab();

@@ -1,0 +1,24 @@
+{
+  "_comment": "The ats_account per-tenant registry entity under plain per-record LWW. A1B2 (iOS) creates an account for the `acme.wd5` Workday tenant as `pending_verification` @12:00; C3D4 (desktop) later signs in to the same tenant and re-emits it `active` @12:05, so the completed sign-in wins and the account is remembered as active on every device. The `globex.wd1` account shows retirement: A1B2 registers it @12:00, then deletes it @12:20 (user removed the saved account), tombstoning it. The id is `{provider}:{tenant_host}`; a password never appears in any record.",
+  "live": {
+    "ats_account": {
+      "workday:acme.wd5.myworkdayjobs.com": {
+        "provider": "workday",
+        "tenant_host": "acme.wd5.myworkdayjobs.com",
+        "email": "jobs@example.com",
+        "status": "active",
+        "created_at": "2026-07-15T12:00:00.000Z",
+        "last_sign_in_at": "2026-07-15T12:05:00.000Z",
+        "updated_at": "2026-07-15T12:05:00.000Z",
+        "_won_from": "C3D4 active @ 12:05 beats A1B2 pending_verification @ 12:00 — a completed sign-in promotes the account to active"
+      }
+    }
+  },
+  "tombstones": {
+    "ats_account": {
+      "workday:globex.wd1.myworkdayjobs.com": {
+        "_won_from": "A1B2 delete @ 12:20 beats its own active @ 12:00 — retired account pruned"
+      }
+    }
+  }
+}

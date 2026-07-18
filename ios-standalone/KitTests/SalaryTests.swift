@@ -49,6 +49,49 @@ final class HistogramPercentileTests: XCTestCase {
     }
 }
 
+// MARK: - Desired salary (profile free text)
+
+final class DesiredSalaryParsingTests: XCTestCase {
+    func testPlainAnnualNumbers() {
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("120000"), 120_000)
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("$85,000"), 85_000)
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("85,000 USD"), 85_000)
+    }
+
+    func testKSuffix() {
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("85k"), 85_000)
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("$85K"), 85_000)
+    }
+
+    func testHourlyPhrasingsAnnualize() {
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("$40/hr"), 83_200)
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("40 per hour"), 83_200)
+    }
+
+    func testBareSmallNumberReadsAsHourly() {
+        // A dedicated salary field saying "40" means $40/hr, not $40/yr.
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("40"), 83_200)
+    }
+
+    func testRangeUsesTheLowerEndAsTheFloor() {
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("$80k–$100k"), 80_000)
+        XCTAssertEqual(JobFilters.parseDesiredAnnualSalary("80,000 - 100,000"), 80_000)
+    }
+
+    func testUnparseableReturnsNil() {
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary(nil))
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary(""))
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary("negotiable"))
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary("market rate"))
+    }
+
+    func testImplausibleMagnitudesRejected() {
+        // 999 infers hourly and $999/hr is out of bounds; $3M annual likewise.
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary("999"))
+        XCTAssertNil(JobFilters.parseDesiredAnnualSalary("$3,000,000"))
+    }
+}
+
 // MARK: - Salary extraction from description prose
 
 final class SalaryTextParsingTests: XCTestCase {

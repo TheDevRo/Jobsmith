@@ -19,6 +19,9 @@ final class AppModel {
     var config: AppConfig
     var inbox: [Job] = []
     var pipeline: [Job] = []
+    /// Soft-deleted postings — the Recently Deleted (recycle bin) contents,
+    /// most recently deleted first. Drives the Settings row count and screen.
+    var recentlyDeleted: [Job] = []
     var stats = JobStore.Stats()
     var activity: [ActivityEntry] = []
     /// The application for each job that has one, keyed by job id — lets the
@@ -171,6 +174,7 @@ final class AppModel {
     func refresh() {
         inbox = (try? jobStore.inbox()) ?? []
         pipeline = (try? jobStore.jobs(triage: "shortlisted")) ?? []
+        recentlyDeleted = (try? jobStore.recentlyDeleted()) ?? []
         stats = (try? jobStore.stats()) ?? JobStore.Stats()
         activity = (try? activityStore.recent()) ?? []
         applicationsByJob = Dictionary(
@@ -879,6 +883,16 @@ final class AppModel {
         refresh()
     }
 
+    /// The Apply browser prompt's "This job wasn't for me" path — log the
+    /// rejection before deleteJobs soft-deletes the posting into the bin.
+    func resolvePendingApplyNotForMe() {
+        guard let job = pendingApplyJob else { return }
+        pendingApplyJob = nil
+        activityStore.log("apply_rejected",
+                          "Wasn't a fit: \(job.title) at \(job.company)", jobId: job.id)
+        deleteJobs([job.id])
+    }
+
     /// Fetch new jobs from all enabled sources.
     ///
     /// Start a fresh search across every enabled source, superseding any run
@@ -1104,6 +1118,35 @@ final class AppModel {
     /// Pipeline multi-select delete.
     func deleteAllInboxPostings() {
         deleteJobs(Set(inbox.map(\.id)))
+    }
+
+    /// Restore one soft-deleted posting from the recycle bin: back to the inbox
+    /// as an untriaged job. Restore is its own undo, so it does NOT register on
+    /// the shake-undo stack. Clearing deletedAt is handled by setTriage.
+    func restoreDeleted(_ id: String) {
+        let title = (try? jobStore.job(id: id))?.title
+        try? jobStore.setTriage("new", jobId: id)
+        activityStore.log("restored",
+                          "Restored \(title ?? "a posting") from Recently Deleted", jobId: id)
+        refresh()
+    }
+
+    /// Empty the recycle bin: permanently erase every soft-deleted posting.
+    /// Their tailored documents are usually already gone (deleted on soft-delete),
+    /// but we sweep them defensively before the hard delete. The purge lets the
+    /// posting be re-discovered by future fetches, and its disappearance emits a
+    /// sync tombstone that hard-deletes the row on every peer too.
+    func emptyRecycleBin() {
+        let count = recentlyDeleted.count
+        for job in recentlyDeleted {
+            FileVault.deleteDocuments(jobId: job.id)
+        }
+        try? jobStore.purgeDeleted()
+        activityStore.log("deleted", "Erased \(count) deleted posting\(count == 1 ? "" : "s")")
+        // These are hard deletes: every pending undo would be writing back to a
+        // row that no longer exists, so the offer has to go with the rows.
+        undoStack.clear()
+        refresh()
     }
 
     /// Clear every tracked posting and its tailored documents, plus the fetch

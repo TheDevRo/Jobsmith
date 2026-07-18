@@ -287,6 +287,53 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(try JobStore(dbB).jobs().filter { $0.externalId == "111" }.count, 0)
     }
 
+    /// Emptying the recycle bin (hard delete) propagates by itself: the purged
+    /// row disappears from the DB, so the next export diffs it as gone and emits
+    /// a fresh tombstone for BOTH the `job` and `triage` entities. A peer that
+    /// still holds the row imports those and hard-deletes it too — the posting is
+    /// then re-discoverable everywhere.
+    func testPurgeDeletedPropagatesAsTombstone() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "888", fitScore: 33)
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let dbB = try AppDatabase.inMemory()
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", now: clock.now)
+
+        // Both devices know the job.
+        try a.export(to: folder)
+        try b.importChanges(from: folder)
+        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 1) }
+
+        // A soft-deletes, then exports so the snapshot records the (still-present)
+        // row before it is purged.
+        try JobStore(dbA).delete(jobId: jobId)
+        try a.export(to: folder)
+
+        // A empties the bin — the row is physically gone now.
+        XCTAssertEqual(try JobStore(dbA).purgeDeleted(), 1)
+        try dbA.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+
+        // The second export tombstones both entities for greenhouse:888.
+        let purgeFolder = folder.appendingPathComponent("purge")
+        let exp = try a.export(to: purgeFolder)
+        XCTAssertGreaterThanOrEqual(exp.tombstones, 2)
+        let logs = try SyncMerge.loadLogs(purgeFolder)
+        let purged = logs.filter { $0.id == "greenhouse:888" && $0.deleted }
+        XCTAssertTrue(purged.contains { $0.entity == "job" }, "missing job tombstone")
+        XCTAssertTrue(purged.contains { $0.entity == "triage" }, "missing triage tombstone")
+
+        // B still has the row; importing the purge logs hard-deletes it.
+        let imp = try b.importChanges(from: purgeFolder)
+        XCTAssertGreaterThanOrEqual(imp.deletes, 1)
+        try dbB.writer.read { dbc in
+            XCTAssertEqual(try Int.fetchOne(dbc, sql: "SELECT COUNT(*) FROM jobs WHERE externalId = '888'"), 0)
+        }
+    }
+
     /// Permanent delete: once triage='deleted', a later fetch of the same posting
     /// matches it as a duplicate and does NOT resurrect it.
     func testRefetchStaysDeleted() throws {

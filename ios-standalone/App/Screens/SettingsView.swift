@@ -72,10 +72,29 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        AdvancedSettingsView()
+                    } label: {
+                        row("Advanced", system: "slider.horizontal.3",
+                            detail: nil)
+                    }
+                } header: {
+                    Eyebrow(text: "Advanced")
+                } footer: {
+                    Text("Workday one-tap credentials and editable AI prompt templates.")
+                }
+
+                Section {
+                    NavigationLink {
+                        RecentlyDeletedView()
+                    } label: {
+                        row("Recently deleted", system: "trash",
+                            detail: model.recentlyDeleted.isEmpty ? "None" : "\(model.recentlyDeleted.count)")
+                    }
                     Button(role: .destructive) {
                         showDeletePostings = true
                     } label: {
-                        Label("Delete all tracked postings", systemImage: "trash")
+                        Label("Delete all tracked postings", systemImage: "trash.slash")
                     }
                     Button(role: .destructive) {
                         showDeleteAllData = true
@@ -85,7 +104,7 @@ struct SettingsView: View {
                 } header: {
                     Eyebrow(text: "Danger zone")
                 } footer: {
-                    Text("Deleting postings clears your inbox and pipeline and their tailored documents, but keeps your profile and settings. Deleting all data resets the app to a clean install.")
+                    Text("Deleting postings clears your inbox and pipeline and their tailored documents, but keeps your profile and settings. Deleting all data resets the app to a clean install. Deleted postings are kept in Recently Deleted so they don't reappear in searches; erasing them there makes those postings discoverable again.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -211,6 +230,15 @@ struct SearchSettingsView: View {
     @State private var keywords = ""
     @State private var locations = ""
     @State private var excludes = ""
+    @State private var payFloorOn = false
+    @State private var minSalaryText = ""
+    @State private var requireStatedPay = false
+    /// NavigationLink initializes this destination eagerly at list-render
+    /// time (see the SwiftUI gotcha in SearchScheduleView), and such a
+    /// never-shown instance can still fire `onDisappear` — which would
+    /// `save()` pristine default state over the user's real config. Only an
+    /// instance that actually appeared (and so re-synced from config) may save.
+    @State private var hasAppeared = false
     @State private var greenhouseBoards = ""
     @State private var leverCompanies = ""
     @State private var adzunaAppID = ""
@@ -243,6 +271,7 @@ struct SearchSettingsView: View {
             } header: {
                 Eyebrow(text: "Exclude keywords")
             }
+            paySection
             Section {
                 ForEach(sourceList, id: \.0) { id, label in
                     Toggle(label, isOn: Binding(
@@ -293,10 +322,14 @@ struct SearchSettingsView: View {
             .environment(model)
         }
         .onAppear {
+            hasAppeared = true
             let search = model.config.search
             keywords = search.keywords.joined(separator: ", ")
             locations = search.locations.joined(separator: ", ")
             excludes = search.excludeKeywords.joined(separator: ", ")
+            payFloorOn = (search.minSalary ?? 0) != 0
+            minSalaryText = search.minSalary.map(String.init) ?? ""
+            requireStatedPay = search.requireStatedPay
             greenhouseBoards = search.greenhouseBoards.joined(separator: ", ")
             leverCompanies = search.leverCompanies.joined(separator: ", ")
             let keys = model.config.apiKeys
@@ -308,6 +341,76 @@ struct SearchSettingsView: View {
         }
         .onDisappear { save() }
     }
+
+    /// Pay floor: an annual-dollar gate driven by the profile's desired
+    /// salary. The toggle prefills from the profile but the field stays
+    /// editable — the floor you filter by and the number you tell employers
+    /// don't have to match. The strict sub-toggle only appears with the floor
+    /// on; it hides at display time, so nothing is lost by trying it.
+    private var paySection: some View {
+        Section {
+            Toggle("Only show jobs at or above my desired pay", isOn: $payFloorOn)
+                .onChange(of: payFloorOn) { _, on in
+                    if on && parsedFloor == nil, let fromProfile = profileAnnualSalary {
+                        minSalaryText = String(fromProfile)
+                    }
+                    save()
+                }
+            if payFloorOn {
+                TextField("Annual salary floor, e.g. 85000", text: $minSalaryText)
+                    .keyboardType(.numberPad)
+                    .onChange(of: minSalaryText) { save() }
+                Toggle("Hide jobs that don't state pay", isOn: $requireStatedPay)
+                    .onChange(of: requireStatedPay) { save() }
+            }
+        } header: {
+            Eyebrow(text: "Pay")
+        } footer: {
+            Text(payFooter)
+        }
+    }
+
+    /// The profile's desired salary, annualized ("$40/hr" → 83,200) — nil when
+    /// empty or unparseable ("negotiable").
+    private var profileAnnualSalary: Int? {
+        JobFilters.parseDesiredAnnualSalary(model.config.profile.desiredSalary)
+    }
+
+    private var parsedFloor: Int? {
+        let digits = minSalaryText.filter(\.isNumber)
+        guard let v = Int(digits), v > 0 else { return nil }
+        return v
+    }
+
+    private var payFooter: String {
+        guard payFloorOn else {
+            if let fromProfile = profileAnnualSalary {
+                return "From your profile: \(dollars(fromProfile))/yr. Turn on to hide jobs that state pay below it."
+            }
+            return "Set a desired salary in your profile to prefill this, or type a floor after turning it on."
+        }
+        guard let floor = parsedFloor else {
+            return "Enter an annual salary floor — jobs that state pay below it will be hidden."
+        }
+        var text = "Hiding jobs that state pay below \(dollars(floor))/yr."
+        if !requireStatedPay {
+            text += " Jobs that don't state pay still show."
+        }
+        if let fromProfile = profileAnnualSalary, fromProfile != floor {
+            text += " Your profile says \(dollars(fromProfile))/yr."
+        }
+        return text
+    }
+
+    private func dollars(_ v: Int) -> String {
+        "$" + (Self.dollarFormatter.string(from: NSNumber(value: v)) ?? String(v))
+    }
+
+    private static let dollarFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
 
     /// LinkedIn is deliberately not here — it gets its own section, because its
     /// switch also decides whether the source exists at all (`LinkedInFeature`)
@@ -338,6 +441,7 @@ struct SearchSettingsView: View {
     }
 
     private func save() {
+        guard hasAppeared else { return }
         let k = split(keywords), l = split(locations), e = split(excludes)
         let gh = split(greenhouseBoards), lv = split(leverCompanies)
         let (aID, aKey) = (adzunaAppID.trimmingCharacters(in: .whitespaces),
@@ -345,10 +449,14 @@ struct SearchSettingsView: View {
         let (uEmail, uKey) = (usajobsEmail.trimmingCharacters(in: .whitespaces),
                               usajobsKey.trimmingCharacters(in: .whitespaces))
         let bls = blsKey.trimmingCharacters(in: .whitespaces)
+        let floor = payFloorOn ? parsedFloor : nil
+        let statedPayOnly = requireStatedPay
         model.saveConfig { config in
             config.search.keywords = k
             config.search.locations = l
             config.search.excludeKeywords = e
+            config.search.minSalary = floor
+            config.search.requireStatedPay = statedPayOnly
             config.search.greenhouseBoards = gh
             config.search.leverCompanies = lv
             config.apiKeys.adzunaAppID = aID

@@ -100,6 +100,32 @@
   }
   .job-context a:hover { border-bottom-color: var(--cyan); }
 
+  /* Workday one-tap auth card */
+  .wd-card {
+    margin-bottom: 14px;
+    padding: 11px 12px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--accent);
+    border-radius: 9px;
+  }
+  .wd-card .wd-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .wd-card .wd-hint {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+  .wd-card .wd-status {
+    font-size: 11px;
+    margin-top: 7px;
+    min-height: 0;
+  }
+  .wd-card .wd-status:not(:empty) { margin-top: 8px; }
+
   /* Attachment tiles */
   .tiles {
     display: flex;
@@ -396,6 +422,13 @@
     <button id="loadJob">Load</button>
   </div>
   <div id="jobContext" class="job-context"></div>
+
+  <div id="workdayCard" class="wd-card" hidden>
+    <div class="wd-title" id="workdayTitle">Workday</div>
+    <div class="wd-hint" id="workdayHint">Uses your Workday email + password from Settings.</div>
+    <button id="workdayAuthBtn" style="width:100%;margin-top:9px;">Sign in</button>
+    <div id="workdayStatus" class="wd-status"></div>
+  </div>
 
   <div class="tiles">
     <div class="attachment">

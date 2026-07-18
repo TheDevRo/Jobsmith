@@ -25,6 +25,238 @@ public enum PromptRegistry {
         render(template: template(id, config: config), vars)
     }
 
+    // MARK: - UI-facing metadata
+
+    /// A documented placeholder: the `{name}` token plus a one-line note on
+    /// what the code supplies for it at render time.
+    public struct PromptVariable: Sendable, Hashable {
+        public let name: String
+        public let doc: String
+        public init(_ name: String, _ doc: String) {
+            self.name = name
+            self.doc = doc
+        }
+    }
+
+    /// UI metadata for a prompt, ported from the desktop `prompt_registry.py`
+    /// PROMPTS dict. `variables` preserves the Python ordered-dict order so
+    /// placeholder chips read in a stable, meaningful sequence.
+    public struct PromptInfo: Sendable, Identifiable {
+        public let id: String
+        public let label: String
+        public let group: String
+        public let description: String
+        public let variables: [PromptVariable]
+        public init(id: String, label: String, group: String,
+                    description: String, variables: [PromptVariable]) {
+            self.id = id
+            self.label = label
+            self.group = group
+            self.description = description
+            self.variables = variables
+        }
+    }
+
+    /// Metadata for an id, or nil for an unknown id.
+    public static func info(_ id: String) -> PromptInfo? {
+        infoById[id]
+    }
+
+    private static let infoById: [String: PromptInfo] =
+        Dictionary(uniqueKeysWithValues: orderedInfos.map { ($0.id, $0) })
+
+    /// Every prompt's metadata, in the same order as `orderedIds`.
+    public static let orderedInfos: [PromptInfo] = [
+        // ── Scoring & suggestions ────────────────────────────────────────
+        PromptInfo(
+            id: "score_job_fit",
+            label: "Job Fit Scoring",
+            group: "Scoring & Suggestions",
+            description: "Scores how well a job matches your profile (0-100) and builds the matched/missing skill breakdown shown on job cards.",
+            variables: [
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 3000 chars)"),
+                PromptVariable("profile_summary", "Your structured profile (name, summary, skills, experience, education)"),
+            ]),
+        PromptInfo(
+            id: "select_resume_experiences",
+            label: "Resume Experience Selection",
+            group: "Scoring & Suggestions",
+            description: "Ranks your past roles by relevance to a job when the profile has more roles than the resume entry cap allows.",
+            variables: [
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 3000 chars)"),
+                PromptVariable("role_lines", "Numbered list of your unpinned roles with highlights"),
+            ]),
+        PromptInfo(
+            id: "suggest_job_titles",
+            label: "Job Title Suggestions",
+            group: "Scoring & Suggestions",
+            description: "Recommends job titles to search for, based on your profile and the direction questions in the setup wizard.",
+            variables: [
+                PromptVariable("answer_lines", "Your answers to the direction questions"),
+                PromptVariable("profile_summary", "Your structured profile"),
+            ]),
+        PromptInfo(
+            id: "suggest_companies",
+            label: "Company Suggestions",
+            group: "Scoring & Suggestions",
+            description: "Recommends companies to add to your ATS watchlists, based on your profile, keywords, and liked companies.",
+            variables: [
+                // `directions` is present in the iOS default template (a
+                // CANDIDATE PREFERENCES block) though the desktop registry
+                // omits it — declared here so it reads as a known placeholder.
+                PromptVariable("directions", "Your answers to the direction questions (stated preferences)"),
+                PromptVariable("profile_summary", "Your structured profile"),
+                PromptVariable("keywords", "Your saved search keywords"),
+                PromptVariable("liked", "Companies that scored well for you recently"),
+                PromptVariable("excluded", "Companies already watched or already suggested"),
+            ]),
+        PromptInfo(
+            id: "classify_job_role",
+            label: "Salary Role Classification",
+            group: "Scoring & Suggestions",
+            description: "Canonicalizes a job title and picks the closest SOC occupation code for the salary estimator.",
+            variables: [
+                PromptVariable("soc_hints", "List of common SOC code examples"),
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_description", "Job description (truncated to 1500 chars)"),
+            ]),
+
+        // ── Documents ────────────────────────────────────────────────────
+        PromptInfo(
+            id: "tailor_resume",
+            label: "Tailored Resume",
+            group: "Documents",
+            description: "Generates the tailored resume for a job. Careful with the OUTPUT FORMAT rules — the document parser depends on them.",
+            variables: [
+                PromptVariable("honesty_instruction", "The tailoring directive for your current honesty level"),
+                PromptVariable("keyword_targets", "ATS keyword-targeting block from the fit score (may be empty)"),
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 5000 chars)"),
+                PromptVariable("profile_summary", "Your structured profile (selected roles only)"),
+            ]),
+        PromptInfo(
+            id: "cover_letter",
+            label: "Cover Letter",
+            group: "Documents",
+            description: "Generates the tailored cover letter for a job.",
+            variables: [
+                PromptVariable("honesty_instruction", "The tailoring directive for your current honesty level"),
+                PromptVariable("tone_instruction", "The tone directive for your chosen cover letter tone"),
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 5000 chars)"),
+                PromptVariable("profile_summary", "Your structured profile (selected roles only)"),
+            ]),
+        PromptInfo(
+            id: "revise_resume",
+            label: "Resume Revision (AI Edit)",
+            group: "Documents",
+            description: "Applies your revision instructions to an already-tailored resume as a scoped edit.",
+            variables: [
+                PromptVariable("honesty_instruction", "The tailoring directive for your current honesty level"),
+                PromptVariable("fabrication_guard", "Honesty-aware guard limiting what edits may invent"),
+                PromptVariable("profile_summary", "Your structured profile (selected roles only)"),
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 5000 chars)"),
+                PromptVariable("user_instructions", "The revision instructions you typed"),
+                PromptVariable("current_resume", "The current tailored resume text"),
+            ]),
+        PromptInfo(
+            id: "revise_cover_letter",
+            label: "Cover Letter Revision (AI Edit)",
+            group: "Documents",
+            description: "Applies your revision instructions to an already-generated cover letter as a scoped edit.",
+            variables: [
+                PromptVariable("honesty_instruction", "The tailoring directive for your current honesty level"),
+                PromptVariable("tone_instruction", "The tone directive for your chosen cover letter tone"),
+                PromptVariable("fabrication_guard", "Honesty-aware guard limiting what edits may invent"),
+                PromptVariable("profile_summary", "Your structured profile (selected roles only)"),
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("job_description", "Job description (truncated to 5000 chars)"),
+                PromptVariable("user_instructions", "The revision instructions you typed"),
+                PromptVariable("current_letter", "The current cover letter text"),
+            ]),
+        PromptInfo(
+            id: "embellishment_log",
+            label: "Embellishment Log",
+            group: "Documents",
+            description: "Diffs the generated resume and cover letter against your real profile to log every embellishment.",
+            variables: [
+                PromptVariable("profile_summary", "Your structured profile"),
+                PromptVariable("resume_text", "The generated resume (truncated to 3000 chars)"),
+                PromptVariable("cover_letter_text", "The generated cover letter (truncated to 2000 chars)"),
+            ]),
+
+        // ── Profile import ───────────────────────────────────────────────
+        PromptInfo(
+            id: "resume_parse",
+            label: "Résumé Parser",
+            group: "Profile Import",
+            description: "Extracts your profile fields from an uploaded or pasted résumé during onboarding.",
+            variables: [
+                PromptVariable("resume", "The raw résumé text"),
+            ]),
+        PromptInfo(
+            id: "linkedin_import",
+            label: "LinkedIn Profile Import",
+            group: "Profile Import",
+            description: "Extracts your profile fields from the scraped text of your own LinkedIn profile pages.",
+            variables: [
+                PromptVariable("resume", "The scraped LinkedIn profile text"),
+            ]),
+
+        // ── Applying ─────────────────────────────────────────────────────
+        PromptInfo(
+            id: "custom_answers",
+            label: "Application Question Answers",
+            group: "Applying",
+            description: "Answers custom application-form questions (Greenhouse/Lever) from your profile.",
+            variables: [
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("profile_summary", "Your structured profile"),
+                PromptVariable("questions", "The list of questions from the application form"),
+            ]),
+        PromptInfo(
+            id: "auto_apply_field_map",
+            label: "Auto-Apply Field Mapping",
+            group: "Applying",
+            description: "System prompt that maps detected application-form fields to values from your profile and answer bank.",
+            variables: []),
+        PromptInfo(
+            id: "auto_apply_answer",
+            label: "Auto-Apply Free-Text Answer",
+            group: "Applying",
+            description: "System prompt for generating a single free-text answer to one application question during auto-apply.",
+            variables: [
+                PromptVariable("max_words", "Word limit for the answer"),
+            ]),
+        PromptInfo(
+            id: "browser_agent_task",
+            label: "Browser Agent Task",
+            group: "Applying",
+            description: "Task prompt for the Browser-Use navigator agent that opens the job page and fills the application.",
+            variables: [
+                PromptVariable("job_title", "Job posting title"),
+                PromptVariable("job_company", "Company name"),
+                PromptVariable("apply_instruction", "Site-specific instruction for finding the Apply button (LinkedIn / Workday / generic)"),
+                PromptVariable("mode_step_8", "Step 8 — stop-before-submit or submit, per your auto-apply mode"),
+                PromptVariable("mode_step_9", "Step 9 — completion report, per your auto-apply mode"),
+                PromptVariable("mode_rule", "Submit/stop rule, per your auto-apply mode"),
+                PromptVariable("extra_rules", "Site-specific extra rules"),
+                PromptVariable("file_line", "Resume file line (path or 'No resume file available.')"),
+                PromptVariable("candidate_data", "Your contact details, work auth, EEO answers, and login credentials"),
+                PromptVariable("summary", "Your professional summary for open-ended text boxes"),
+            ]),
+    ]
+
     /// Substitute known {placeholders}; unknown ones stay literal.
     public static func render(template: String, _ vars: [String: String]) -> String {
         guard let re = try? NSRegularExpression(pattern: "\\{([a-z][a-z0-9_]*)\\}") else {

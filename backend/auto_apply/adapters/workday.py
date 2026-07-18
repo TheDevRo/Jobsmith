@@ -21,10 +21,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from ..models import ApplyMode, ApplyResult, ApplyStatus
 from ..utils.browser_helpers import check_page_errors, take_failure_screenshot, wait_if_paused
 from ...paths import project_root
+
+from .. import ats_accounts
 
 if TYPE_CHECKING:
     from ..browser_controller import BrowserController
@@ -256,6 +259,49 @@ class WorkdayAdapter:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _tenant_host(url: str) -> str | None:
+    """Lowercased Workday tenant host, or None if the URL isn't a Workday host."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return None
+    return host if host.endswith(_WORKDAY_HOST) else None
+
+
+async def _record_account(ctrl, log, email: str, *, created: bool) -> None:
+    """Best-effort: remember this tenant's account in the synced registry.
+
+    Never raises — the automated (Docker) path may run without the desktop DB,
+    and an auth success must not be undone by a bookkeeping failure."""
+    try:
+        host = _tenant_host(await ctrl.current_url())
+        if not host:
+            return
+        if created:
+            # A fresh account is 'pending_verification' if Workday shows its
+            # email-verification interstitial; otherwise it's immediately active.
+            pending = False
+            try:
+                page_text = (await ctrl.page_text()).lower()
+                pending = any(kw in page_text for kw in (
+                    "verify your email", "check your email", "verification email",
+                    "verification link",
+                ))
+            except Exception:
+                pending = False
+            await ats_accounts.upsert(
+                host, email, status="pending_verification" if pending else "active"
+            )
+        else:
+            existing = await ats_accounts.get(host)
+            if existing is None:
+                await ats_accounts.upsert(host, email, status="active")
+            else:
+                await ats_accounts.mark_signed_in(host)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning(f"Workday: could not record account in registry: {exc}")
+
+
 async def _handle_workday_auth(ctrl, log, profile) -> bool:
     """Sign in to Workday if a login wall is detected.
 
@@ -310,6 +356,7 @@ async def _handle_workday_auth(ctrl, log, profile) -> bool:
             await create_btn.click()
             await ctrl.page.wait_for_load_state("networkidle", timeout=10_000)
             log.info("Workday: account created successfully")
+            await _record_account(ctrl, log, profile.workday_email, created=True)
             return True
         except Exception as exc:
             log.warning(f"Workday create-account attempt failed: {exc}")
@@ -334,6 +381,7 @@ async def _handle_workday_auth(ctrl, log, profile) -> bool:
             await sign_in_btn.click()
             await ctrl.page.wait_for_load_state("networkidle", timeout=10_000)
             log.info("Workday: signed in successfully")
+            await _record_account(ctrl, log, profile.workday_email, created=False)
             return True
     except Exception as exc:
         log.warning(f"Workday sign-in attempt failed: {exc}")

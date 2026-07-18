@@ -54,4 +54,55 @@ final class JobListFilterTests: XCTestCase {
     func testNoMatchReturnsEmpty() {
         XCTAssertTrue(JobListFilter.apply(jobs, query: "nonexistent", boards: []).isEmpty)
     }
+
+    // --- Pay filter ---
+
+    private func paidJob(_ id: String, min: Int? = nil, max: Int? = nil,
+                         period: String? = nil) -> Job {
+        Job(from: NormalizedJob(source: "greenhouse", externalId: id, title: "Engineer",
+                                salaryMin: min, salaryMax: max, salaryPeriod: period))
+    }
+
+    func testNoFloorPassesEverythingEvenWhenStrict() {
+        let all = [paidJob("a"), paidJob("b", min: 50_000, period: "annual")]
+        let off = JobListFilter.applyPayFilter(all, minSalary: nil, requireStatedPay: true)
+        XCTAssertEqual(off.jobs.count, 2)
+        XCTAssertEqual(off.hiddenNoPay, 0)
+        let zero = JobListFilter.applyPayFilter(all, minSalary: 0, requireStatedPay: true)
+        XCTAssertEqual(zero.jobs.count, 2)
+    }
+
+    func testFloorHidesStatedPayBelowItUsingUpperBound() {
+        let all = [paidJob("low", min: 40_000, max: 60_000, period: "annual"),
+                   paidJob("straddle", min: 90_000, max: 110_000, period: "annual"),
+                   paidJob("high", min: 120_000, period: "annual")]
+        let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: false)
+        // "straddle" survives on its upper bound — same leniency as fetch time.
+        XCTAssertEqual(result.jobs.map(\.externalId), ["straddle", "high"])
+        // Below-floor is a floor hide, not a no-pay hide.
+        XCTAssertEqual(result.hiddenNoPay, 0)
+    }
+
+    func testHourlyPayIsAnnualizedAgainstTheFloor() {
+        let all = [paidJob("low", max: 30, period: "hourly"),    // $62,400/yr
+                   paidJob("high", max: 60, period: "hourly")]   // $124,800/yr
+        let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: false)
+        XCTAssertEqual(result.jobs.map(\.externalId), ["high"])
+    }
+
+    func testLenientModeKeepsUnstatedAndUnknownPeriodPay() {
+        let all = [paidJob("none"), paidJob("vague", min: 990, period: "unknown")]
+        let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: false)
+        XCTAssertEqual(result.jobs.count, 2)
+        XCTAssertEqual(result.hiddenNoPay, 0)
+    }
+
+    func testStrictModeHidesAndCountsUnstatedAndUnknownPeriodPay() {
+        let all = [paidJob("none"),
+                   paidJob("vague", min: 990, period: "unknown"),
+                   paidJob("stated", min: 120_000, period: "annual")]
+        let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: true)
+        XCTAssertEqual(result.jobs.map(\.externalId), ["stated"])
+        XCTAssertEqual(result.hiddenNoPay, 2)
+    }
 }

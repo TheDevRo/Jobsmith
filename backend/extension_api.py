@@ -128,6 +128,13 @@ class ExtSessionImportResponse(BaseModel):
     message: str
 
 
+class ExtWorkdayAccountReport(BaseModel):
+    tenant_host: str
+    action: str  # "signed_in" | "account_created"
+    email: Optional[str] = None
+    pending: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
@@ -350,6 +357,66 @@ def build_router(load_config_fn) -> APIRouter:
             cookie_count=result["imported"],
             message=f"Wrote {result['imported']} cookies to {result['target']}",
         )
+
+    # ---- Workday one-tap auth (credentials + tenant registry) ------------
+    @router.get("/workday_credentials")
+    async def workday_credentials(x_jobsmith_token: Optional[str] = Header(default=None)):
+        """Return the Workday email/password so the side panel can offer
+        one-tap sign-in / create-account. Localhost-only like every /api/ext
+        route; the password never leaves the local machine."""
+        _verify_token(x_jobsmith_token)
+        profile = UserProfile.from_config(load_config_fn())
+        email = (profile.workday_email or "").strip()
+        password = profile.workday_password or ""
+        return {
+            "email": email,
+            "password": password,
+            "configured": bool(email and password),
+        }
+
+    @router.get("/workday_account")
+    async def workday_account(
+        host: str,
+        x_jobsmith_token: Optional[str] = Header(default=None),
+    ):
+        """Registry state for a tenant host: whether an account is already
+        known, so the panel can label the button 'Sign in' vs 'Create account'."""
+        _verify_token(x_jobsmith_token)
+        from .auto_apply import ats_accounts
+        row = await ats_accounts.get(host)
+        return {"found": row is not None, "account": row}
+
+    @router.post("/workday_account")
+    async def report_workday_account(
+        body: ExtWorkdayAccountReport,
+        x_jobsmith_token: Optional[str] = Header(default=None),
+    ):
+        """The side panel reports an auth success so every device remembers the
+        tenant. `account_created` upserts (pending if unverified); `signed_in`
+        stamps the sign-in (and promotes pending → active)."""
+        _verify_token(x_jobsmith_token)
+        from .auto_apply import ats_accounts
+
+        host = (body.tenant_host or "").strip().lower()
+        if not host:
+            raise HTTPException(400, "tenant_host required")
+
+        if body.action == "account_created":
+            row = await ats_accounts.upsert(
+                host,
+                (body.email or "").strip(),
+                status="pending_verification" if body.pending else "active",
+            )
+        elif body.action == "signed_in":
+            row = await ats_accounts.get(host)
+            if row is None:
+                row = await ats_accounts.upsert(host, (body.email or "").strip(), status="active")
+            else:
+                row = await ats_accounts.mark_signed_in(host)
+        else:
+            raise HTTPException(400, f"Unknown action: {body.action}")
+
+        return {"ok": True, "account": row}
 
     return router
 

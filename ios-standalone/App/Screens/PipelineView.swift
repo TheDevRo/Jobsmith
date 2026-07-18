@@ -181,6 +181,18 @@ struct PipelineView: View {
                 OutcomeChip(outcome: current) { model.setOutcome(jobId: job.id, $0) }
             }
         }
+        // Right-to-left swipe soft-deletes a single row (recycle bin +
+        // shake-to-undo make it safe, so no confirmation). Suppressed in
+        // multi-select mode, where the toolbar drives the bulk delete.
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if !isSelecting {
+                Button(role: .destructive) {
+                    model.deleteJobs([job.id])
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
     }
 
     @ToolbarContentBuilder

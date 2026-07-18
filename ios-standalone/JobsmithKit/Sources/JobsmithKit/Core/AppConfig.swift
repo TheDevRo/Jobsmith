@@ -53,6 +53,12 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     public var locations: [String]
     public var excludeKeywords: [String]
     public var minSalary: Int?
+    /// Strict companion to `minSalary`: also hide postings that state no pay
+    /// (or a pay with an unknown period). Display-time only — the postings
+    /// stay stored, so flipping this off brings them all back. Meaningless
+    /// without a `minSalary` floor; the filter ignores it when the floor is
+    /// off.
+    public var requireStatedPay: Bool
     public var maxAgeDays: Int?
     public var remoteOnly: Bool
     /// Per-company ATS watchlists (board slugs).
@@ -71,6 +77,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
 
     public init(keywords: [String] = [], locations: [String] = ["Remote"],
                 excludeKeywords: [String] = [], minSalary: Int? = nil,
+                requireStatedPay: Bool = false,
                 maxAgeDays: Int? = 7, remoteOnly: Bool = false,
                 greenhouseBoards: [String] = [], leverCompanies: [String] = [],
                 ashbyBoards: [String] = [], workableAccounts: [String] = [],
@@ -79,6 +86,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
                 linkedInEnabled: Bool = false) {
         self.keywords = keywords; self.locations = locations
         self.excludeKeywords = excludeKeywords; self.minSalary = minSalary
+        self.requireStatedPay = requireStatedPay
         self.maxAgeDays = maxAgeDays; self.remoteOnly = remoteOnly
         self.greenhouseBoards = greenhouseBoards; self.leverCompanies = leverCompanies
         self.ashbyBoards = ashbyBoards; self.workableAccounts = workableAccounts
@@ -98,6 +106,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         // Explicit null means "no limit" — distinct from an absent key, which
         // means "this build didn't write it", so decodeIfPresent won't do.
         minSalary = c.contains(.minSalary) ? ((try? c.decode(Int?.self, forKey: .minSalary)) ?? nil) : nil
+        requireStatedPay = c.lenient(Bool.self, .requireStatedPay, d.requireStatedPay)
         maxAgeDays = c.contains(.maxAgeDays)
             ? ((try? c.decode(Int?.self, forKey: .maxAgeDays)) ?? nil)
             : d.maxAgeDays
@@ -112,7 +121,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case keywords, locations, excludeKeywords, minSalary, maxAgeDays, remoteOnly
+        case keywords, locations, excludeKeywords, minSalary, requireStatedPay, maxAgeDays, remoteOnly
         case greenhouseBoards, leverCompanies, ashbyBoards, workableAccounts
         case recruiteeCompanies, enabledSources, linkedInEnabled
     }
@@ -437,15 +446,28 @@ public struct APIKeys: Codable, Equatable, Sendable {
     /// Keychain by `ConfigStore` rather than this struct's JSON.
     public var linkedInJSessionId: String
 
+    /// Workday ATS account email. Not secret, but a per-tenant credential
+    /// identifier, so it lives here (out of `profile`) and is deliberately NOT
+    /// synced — the sync profile map never carries it.
+    public var workdayEmail: String
+
+    /// Workday ATS account password. A live credential like `linkedInCookie`:
+    /// `ConfigStore` round-trips it through the Keychain instead of this
+    /// struct's JSON, and it is never synced.
+    public var workdayPassword: String
+
     public init(adzunaAppID: String = "", adzunaAppKey: String = "",
                 usajobsEmail: String = "", usajobsAPIKey: String = "",
                 blsRegistrationKey: String = "", linkedInCookie: String = "",
-                linkedInJSessionId: String = "") {
+                linkedInJSessionId: String = "",
+                workdayEmail: String = "", workdayPassword: String = "") {
         self.adzunaAppID = adzunaAppID; self.adzunaAppKey = adzunaAppKey
         self.usajobsEmail = usajobsEmail; self.usajobsAPIKey = usajobsAPIKey
         self.blsRegistrationKey = blsRegistrationKey
         self.linkedInCookie = linkedInCookie
         self.linkedInJSessionId = linkedInJSessionId
+        self.workdayEmail = workdayEmail
+        self.workdayPassword = workdayPassword
     }
 
     // Tolerant decoding: fields added over time must not fail (and thereby
@@ -459,5 +481,7 @@ public struct APIKeys: Codable, Equatable, Sendable {
         blsRegistrationKey = try c.decodeIfPresent(String.self, forKey: .blsRegistrationKey) ?? ""
         linkedInCookie = try c.decodeIfPresent(String.self, forKey: .linkedInCookie) ?? ""
         linkedInJSessionId = try c.decodeIfPresent(String.self, forKey: .linkedInJSessionId) ?? ""
+        workdayEmail = try c.decodeIfPresent(String.self, forKey: .workdayEmail) ?? ""
+        workdayPassword = try c.decodeIfPresent(String.self, forKey: .workdayPassword) ?? ""
     }
 }

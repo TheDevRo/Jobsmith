@@ -575,6 +575,59 @@ class WorkRequestAdapter:
         await conn.execute("DELETE FROM work_requests WHERE id = ?", (sync_id,))
 
 
+# ---------------------------------------------------------------------------
+# ats_account  (per-tenant ATS account registry — e.g. Workday)
+# ---------------------------------------------------------------------------
+
+class AtsAccountAdapter:
+    """One remembered ATS account per company tenant, keyed by provider+host.
+
+    Workday requires a separate account per tenant
+    ({company}.wd{N}.myworkdayjobs.com). This registry lets every surface skip
+    the "sign in vs create account" DOM heuristic once an account is known.
+
+    Identity: "{provider}:{tenant_host}" (provider has no colon; the host is the
+    remainder). A flat last-writer-wins record. NEVER carries a password."""
+
+    entity = "ats_account"
+
+    SCALAR = ("provider", "tenant_host", "email", "status",
+              "created_at", "last_sign_in_at", "updated_at")
+
+    @staticmethod
+    def sync_id(provider: str, tenant_host: str) -> str:
+        return f"{provider}:{tenant_host}"
+
+    async def snapshot(self, conn: aiosqlite.Connection) -> dict[str, dict]:
+        cols = ", ".join(self.SCALAR)
+        cur = await conn.execute(f"SELECT {cols} FROM ats_accounts")
+        out: dict[str, dict] = {}
+        for row in await cur.fetchall():
+            r = dict(row)
+            out[self.sync_id(r["provider"], r["tenant_host"])] = {c: r[c] for c in self.SCALAR}
+        return out
+
+    async def apply_live(self, conn: aiosqlite.Connection, sync_id: str, data: dict) -> None:
+        provider, _, tenant_host = sync_id.partition(":")
+        values = {c: data.get(c) for c in self.SCALAR}
+        # The id is authoritative for the key columns; never trust the payload
+        # to disagree with it.
+        values["provider"] = data.get("provider") or provider
+        values["tenant_host"] = data.get("tenant_host") or tenant_host
+        cols = list(values.keys())
+        placeholders = ", ".join("?" for _ in cols)
+        updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "tenant_host")
+        await conn.execute(
+            f"""INSERT INTO ats_accounts ({', '.join(cols)}) VALUES ({placeholders})
+                ON CONFLICT(tenant_host) DO UPDATE SET {updates}""",
+            tuple(values.values()),
+        )
+
+    async def apply_tombstone(self, conn: aiosqlite.Connection, sync_id: str) -> None:
+        _, _, tenant_host = sync_id.partition(":")
+        await conn.execute("DELETE FROM ats_accounts WHERE tenant_host = ?", (tenant_host,))
+
+
 # Live-apply order respects dependencies (a job's facts must exist before its
 # triage decision or its application, and an application before its events).
 # Tombstones are applied in reverse so children go before parents.
@@ -587,6 +640,7 @@ def db_adapters(document_store=None):
         ApplicationEventAdapter(),
         ApplicationScheduleAdapter(),
         WorkRequestAdapter(),
+        AtsAccountAdapter(),
     )
 
 

@@ -227,6 +227,38 @@ public struct AppDatabase: Sendable {
             }
         }
 
+        // When a job was soft-deleted, so the Recently Deleted (recycle bin)
+        // screen can order the bin most-recent-first and show its size.
+        // Deliberately device-local: it is not in SyncEngine.jobKinds, so it
+        // never crosses the sync wire — the bin is a per-device convenience over
+        // the already-synced triage='deleted' state. Existing bin contents are
+        // backfilled to their last-seen time so they aren't stranded undated.
+        migrator.registerMigration("v8_deleted_at") { db in
+            try db.alter(table: "jobs") { t in
+                t.add(column: "deletedAt", .text)
+            }
+            try db.execute(sql: "UPDATE jobs SET deletedAt = lastSeen WHERE triage = 'deleted'")
+        }
+
+        // Per-tenant ATS account registry (the `ats_account` sync entity). Workday
+        // needs a separate account per company tenant
+        // ({company}.wd{N}.myworkdayjobs.com); this remembers which tenants already
+        // have one so every surface skips the create-vs-sign-in DOM heuristic. It
+        // DOES sync (last-writer-wins, keyed by provider+host) and never stores a
+        // password.
+        migrator.registerMigration("v9_ats_accounts") { db in
+            try db.create(table: "ats_accounts") { t in
+                t.primaryKey("tenantHost", .text)          // {company}.wd{N}.myworkdayjobs.com
+                t.column("provider", .text).notNull().defaults(to: "workday")
+                t.column("email", .text)
+                t.column("status", .text).notNull().defaults(to: "active")  // active | pending_verification
+                t.column("createdAt", .text)
+                t.column("lastSignInAt", .text)
+                t.column("updatedAt", .text)
+            }
+            try db.create(indexOn: "ats_accounts", columns: ["provider"])
+        }
+
         return migrator
     }
 }

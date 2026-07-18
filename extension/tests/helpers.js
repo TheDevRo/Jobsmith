@@ -12,8 +12,12 @@ const { JSDOM } = require("jsdom");
 
 const SRC_DIR = path.join(__dirname, "..", "src");
 
-function loadDom(html) {
-  const dom = new JSDOM(html, { runScripts: "outside-only", pretendToBeVisual: true });
+function loadDom(html, opts = {}) {
+  const jsdomOpts = { runScripts: "outside-only", pretendToBeVisual: true };
+  // Some scripts key off location.hostname (e.g. workday_auth.js only acts on
+  // *.myworkdayjobs.com). jsdom defaults to about:blank; pass { url } to set it.
+  if (opts.url) jsdomOpts.url = opts.url;
+  const dom = new JSDOM(html, jsdomOpts);
   const { window } = dom;
   if (!window.CSS) window.CSS = {};
   if (!window.CSS.escape) {

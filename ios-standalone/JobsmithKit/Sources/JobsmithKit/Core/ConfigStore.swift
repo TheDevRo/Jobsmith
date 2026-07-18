@@ -70,6 +70,7 @@ public actor ConfigStore {
         }
         rehydrate(&config.apiKeys.linkedInCookie, .linkedInCookie)
         rehydrate(&config.apiKeys.linkedInJSessionId, .linkedInJSessionId)
+        rehydrate(&config.apiKeys.workdayPassword, .workdayPassword)
         rehydrate(&config.ai.apiKey, .aiAPIKey)
         for i in config.ai.savedEndpoints.indices {
             rehydrate(&config.ai.savedEndpoints[i].apiKey,
@@ -113,6 +114,7 @@ public actor ConfigStore {
         }
         divert(config.apiKeys.linkedInCookie, .linkedInCookie, &onDisk.apiKeys.linkedInCookie)
         divert(config.apiKeys.linkedInJSessionId, .linkedInJSessionId, &onDisk.apiKeys.linkedInJSessionId)
+        divert(config.apiKeys.workdayPassword, .workdayPassword, &onDisk.apiKeys.workdayPassword)
         divert(config.ai.apiKey, .aiAPIKey, &onDisk.ai.apiKey)
         for i in onDisk.ai.savedEndpoints.indices {
             divert(config.ai.savedEndpoints[i].apiKey,
