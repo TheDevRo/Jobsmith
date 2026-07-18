@@ -309,7 +309,12 @@ function selectJob(jobId) {
 // The full job detail body. Shared by the classic split-pane (selectJob) and
 // the deck layout's peek modal (openJobModal in deck.js) so both render the
 // exact same content and actions.
-function buildJobDetailHtml(job) {
+function buildJobDetailHtml(job, opts) {
+    opts = opts || {};
+    // The peek modal always offers Apply Assist (parity with the pipeline's
+    // review cards, which never gate on apply_type); the classic pane keeps
+    // showing it only for external-apply jobs.
+    const showAssist = job.apply_type === 'external' || opts.assistAlways;
     const tags = safeParseJSON(job.tags, []);
     const hasScore = job.fit_score !== null && job.fit_score !== undefined && job.fit_score !== '' && !isNaN(Number(job.fit_score)) && Number(job.fit_score) > 0;
     const status = job.app_status || job.status;
@@ -353,7 +358,7 @@ function buildJobDetailHtml(job) {
         <div class="detail-actions">
             <button class="btn btn-secondary btn-sm" onclick="scoreJob('${job.id}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
             <button class="btn btn-primary btn-sm" onclick="tailorJob('${job.id}')">Tailor Resume</button>
-            ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${job.id}')">Assist Me</button>` : ''}
+            ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${job.id}')">Apply Assist</button>` : ''}
             ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="viewApplicationFor('${escapeHtml(String(job.id))}')">View Application</button>` : ''}
             ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
             ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${job.id}')">Mark Applied</button>` : ''}

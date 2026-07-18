@@ -208,6 +208,11 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["modal renders the shared detail body", !!(overlay && overlay.querySelector(".detail-title"))]);
   checks.push(["modal escapes the job title", !(overlay && overlay.querySelector(".detail-title b"))]);
   checks.push(["nested application surfaces View Application", !!(overlay && overlay.innerHTML.includes("View Application"))]);
+  // The modal always offers Apply Assist, even when apply_type isn't
+  // 'external' (j7 has none) — parity with the pipeline's review cards.
+  checks.push(["modal always offers Apply Assist", !!(overlay && overlay.innerHTML.includes("Apply Assist"))]);
+  checks.push(["classic pane still gates Apply Assist on apply_type", !window.buildJobDetailHtml({ id: "j7", title: "t", source: "s" }).includes("Apply Assist")
+      && window.buildJobDetailHtml({ id: "j7", title: "t", source: "s", apply_type: "external" }).includes("Apply Assist")]);
   checks.push(["boardOpenJob leaves the inbox view pref alone", window.localStorage.getItem("jobsmith_inbox_view") === "stage"]);
   checks.push(["boardOpenJob does not navigate", window.location.hash === hashBefore]);
   checks.push(["isJobModalOpen reports open", window.isJobModalOpen() === true]);

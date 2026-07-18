@@ -644,7 +644,7 @@ async function openJobModal(jobId) {
     ov.innerHTML = `
         <div class="job-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(job.title || 'Job details')}">
             <button type="button" class="job-modal-close" aria-label="Close" title="Close (Esc)" onclick="closeJobModal()">&#10005;</button>
-            <div class="job-modal-body">${buildJobDetailHtml(job)}</div>
+            <div class="job-modal-body">${buildJobDetailHtml(job, { assistAlways: true })}</div>
         </div>`;
     ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeJobModal(); });
     document.body.appendChild(ov);
