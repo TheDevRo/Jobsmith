@@ -136,6 +136,7 @@ function toggleLayout() {
 document.addEventListener('DOMContentLoaded', () => {
     applyAutoApplyVisibility(false);
     applyLayout();
+    applySidebarPref();
     setupTabs();
     handleHash();
     window.addEventListener('hashchange', handleHash);
@@ -512,10 +513,22 @@ function startBrowserStatusPoll() {
     pollBrowserStatus();
 }
 
-// ---- Sidebar Toggle (mobile) ----
+// ---- Sidebar Toggle ----
+// Desktop (>900px): collapse/expand the fixed rail, remembered across runs.
+// Mobile (<=900px): the original slide-over .open behaviour.
 function toggleSidebar() {
+    if (window.innerWidth > 900) {
+        const collapsed = document.body.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('jobsmith_sidebar', collapsed ? 'collapsed' : 'open');
+        return;
+    }
     const sidebar = document.getElementById('sidebar');
     if (sidebar) sidebar.classList.toggle('open');
+}
+function applySidebarPref() {
+    if (localStorage.getItem('jobsmith_sidebar') === 'collapsed') {
+        document.body.classList.add('sidebar-collapsed');
+    }
 }
 
 // ---- Theme Toggle (dark / light) ----

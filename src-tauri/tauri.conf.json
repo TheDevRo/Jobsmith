@@ -15,7 +15,8 @@
         "height": 900,
         "resizable": true,
         "fullscreen": false,
-        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) JobsmithDesktop"
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) JobsmithDesktop",
+        "dragDropEnabled": false
       }
     ],
     "withGlobalTauri": true,
@@ -25,12 +26,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "entitlements.plist"
     },
-    "externalBin": ["binaries/jobsmith-backend"],
+    "externalBin": [
+      "binaries/jobsmith-backend"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

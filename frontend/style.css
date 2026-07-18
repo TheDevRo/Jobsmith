@@ -296,12 +296,25 @@ body {
 }
 
 .sidebar-toggle {
-    display: none;
+    display: block;
     background: none;
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
     padding: 4px;
+}
+.sidebar-toggle:hover { color: var(--text-primary); }
+
+/* Desktop sidebar collapse: above the mobile breakpoint the toggle slides the
+   rail away and gives the content column the full width (deck stage benefits
+   most). Mobile (<=900px) keeps its existing .open overlay behaviour. */
+@media (min-width: 901px) {
+    body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
+    body.sidebar-collapsed .main-wrapper { margin-left: 0; }
+    .main-wrapper { transition: margin-left 0.3s ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .sidebar, .main-wrapper { transition: none; }
 }
 
 .topbar-right {
@@ -3679,10 +3692,10 @@ body.layout-deck #jobs.jobs-mode-stage .inbox-stage { display: flex; }
 .deck-qempty { font-size: 12px; color: var(--text-muted); padding: 6px 9px; }
 
 .deck-stage { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 28px 24px 20px; min-width: 0; }
-.deck-deck { position: relative; width: min(540px, 100%); flex: 1; max-height: 420px; }
+.deck-deck { position: relative; width: min(760px, 100%); flex: 1; max-height: min(600px, 66vh); min-height: 380px; }
 .deck-tcard {
     position: absolute; inset: 0; background: var(--bg-secondary); border: 1px solid var(--border);
-    border-radius: 18px; box-shadow: var(--shadow-lg); padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;
+    border-radius: 18px; box-shadow: var(--shadow-lg); padding: 28px 32px; display: flex; flex-direction: column; gap: 14px;
 }
 .deck-tcard.b1 { transform: translateY(-12px) scale(.965); opacity: .5; z-index: 1; }
 .deck-tcard.b2 { transform: translateY(-23px) scale(.93); opacity: .25; z-index: 0; }
@@ -3702,18 +3715,21 @@ body.layout-deck #jobs.jobs-mode-stage .inbox-stage { display: flex; }
 .deck-co-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
 .deck-co-meta { font-size: 11px; color: var(--text-muted); }
 .deck-heat { margin-left: auto; }
-.deck-title { margin: 2px 0 0; font-size: 21px; line-height: 1.25; font-weight: 700; letter-spacing: -.01em; font-family: var(--font-rounded); color: var(--text-primary); }
+.deck-title { margin: 2px 0 0; font-size: clamp(21px, 2vw, 26px); line-height: 1.22; font-weight: 700; letter-spacing: -.01em; font-family: var(--font-rounded); color: var(--text-primary); }
 .deck-facts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .deck-fact { font-size: 11px; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--bg-card); }
 .deck-fact.money { color: var(--accent-green); border-color: color-mix(in srgb, var(--accent-green) 35%, transparent); }
 .deck-fact.est { color: var(--text-muted); font-style: italic; }
 .deck-whyfits { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.deck-whyfits li { display: flex; gap: 8px; font-size: 12.5px; color: var(--text-secondary); }
+.deck-whyfits li { display: flex; gap: 8px; font-size: 13.5px; color: var(--text-secondary); }
 .deck-whyfits svg { flex: none; color: var(--accent); margin-top: 2px; }
 .deck-snippet {
-    font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 10px; margin: auto 0 0;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 12.5px; line-height: 1.55; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin: auto 0 0;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* Unscored cards have no why-it-fits bullets — let the description carry the
+   card instead of leaving a hole (cf. user screenshot 2026-07-17). */
+.deck-tcard:not(:has(.deck-whyfits)) .deck-snippet { -webkit-line-clamp: 9; }
 .deck-verdicts { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
 .deck-verdict {
     display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600;
