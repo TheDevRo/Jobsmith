@@ -150,7 +150,7 @@ function _stageTopCardHtml(job) {
             <h4 class="deck-title">${escapeHtml(job.title || 'Untitled role')}</h4>
             <div class="deck-facts">${stageFactPills(job)}</div>
             ${whyHtml}
-            ${snippet ? `<p class="deck-snippet">${escapeHtml(snippet.substring(0, 700))}</p>` : ''}
+            ${snippet ? `<p class="deck-snippet">${escapeHtml(snippet.substring(0, 2400))}</p>` : ''}
         </div>`;
 }
 

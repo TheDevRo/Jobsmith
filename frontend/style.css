@@ -3743,6 +3743,21 @@ body.layout-deck .inbox-view-toggle { display: inline-flex; }
 body.layout-deck #jobs.jobs-mode-stage .jobs-split-pane { display: none; }
 body.layout-deck #jobs.jobs-mode-stage .inbox-stage { display: flex; }
 
+/* The stage fills the viewport: main is already flex:1 under .main-wrapper,
+   so chain the stretch down through #jobs into .inbox-stage — the card deck
+   (.deck-deck, flex:1) absorbs the extra height, no dead zone below. */
+body.layout-deck main:has(> #jobs.tab-content.active.jobs-mode-stage) {
+    display: flex;
+    flex-direction: column;
+}
+body.layout-deck #jobs.tab-content.active.jobs-mode-stage {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+body.layout-deck #jobs.jobs-mode-stage .inbox-stage { flex: 1; }
+
 /* ===================== A1 · Triage stage ===================== */
 .inbox-stage { gap: 0; min-height: 480px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-card); margin-top: 12px; }
 .deck-queue {
@@ -3809,8 +3824,8 @@ body.layout-deck #jobs.jobs-mode-stage .inbox-stage { display: flex; }
    bottom — adapts to any card size (no fixed line count, no mid-line clip).
    On unscored cards (no why-it-fits bullets) it naturally carries the card. */
 .deck-snippet {
-    font-size: clamp(12.5px, 1.3cqi, 16px); line-height: 1.6; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin: auto 0 0;
-    flex: 0 1 auto; min-height: 0; overflow: hidden; max-width: 100ch;
+    font-size: clamp(12.5px, 1.3cqi, 16px); line-height: 1.6; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin: 14px 0 0;
+    flex: 1 1 auto; min-height: 0; overflow: hidden; max-width: 100ch;
     -webkit-mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
     mask-image: linear-gradient(to bottom, black 72%, transparent 100%);
 }
