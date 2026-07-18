@@ -661,6 +661,7 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
     .run-chip-dot { animation: none; }
+    .fchip, .rverdict, .fseg { transition: none; }
 }
 
 /* ==========================================================================
@@ -2407,6 +2408,152 @@ main {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ==========================================================================
+   Phase 1 · Ledger — filter chips, inline row verdicts, keyboard legend,
+   Pipeline funnel strip. All colors resolve through existing tokens (or
+   color-mix on them) so light + dark stay in sync automatically.
+   ========================================================================== */
+
+/* --- Filter chips (always-visible active filters) --- */
+.filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    align-items: center;
+}
+.filter-chips:not(:empty) { margin-top: 12px; }
+
+.fchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-rounded);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--accent-ember);
+    background: var(--accent-tint);
+    border: 1px solid color-mix(in srgb, var(--accent-ember) 35%, transparent);
+    border-radius: 999px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.fchip:hover { border-color: var(--accent-ember); }
+.fchip:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: 2px; }
+.fchip svg { flex: 0 0 auto; opacity: 0.8; }
+.fchip:hover svg { opacity: 1; }
+.fchip.addf {
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px dashed var(--border-light);
+    font-weight: 500;
+}
+.fchip.addf:hover { color: var(--text-primary); border-color: var(--accent-ember); }
+.fchip.sortlbl {
+    margin-left: auto;
+    color: var(--text-secondary);
+    background: transparent;
+    border-color: transparent;
+    font-weight: 500;
+}
+.fchip.sortlbl:hover { color: var(--text-primary); }
+
+/* --- Inline verdict icon buttons on discovered rows --- */
+.row-verdicts { display: flex; gap: 5px; flex: 0 0 auto; }
+.rverdict {
+    width: 27px;
+    height: 27px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.rverdict:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: 1px; }
+.rverdict.yes:hover { color: var(--accent-ember); border-color: var(--accent-ember); }
+.job-card.selected .rverdict.yes { color: var(--accent-ember); border-color: var(--accent-ember); }
+.rverdict.no:hover { color: var(--accent-red); border-color: var(--accent-red); }
+
+/* --- Keyboard legend under the inbox list --- */
+.inbox-keylegend {
+    display: flex;
+    gap: 16px;
+    padding: 9px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex: 0 0 auto;
+}
+.inbox-keylegend span { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+kbd {
+    font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 3px 6px;
+    background: var(--bg-secondary);
+    white-space: nowrap;
+}
+
+/* --- Pipeline funnel strip --- */
+.pipeline-funnel {
+    display: flex;
+    gap: 2px;
+    height: 52px;
+    margin-bottom: 16px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+.pipeline-funnel:empty { display: none; }
+.fseg {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 13px;
+    min-width: 78px;
+    flex-grow: 0;
+    flex-basis: 0;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: var(--transition);
+}
+.fseg b {
+    font-family: var(--font-rounded);
+    font-variant-numeric: tabular-nums;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.05;
+}
+.fseg span {
+    font-size: 9.5px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.85;
+}
+.fseg:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: -2px; }
+.fseg.empty { opacity: 0.5; }
+.fseg.active { box-shadow: inset 0 -3px 0 var(--accent-ember); }
+.fseg-steel { background: color-mix(in srgb, var(--steel) 26%, var(--bg-secondary)); }
+.fseg-ember { background: color-mix(in srgb, var(--accent-ember) 22%, var(--bg-secondary)); }
+.fseg-green { background: color-mix(in srgb, var(--accent-green) 22%, var(--bg-secondary)); }
+.fseg-red   { background: color-mix(in srgb, var(--accent-red) 20%, var(--bg-secondary)); }
+.fseg-amber { background: color-mix(in srgb, var(--accent-yellow) 24%, var(--bg-secondary)); }
+
+@media (max-width: 900px) {
+    .inbox-keylegend { display: none; }
+    .fseg { min-width: 60px; padding: 0 9px; }
+    .fseg span { font-size: 8.5px; }
+}
 
 /* ==========================================================================
    Responsive

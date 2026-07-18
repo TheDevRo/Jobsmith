@@ -17,11 +17,65 @@ function switchReviewView(view) {
     document.getElementById('review-submitted-view').style.display = view === 'submitted' ? '' : 'none';
     document.getElementById('review-failed-view').style.display = view === 'failed' ? '' : 'none';
     document.getElementById('review-in-progress-view').style.display = view === 'in-progress' ? '' : 'none';
+    renderFunnel(); // cheap: sync the active segment (no fetch on tab switches)
     if (view === 'shortlisted') loadShortlisted();
     else if (view === 'pending') loadReviewQueue();
     else if (view === 'submitted') loadSubmittedApplications();
     else if (view === 'in-progress') loadInProgress();
     else loadFailedApplications();
+}
+
+// ---- Pipeline funnel strip ----
+// A second, visual tab bar above .review-tab-bar: five proportional segments,
+// one per existing Pipeline view, with live counts. Segment flex-grow is
+// proportional to count; zero-count segments keep a min-width and dim.
+// Counts are fetched once on entering the Pipeline (refreshFunnelCounts) and
+// patched in-place by each loader from data it already has — no double-fetch.
+const _FUNNEL_SEGS = [
+    { view: 'shortlisted', label: 'Shortlisted', cls: 'fseg-steel' },
+    { view: 'pending',     label: 'Ready',       cls: 'fseg-ember' },
+    { view: 'submitted',   label: 'Applied',     cls: 'fseg-green' },
+    { view: 'failed',      label: 'Failed',      cls: 'fseg-red' },
+    { view: 'in-progress', label: 'In Progress', cls: 'fseg-amber' },
+];
+const _funnelCounts = { shortlisted: 0, pending: 0, submitted: 0, failed: 0, 'in-progress': 0 };
+
+function renderFunnel() {
+    const el = document.getElementById('pipeline-funnel');
+    if (!el) return;
+    el.innerHTML = _FUNNEL_SEGS.map(seg => {
+        const n = _funnelCounts[seg.view] || 0;
+        const active = seg.view === currentReviewView;
+        return `<button type="button" role="tab" aria-selected="${active}"
+            class="fseg ${seg.cls}${active ? ' active' : ''}${n === 0 ? ' empty' : ''}"
+            style="flex-grow:${n}" onclick="switchReviewView('${seg.view}')"
+            aria-label="${escapeHtml(seg.label)}: ${n}"><b class="num">${n}</b><span>${escapeHtml(seg.label)}</span></button>`;
+    }).join('');
+}
+
+function _setFunnelCount(view, n) {
+    _funnelCounts[view] = Number(n) || 0;
+    renderFunnel();
+}
+
+// Fetch all five counts cheaply. Called on entering the Pipeline and after
+// status transitions this file makes.
+async function refreshFunnelCounts() {
+    renderFunnel(); // paint immediately with whatever we have
+    const grab = (p) => p.catch(() => null);
+    const [s, p, su, f, ip] = await Promise.all([
+        grab(api('/api/jobs?status=shortlisted&limit=1').then(d => (d && typeof d.total === 'number') ? d.total : ((d && d.jobs) || []).length)),
+        grab(api('/api/applications/pending?limit=200').then(a => (a || []).length)),
+        grab(api('/api/applications/submitted?limit=200').then(a => (a || []).length)),
+        grab(api('/api/applications/failed?limit=200').then(a => (a || []).length)),
+        grab(api('/api/applications/in-progress').then(d => ((d && d.in_progress) || []).length + ((d && d.needs_attention) || []).length)),
+    ]);
+    if (s !== null) _funnelCounts.shortlisted = s;
+    if (p !== null) _funnelCounts.pending = p;
+    if (su !== null) _funnelCounts.submitted = su;
+    if (f !== null) _funnelCounts.failed = f;
+    if (ip !== null) _funnelCounts['in-progress'] = ip;
+    renderFunnel();
 }
 
 // Pipeline → Shortlisted stage: jobs the user kept while scouting the Inbox
@@ -38,6 +92,7 @@ async function loadShortlisted() {
 
 function renderShortlisted(data) {
     const jobs = (data && data.jobs) || [];
+    _setFunnelCount('shortlisted', (data && typeof data.total === 'number') ? data.total : jobs.length);
     const el = document.getElementById('shortlisted-list');
     if (!jobs.length) {
         el.innerHTML = '<p class="placeholder">No shortlisted jobs yet. Scout your Inbox and shortlist the ones worth pursuing.</p>';
@@ -75,6 +130,7 @@ async function passShortlisted(jobId) {
         });
         toast('Passed', 'info');
         loadShortlisted();
+        refreshFunnelCounts();
     } catch (e) {
         toast('Failed to update', 'error');
     }
@@ -83,6 +139,7 @@ async function passShortlisted(jobId) {
 async function loadReviewQueue() {
     try {
         const apps = await api('/api/applications/pending?limit=50');
+        _setFunnelCount('pending', (apps || []).length);
         renderReviewQueue(apps);
     } catch (e) {
         renderError('review-list', 'Failed to load the review queue.', loadReviewQueue);
@@ -92,6 +149,7 @@ async function loadReviewQueue() {
 async function loadSubmittedApplications() {
     try {
         const apps = await api('/api/applications/submitted?limit=50');
+        _setFunnelCount('submitted', (apps || []).length);
         renderSubmittedApplications(apps);
     } catch (e) {
         renderError('submitted-list', 'Failed to load submitted applications.', loadSubmittedApplications);
@@ -101,6 +159,7 @@ async function loadSubmittedApplications() {
 async function loadFailedApplications() {
     try {
         const apps = await api('/api/applications/failed?limit=50');
+        _setFunnelCount('failed', (apps || []).length);
         renderFailedApplications(apps);
     } catch (e) {
         renderError('failed-list', 'Failed to load failed applications.', loadFailedApplications);
@@ -120,6 +179,7 @@ function renderInProgress(data) {
     const container = document.getElementById('in-progress-list');
     const inProg = data.in_progress || [];
     const needsAttn = data.needs_attention || [];
+    _setFunnelCount('in-progress', inProg.length + needsAttn.length);
 
     // Update tab badge
     const badge = document.getElementById('in-progress-badge');

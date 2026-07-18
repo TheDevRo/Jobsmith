@@ -11,6 +11,104 @@ function toggleAdvancedFilters() {
     btn.classList.toggle('expanded', !visible);
 }
 
+// ---- Inline verdict + chip iconography (stroke-2 inline SVG, no assets) ----
+const VERDICT_X_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const VERDICT_CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+const CHIP_X_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+// ---- Filter chips ----
+// Derived purely from the same DOM inputs loadJobs() reads — single source of
+// truth, no separate state object. One chip per active non-default filter; the
+// ✕ resets just that input to its default and reloads.
+const _SOURCE_LABELS = {
+    adzuna: 'Adzuna', arbeitnow: 'Arbeitnow', ashby: 'Ashby', greenhouse: 'Greenhouse',
+    indeed: 'Indeed', lever: 'Lever', linkedin: 'LinkedIn', recruitee: 'Recruitee',
+    remoteok: 'RemoteOK', usajobs: 'USAJobs', weworkremotely: 'WeWorkRemotely', workable: 'Workable',
+};
+const _STATUS_FILTER_LABELS = {
+    discovered: 'Discovered', tailoring: 'Tailoring', review: 'In Review',
+    applied: 'Applied', manual: 'Manual Apply', rejected: 'Rejected',
+};
+const _SORT_LABELS = {
+    'date_discovered-desc': 'Newest ↓', 'date_discovered-asc': 'Oldest ↑',
+    'fit_score-desc': 'Fit ↓', 'fit_score-asc': 'Fit ↑',
+    'applied_at-desc': 'Applied ↓', 'salary_min-desc': 'Salary ↓',
+    'quality_score-desc': 'Quality ↓', 'title-asc': 'Title A–Z', 'company-asc': 'Company A–Z',
+};
+
+// Returns [{key, label}] for every active non-default filter. Pure (reads DOM,
+// no side effects) so the test harness can assert on it directly.
+function buildFilterChips() {
+    const chips = [];
+    const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const checked = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
+
+    const search = (val('filter-search') || '').trim();
+    if (search) chips.push({ key: 'search', label: `“${search}”` });
+    const location = (val('filter-location') || '').trim();
+    if (location) chips.push({ key: 'location', label: `Location: ${location}` });
+    const company = (val('filter-company') || '').trim();
+    if (company) chips.push({ key: 'company', label: `Company: ${company}` });
+    const source = val('filter-source');
+    if (source) chips.push({ key: 'source', label: `Source: ${_SOURCE_LABELS[source] || source}` });
+    const status = val('filter-status');
+    if (status) chips.push({ key: 'status', label: `Status: ${_STATUS_FILTER_LABELS[status] || status}` });
+    if (checked('filter-remote')) chips.push({ key: 'remote', label: 'Remote only' });
+    if (checked('filter-easy-apply')) chips.push({ key: 'easy-apply', label: 'Easy Apply only' });
+    const minScore = parseInt(val('filter-score')) || 0;
+    if (minScore > 0) chips.push({ key: 'score', label: `Score ≥ ${minScore}` });
+    const minSalary = parseInt(val('filter-salary')) || 0;
+    if (minSalary > 0) chips.push({ key: 'salary', label: `Salary ≥ $${minSalary.toLocaleString()}` });
+    const dateFrom = val('filter-date-from');
+    if (dateFrom) chips.push({ key: 'date-from', label: `From ${dateFrom}` });
+    const dateTo = val('filter-date-to');
+    if (dateTo) chips.push({ key: 'date-to', label: `To ${dateTo}` });
+    return chips;
+}
+
+function renderFilterChips() {
+    const el = document.getElementById('filter-chips');
+    if (!el) return;
+    const chips = buildFilterChips();
+    let html = chips.map(c =>
+        `<button type="button" class="fchip" onclick="resetFilter('${c.key}')" aria-label="Remove filter: ${escapeHtml(c.label)}"><span>${escapeHtml(c.label)}</span>${CHIP_X_SVG}</button>`
+    ).join('');
+    html += `<button type="button" class="fchip addf" onclick="toggleAdvancedFilters()">+ Filter</button>`;
+    const sortVal = (document.getElementById('filter-sort') || {}).value || '';
+    const sortLabel = _SORT_LABELS[sortVal] || sortVal || '—';
+    html += `<button type="button" class="fchip sortlbl" onclick="focusSortSelect()">Sort: ${escapeHtml(sortLabel)}</button>`;
+    el.innerHTML = html;
+}
+
+function resetFilter(key) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const uncheck = (id) => { const el = document.getElementById(id); if (el) el.checked = false; };
+    switch (key) {
+        case 'search': set('filter-search', ''); break;
+        case 'location': set('filter-location', ''); break;
+        case 'company': set('filter-company', ''); break;
+        case 'source': set('filter-source', ''); break;
+        case 'status': set('filter-status', ''); break;
+        case 'remote': uncheck('filter-remote'); break;
+        case 'easy-apply': uncheck('filter-easy-apply'); break;
+        case 'score': set('filter-score', 0); { const v = document.getElementById('score-val'); if (v) v.textContent = '0'; } break;
+        case 'salary': set('filter-salary', 0); { const v = document.getElementById('salary-val'); if (v) v.textContent = '0'; } break;
+        case 'date-from': set('filter-date-from', ''); break;
+        case 'date-to': set('filter-date-to', ''); break;
+    }
+    currentJobsPage = 0;
+    loadJobs();
+}
+
+function focusSortSelect() {
+    const sel = document.getElementById('filter-sort');
+    if (!sel) return;
+    // Advanced drawer isn't where sort lives (it's in the primary row), so just
+    // focus it; on browsers that support it, showPicker() opens the dropdown.
+    sel.focus();
+    if (typeof sel.showPicker === 'function') { try { sel.showPicker(); } catch (e) { /* not user-gesture */ } }
+}
+
 // ---- Job Feed ----
 async function loadJobs() {
     const source = document.getElementById('filter-source').value;
@@ -50,6 +148,9 @@ async function loadJobs() {
     const includeEstimated = document.getElementById('filter-include-estimated');
     if (includeEstimated && includeEstimated.checked) params += `&include_estimated=true`;
     if (sortBy) params += `&sort_by=${sortBy}&sort_dir=${sortDir}`;
+
+    // Reflect the active filters as chips on every load (single source of truth).
+    renderFilterChips();
 
     try {
         const data = await api(`/api/jobs${params}`);
@@ -147,9 +248,9 @@ function renderJobs(jobs, total) {
                         ${renderHeatChip(job.fit_score)}
                         <span class="pill pill-${status}">${statusLabel}</span>
                         ${status === 'discovered' ? `
-                        <div class="scout-actions" onclick="event.stopPropagation()">
-                            <button class="btn btn-green btn-xs" onclick="shortlistJob('${job.id}')" title="Shortlist  (→ or S)">Shortlist</button>
-                            <button class="btn btn-ghost btn-xs" onclick="passJob('${job.id}')" title="Pass  (← or P)">Pass</button>
+                        <div class="row-verdicts" onclick="event.stopPropagation()">
+                            <button type="button" class="rverdict no" onclick="passJob('${job.id}')" aria-label="Pass" title="Pass  (X or ←)">${VERDICT_X_SVG}</button>
+                            <button type="button" class="rverdict yes" onclick="shortlistJob('${job.id}')" aria-label="Shortlist" title="Shortlist  (S or →)">${VERDICT_CHECK_SVG}</button>
                         </div>` : ''}
                         ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${job.id}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
                     </div>
@@ -196,6 +297,10 @@ function selectJob(jobId) {
 
     const job = window._currentJobs[jobId];
     if (!job) return;
+
+    // Track which job the detail pane is actually rendered for, so Enter can
+    // distinguish "open this row's detail" from "open the posting" (already open).
+    window._detailJobId = jobId;
 
     const pane = document.getElementById('job-detail-pane');
     const tags = safeParseJSON(job.tags, []);
@@ -293,6 +398,7 @@ function renderFitAnalysis(job) {
 
 function clearDetailPane() {
     selectedJobId = null;
+    window._detailJobId = null;
     const pane = document.getElementById('job-detail-pane');
     if (pane) {
         pane.innerHTML = `
@@ -447,13 +553,33 @@ async function markApplied(jobId) {
 // ('shortlisted' surfaces in Pipeline; 'passed' clears it from the Inbox).
 // No backend changes — j.status is a free-text column.
 
+// Undo stack for verdicts — a small bounded history of {jobId, prevStatus,
+// title} so `u` (keyboard) or a mis-click can restore the previous status.
+const _verdictUndo = [];
+const _VERDICT_UNDO_MAX = 10;
+
+function _jobSnapshot(jobId) {
+    const job = window._currentJobs && window._currentJobs[jobId];
+    return {
+        status: job ? (job.app_status || job.status || 'discovered') : 'discovered',
+        title: job ? (job.title || 'job') : 'job',
+    };
+}
+
+function _pushVerdictUndo(jobId, prevStatus, title) {
+    _verdictUndo.push({ jobId, prevStatus, title });
+    if (_verdictUndo.length > _VERDICT_UNDO_MAX) _verdictUndo.shift();
+}
+
 async function shortlistJob(jobId) {
+    const snap = _jobSnapshot(jobId);
     try {
         await api(`/api/jobs/${jobId}/status`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'shortlisted' }),
         });
+        _pushVerdictUndo(jobId, snap.status, snap.title);
         toast('Shortlisted — moved to Pipeline', 'success');
         _afterScout(jobId);
     } catch (e) {
@@ -462,16 +588,43 @@ async function shortlistJob(jobId) {
 }
 
 async function passJob(jobId) {
+    const snap = _jobSnapshot(jobId);
     try {
         await api(`/api/jobs/${jobId}/status`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'passed' }),
         });
+        _pushVerdictUndo(jobId, snap.status, snap.title);
         toast('Passed', 'info');
         _afterScout(jobId);
     } catch (e) {
         toast('Failed to pass', 'error');
+    }
+}
+
+// Pop the last verdict and PATCH the previous status back, then reload the list
+// and re-select the restored job. Works for both keyboard and button verdicts.
+async function undoVerdict() {
+    const last = _verdictUndo.pop();
+    if (!last) { toast('Nothing to undo', 'info'); return; }
+    try {
+        await api(`/api/jobs/${last.jobId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: last.prevStatus }),
+        });
+        toast(`Restored ${last.title}`, 'success');
+        selectedJobId = last.jobId;
+        await loadJobs();
+        if (window._currentJobs && window._currentJobs[last.jobId]) {
+            selectJob(last.jobId);
+            const card = document.querySelector(`.job-card[data-job-id="${last.jobId}"]`);
+            if (card) card.scrollIntoView({ block: 'nearest' });
+        }
+    } catch (e) {
+        _verdictUndo.push(last);
+        toast('Failed to undo', 'error');
     }
 }
 
@@ -518,9 +671,21 @@ document.addEventListener('keydown', (e) => {
         case 'ArrowRight': case 's': case 'S':
             if (selectedJobId && _selectedIsDiscovered()) { e.preventDefault(); shortlistJob(selectedJobId); }
             break;
-        case 'ArrowLeft': case 'p': case 'P':
+        case 'ArrowLeft': case 'p': case 'P': case 'x': case 'X':
             if (selectedJobId && _selectedIsDiscovered()) { e.preventDefault(); passJob(selectedJobId); }
             break;
+        case 'Enter':
+            if (!selectedJobId) break;
+            e.preventDefault();
+            if (window._detailJobId === selectedJobId) {
+                // Already showing this job → open its posting (http/https only).
+                const job = window._currentJobs && window._currentJobs[selectedJobId];
+                if (job && safeHref(job.url) !== '#') openExternal(job.url);
+            } else {
+                selectJob(selectedJobId);
+            }
+            break;
+        case 'u': case 'U': e.preventDefault(); undoVerdict(); break;
     }
 });
 

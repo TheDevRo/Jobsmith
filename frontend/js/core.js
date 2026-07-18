@@ -173,7 +173,7 @@ function handleHash() {
     switch (hash) {
         case 'dashboard': loadDashboard(); loadSources(); statsInterval = setInterval(loadDashboard, 30000); break;
         case 'jobs': loadJobs(); break;
-        case 'review': switchReviewView('shortlisted'); break;
+        case 'review': switchReviewView('shortlisted'); refreshFunnelCounts(); break;
         case 'settings': loadSettings(); break;
         case 'fit-breakdown':
             loadFitBreakdown();

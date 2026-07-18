@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=41">
+    <link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -361,6 +361,7 @@
                     </div>
                     <input type="hidden" id="filter-max-score" value="">
                     <input type="hidden" id="filter-unscored-only" value="">
+                    <div id="filter-chips" class="filter-chips"></div>
                 </div>
 
                 <div class="jobs-toolbar">
@@ -385,6 +386,13 @@
                             <p class="placeholder">Loading jobs...</p>
                         </div>
                         <div class="pagination" id="jobs-pagination"></div>
+                        <div class="inbox-keylegend" aria-hidden="true">
+                            <span><kbd>J</kbd>/<kbd>K</kbd> move</span>
+                            <span><kbd>X</kbd> pass</span>
+                            <span><kbd>S</kbd> shortlist</span>
+                            <span><kbd>&#8629;</kbd> open</span>
+                            <span><kbd>U</kbd> undo</span>
+                        </div>
                     </div>
                     <div class="jobs-detail-pane" id="job-detail-pane">
                         <div class="detail-empty">
@@ -397,6 +405,7 @@
 
             <!-- Pipeline Tab (shortlisted → staged applications) -->
             <section id="review" class="tab-content">
+                <div id="pipeline-funnel" class="pipeline-funnel" role="tablist" aria-label="Pipeline stages"></div>
                 <div class="review-tab-bar">
                     <button class="review-tab-btn active" id="review-tab-shortlisted" onclick="switchReviewView('shortlisted')">Shortlisted</button>
                     <button class="review-tab-btn" id="review-tab-pending" onclick="switchReviewView('pending')">Ready to Review</button>
@@ -1341,10 +1350,10 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=41"></script>
+    <script src="js/core.js?v=42"></script>
     <script src="js/dashboard.js?v=37"></script>
-    <script src="js/jobs.js?v=40"></script>
-    <script src="js/review.js?v=39"></script>
+    <script src="js/jobs.js?v=41"></script>
+    <script src="js/review.js?v=40"></script>
     <script src="js/settings.js?v=44"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
