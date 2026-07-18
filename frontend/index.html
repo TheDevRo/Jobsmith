@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=42">
+    <link rel="stylesheet" href="style.css?v=43">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -42,7 +42,7 @@
                 <h2 id="page-title">Inbox</h2>
             </div>
             <div class="topbar-right">
-                <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="location.hash='dashboard'" title="A run is in progress — view Activity">
+                <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="toggleNowRail()" title="A run is in progress — toggle the Now rail">
                     <span class="run-chip-dot" aria-hidden="true"></span>
                     <span id="run-status-chip-text"></span>
                 </button>
@@ -65,6 +65,7 @@
             </div>
         </header>
 
+        <div class="main-row">
         <main>
             <!-- Page-level status banners (reconnecting, browser install, port
                  mismatch). Populated by showBanner()/hideBanner() in core.js. -->
@@ -121,154 +122,136 @@
                     </div>
                 </div>
 
-                <div class="action-cards">
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-blue">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            </div>
-                            <h3>Fetch Jobs</h3>
-                        </div>
-                        <p class="action-card-desc">Search enabled sources for new job postings</p>
-                        <div class="source-picker">
-                            <div class="source-checkboxes" id="source-checkboxes"></div>
-                            <div class="source-actions">
-                                <button class="btn btn-primary" id="fetch-btn" onclick="fetchNewJobs()">Fetch New Jobs</button>
-                                <button class="btn btn-danger btn-sm" id="fetch-stop-btn" onclick="cancelFetch()" style="display:none">Stop</button>
-                                <button class="btn btn-warning btn-sm" id="fetch-finish-btn" onclick="finishFetch()" style="display:none" title="Stop fetching new sources but save what we've got so far">Finish &amp; Save</button>
-                                <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(true)">All</button>
-                                <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(false)">None</button>
-                            </div>
-                            <div id="fetch-status" style="display:none;margin-top:12px">
-                                <div class="fetch-status-row">
-                                    <span class="loading" id="fetch-spinner"></span>
-                                    <span id="fetch-status-text"></span>
+                <div class="foundry-grid">
+                    <!-- Run console: verbs + live log (replaces the six action cards) -->
+                    <div class="section-card run-console" id="run-console">
+                        <div class="run-console-head">
+                            <h2>Run console</h2>
+                            <div class="run-verbs" id="run-verbs">
+                                <!-- Fetch (primary, split button with source options) -->
+                                <div class="run-verb" data-verb="fetch">
+                                    <div class="run-split">
+                                        <button class="btn btn-primary run-verb-main" id="fetch-btn" onclick="fetchNewJobs()">Fetch</button>
+                                        <button class="btn btn-primary run-verb-caret" id="fetch-caret" aria-haspopup="true" aria-expanded="false" aria-label="Fetch options" onclick="toggleRunPopover('fetch')">&#9662;</button>
+                                    </div>
+                                    <button class="btn btn-danger btn-sm run-verb-stop" id="fetch-stop-btn" onclick="cancelFetch()" style="display:none">Stop</button>
+                                    <button class="btn btn-warning btn-sm run-verb-stop" id="fetch-finish-btn" onclick="finishFetch()" style="display:none" title="Stop fetching new sources but save what we've got so far">Finish &amp; Save</button>
+                                    <div class="run-popover" id="run-popover-fetch" role="dialog" aria-label="Fetch options" hidden>
+                                        <div class="run-popover-title">Sources</div>
+                                        <div class="source-checkboxes" id="source-checkboxes"></div>
+                                        <div class="source-actions">
+                                            <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(true)">All</button>
+                                            <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(false)">None</button>
+                                        </div>
+                                        <label class="remote-toggle" style="display:flex;align-items:center;gap:6px;margin-top:10px" title="Override the Settings -> Search default for this fetch run"><input type="checkbox" id="fetch-auto-estimate-toggle" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries on ingest</label>
+                                        <div id="fetch-indeed-hint" class="run-popover-hint">Indeed can take up to 400s (Cloudflare bypass + per-job description enrichment).</div>
+                                    </div>
                                 </div>
-                                <div class="progress-track">
-                                    <div class="progress-bar" id="fetch-progress-bar"></div>
+
+                                <!-- Score (split button with rescore + limit options) -->
+                                <div class="run-verb" data-verb="score">
+                                    <div class="run-split">
+                                        <button class="btn btn-secondary run-verb-main" id="score-btn" onclick="scoreAll()">Score</button>
+                                        <button class="btn btn-secondary run-verb-caret" id="score-caret" aria-haspopup="true" aria-expanded="false" aria-label="Score options" onclick="toggleRunPopover('score')">&#9662;</button>
+                                    </div>
+                                    <button class="btn btn-danger btn-sm run-verb-stop" id="score-stop-btn" onclick="cancelScoreBatch()" style="display:none">Stop</button>
+                                    <div class="run-popover" id="run-popover-score" role="dialog" aria-label="Score options" hidden>
+                                        <label class="run-popover-check" title="Re-score jobs that already have a score — useful after updating your profile">
+                                            <input type="checkbox" id="score-rescore-cb" onchange="updateScoreBtnLabel()"> Rescore already-scored jobs too
+                                        </label>
+                                        <label class="run-popover-row">Limit
+                                            <select id="score-limit-select" class="input-sm" title="How many jobs to score">
+                                                <option value="">All</option>
+                                                <option value="25">25</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                                <option value="200">200</option>
+                                            </select>
+                                        </label>
+                                        <div class="run-popover-hint" id="score-salary-hint">Scoring also pulls market salaries when <button type="button" id="score-salary-toggle" class="badge-estimate" onclick="saveSalaryAutoIngest({toggle:true})" title="Auto-estimate salaries is enabled in Settings -> Search. Each scored job also gets a market salary estimate from Adzuna/BLS.">+ pulls market salaries</button> is on.</div>
+                                    </div>
                                 </div>
-                                <div id="fetch-indeed-hint" style="margin-top:6px;font-size:0.83em;color:var(--text-muted)">Indeed source can take up to 400s (Cloudflare bypass + per-job description enrichment)</div>
+
+                                <!-- Tailor (min-score behaviour unchanged, no options) -->
+                                <div class="run-verb" data-verb="tailor">
+                                    <div class="run-split">
+                                        <button class="btn btn-secondary run-verb-main" id="tailor-btn" onclick="tailorAll()">Tailor</button>
+                                    </div>
+                                    <button class="btn btn-danger btn-sm run-verb-stop" id="tailor-stop-btn" onclick="cancelTailorBatch()" style="display:none">Stop</button>
+                                </div>
+
+                                <!-- Estimate (split button with limit option) -->
+                                <div class="run-verb" data-verb="estimate">
+                                    <div class="run-split">
+                                        <button class="btn btn-ghost run-verb-main" id="estimate-salaries-btn" onclick="estimateSalariesAll()">Estimate</button>
+                                        <button class="btn btn-ghost run-verb-caret" id="estimate-caret" aria-haspopup="true" aria-expanded="false" aria-label="Estimate options" onclick="toggleRunPopover('estimate')">&#9662;</button>
+                                    </div>
+                                    <button class="btn btn-danger btn-sm run-verb-stop" id="estimate-salaries-stop-btn" onclick="cancelEstimateSalaries()" style="display:none">Stop</button>
+                                    <div class="run-popover" id="run-popover-estimate" role="dialog" aria-label="Estimate options" hidden>
+                                        <label class="run-popover-row">Limit
+                                            <select id="estimate-salaries-limit-select" class="input-sm" title="How many jobs to estimate">
+                                                <option value="">All</option>
+                                                <option value="25">25</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                                <option value="200">200</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Overflow menu -->
+                                <div class="run-verb" data-verb="more">
+                                    <div class="run-split">
+                                        <button class="btn btn-ghost run-verb-main" id="more-caret" aria-haspopup="true" aria-expanded="false" aria-label="More actions" onclick="toggleRunPopover('more')">More &#9662;</button>
+                                    </div>
+                                    <div class="run-popover" id="run-popover-more" role="menu" aria-label="More actions" hidden>
+                                        <button class="run-menu-item" id="detect-btn" role="menuitem" onclick="detectApplyTypes()">Detect Easy Apply</button>
+                                        <button class="btn btn-danger btn-sm run-verb-stop" id="detect-stop-btn" onclick="cancelDetectApplyTypes()" style="display:none">Stop detection</button>
+                                        <div id="detect-result" class="run-popover-hint" style="display:none"></div>
+                                        <div class="run-menu-sep"></div>
+                                        <div class="run-menu-label">Add job by URL</div>
+                                        <div class="run-add-url">
+                                            <input type="url" id="manual-url-input" placeholder="https://..." class="input" />
+                                            <div class="run-add-url-actions">
+                                                <button class="btn btn-primary btn-sm" id="manual-add-btn" onclick="addJobByUrl()">Add</button>
+                                                <span class="loading" id="manual-add-spinner" style="display:none"></span>
+                                            </div>
+                                            <div id="manual-add-status" class="run-popover-hint" style="display:none"></div>
+                                        </div>
+                                        <div class="run-menu-sep"></div>
+                                        <button class="run-menu-item" id="refetch-desc-btn" role="menuitem" onclick="refetchMissingDescriptions()" title="Re-run LinkedIn detail fetch for jobs whose description is empty (e.g. timed out or 429'd during the last fetch)">Refetch descriptions</button>
+                                        <button class="btn btn-danger btn-sm run-verb-stop" id="refetch-desc-stop-btn" onclick="cancelRefetchDescriptions()" style="display:none">Stop refetch</button>
+                                        <div id="refetch-desc-status" class="run-popover-hint" style="display:none"></div>
+                                    </div>
+                                </div>
                             </div>
-                            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-                                <label class="remote-toggle" style="display:block;margin-bottom:6px" title="Override the Settings -> Search default for this fetch run"><input type="checkbox" id="fetch-auto-estimate-toggle" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries on ingest</label>
-                                <button class="btn btn-ghost btn-sm" id="refetch-desc-btn" onclick="refetchMissingDescriptions()" title="Re-run LinkedIn detail fetch for jobs whose description is empty (e.g. timed out or 429'd during the last fetch)">Refetch missing descriptions</button>
-                                <button class="btn btn-danger btn-sm" id="refetch-desc-stop-btn" onclick="cancelRefetchDescriptions()" style="display:none">Stop</button>
-                                <div id="refetch-desc-status" style="display:none;margin-top:8px;font-size:0.83em;color:var(--text-muted)"></div>
-                            </div>
+                        </div>
+                        <div class="run-log" id="run-log" role="log" aria-live="polite" aria-label="Run activity log">
+                            <div class="run-log-history" id="run-log-history"><p class="rl-empty">Loading activity…</p></div>
+                            <div class="run-log-events" id="run-log-events"></div>
+                            <div class="run-log-live" id="run-log-live"></div>
+                            <div class="run-log-foot" id="run-log-foot"></div>
                         </div>
                     </div>
 
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-blue">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                            </div>
-                            <h3>Add Job by URL</h3>
+                    <!-- Right column: today's answer first, numbers ambient -->
+                    <div class="foundry-rightcol">
+                        <div class="section-card panel-compact" id="digest-card" style="display:none">
+                            <p class="eyebrow">Ready to send today</p>
+                            <div id="digest-panel"></div>
                         </div>
-                        <p class="action-card-desc">Paste a job posting URL to ingest it manually</p>
-                        <div style="display:flex;flex-direction:column;gap:8px">
-                            <input type="url" id="manual-url-input" placeholder="https://..." class="input" style="width:100%" />
-                            <div style="display:flex;gap:8px;align-items:center">
-                                <button class="btn btn-primary" id="manual-add-btn" onclick="addJobByUrl()">Add Job</button>
-                                <span class="loading" id="manual-add-spinner" style="display:none"></span>
-                            </div>
-                            <div id="manual-add-status" style="display:none;font-size:0.83em;color:var(--text-muted)"></div>
+
+                        <div class="section-card panel-compact" id="due-card" style="display:none">
+                            <p class="eyebrow">Needs attention</p>
+                            <div id="due-panel"></div>
+                        </div>
+
+                        <div class="section-card panel-compact" id="histogram-card" style="display:none">
+                            <a class="eyebrow histo-title" href="#fit-breakdown" id="histogram-title" title="Open the full fit-score breakdown">Fit score distribution</a>
+                            <div class="fit-histo" id="fit-histo" role="img" aria-label="Fit score distribution"></div>
                         </div>
                     </div>
-
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-purple">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                            </div>
-                            <h3>Detect Easy Apply</h3>
-                        </div>
-                        <p class="action-card-desc">Classify fetched jobs as Easy Apply, Quick Apply, or External ATS</p>
-                        <div class="action-card-footer">
-                            <button class="btn btn-secondary" id="detect-btn" onclick="detectApplyTypes()">Run Detection</button>
-                            <button class="btn btn-danger btn-sm" id="detect-stop-btn" onclick="cancelDetectApplyTypes()" style="display:none">Stop</button>
-                        </div>
-                        <div id="detect-result" style="display:none;margin-top:8px;font-size:0.83em;color:var(--text-muted)"></div>
-                    </div>
-
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-yellow">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                            </div>
-                            <h3>Score Jobs</h3>
-                        </div>
-                        <p class="action-card-desc">AI-score all unscored jobs against your profile <span id="score-salary-hint"><button type="button" id="score-salary-toggle" class="badge-estimate" onclick="saveSalaryAutoIngest({toggle:true})" title="Auto-estimate salaries is enabled in Settings -> Search. Each scored job also gets a market salary estimate from Adzuna/BLS.">+ pulls market salaries</button></span></p>
-                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:8px;cursor:pointer" title="Re-score jobs that already have a score — useful after updating your profile">
-                            <input type="checkbox" id="score-rescore-cb" onchange="updateScoreBtnLabel()"> Rescore already-scored jobs too
-                        </label>
-                        <div class="action-card-footer">
-                            <select id="score-limit-select" class="input-sm" style="width:90px;margin-right:6px" title="How many jobs to score">
-                                <option value="">All</option>
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                                <option value="200">200</option>
-                            </select>
-                            <button class="btn btn-secondary" id="score-btn" onclick="scoreAll()">Score Unscored</button>
-                            <button class="btn btn-danger btn-sm" id="score-stop-btn" onclick="cancelScoreBatch()" style="display:none">Stop</button>
-                        </div>
-                        <div id="score-status" style="display:none;margin-top:12px">
-                            <div class="fetch-status-row">
-                                <span class="loading" id="score-spinner"></span>
-                                <span id="score-status-text"></span>
-                            </div>
-                            <div id="score-status-current" style="margin-top:6px;font-size:0.83em;color:var(--text-muted)"></div>
-                            <div class="progress-track">
-                                <div class="progress-bar progress-bar-heat" id="score-progress-bar"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-yellow">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                            </div>
-                            <h3>Estimate Salaries</h3>
-                        </div>
-                        <p class="action-card-desc">Pull market salary estimates (Adzuna + BLS) for jobs without one</p>
-                        <div class="action-card-footer">
-                            <select id="estimate-salaries-limit-select" class="input-sm" style="width:90px;margin-right:6px" title="How many jobs to estimate">
-                                <option value="">All</option>
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                                <option value="200">200</option>
-                            </select>
-                            <button class="btn btn-secondary" id="estimate-salaries-btn" onclick="estimateSalariesAll()">Estimate Missing</button>
-                            <button class="btn btn-danger btn-sm" id="estimate-salaries-stop-btn" onclick="cancelEstimateSalaries()" style="display:none">Stop</button>
-                        </div>
-                    </div>
-
-                    <div class="action-card">
-                        <div class="action-card-header">
-                            <div class="action-card-icon action-icon-green">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                            </div>
-                            <h3>Tailor Resumes</h3>
-                        </div>
-                        <p class="action-card-desc">Generate tailored resumes and cover letters for matching jobs</p>
-                        <div class="action-card-footer">
-                            <button class="btn btn-secondary" id="tailor-btn" onclick="tailorAll()">Tailor All Unprocessed</button>
-                            <button class="btn btn-danger btn-sm" id="tailor-stop-btn" onclick="cancelTailorBatch()" style="display:none">Stop</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="section-card" id="digest-card" style="display:none">
-                    <h2>Apply Today</h2>
-                    <div id="digest-panel"></div>
-                </div>
-
-                <div class="section-card" id="due-card" style="display:none">
-                    <h2>Needs Attention</h2>
-                    <div id="due-panel"></div>
                 </div>
 
                 <div class="section-card">
@@ -1168,6 +1151,11 @@
                 </div>
             </section>
         </main>
+
+        <!-- Global "Now" rail: active + recently-finished runs, visible on every
+             tab. Hidden entirely when nothing is running. -->
+        <aside class="now-rail" id="now-rail" aria-label="Now — active runs" hidden></aside>
+        </div>
     </div>
 
     <!-- ============ First-run Onboarding Wizard ============ -->
@@ -1351,13 +1339,13 @@
     </div>
 
     <script src="js/core.js?v=42"></script>
-    <script src="js/dashboard.js?v=37"></script>
-    <script src="js/jobs.js?v=41"></script>
+    <script src="js/dashboard.js?v=38"></script>
+    <script src="js/jobs.js?v=42"></script>
     <script src="js/review.js?v=40"></script>
     <script src="js/settings.js?v=44"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=37"></script>
-    <script src="js/onboarding.js?v=37"></script>
+    <script src="js/onboarding.js?v=38"></script>
 </body>
 </html>

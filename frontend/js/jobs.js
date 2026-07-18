@@ -457,7 +457,7 @@ async function scoreJob(jobId) {
 function updateScoreBtnLabel() {
     const btn = document.getElementById('score-btn');
     const cb = document.getElementById('score-rescore-cb');
-    if (btn && !btn.disabled) btn.textContent = (cb && cb.checked) ? 'Rescore Jobs' : 'Score Unscored';
+    if (btn && !btn.disabled) btn.textContent = (cb && cb.checked) ? 'Rescore' : 'Score';
 }
 
 async function scoreAll() {
@@ -477,11 +477,7 @@ async function scoreAll() {
         btn.textContent = label;
         document.getElementById('score-stop-btn').style.display = '';
         toast('Batch scoring started!', 'success');
-        showScoreStatus(true);
-        document.getElementById('score-spinner').style.display = '';
-        document.getElementById('score-status-text').textContent = 'Starting…';
-        document.getElementById('score-status-current').textContent = '';
-        document.getElementById('score-progress-bar').style.width = '0%';
+        trackRun('score', { status: 'active', pct: 0, detail: 'Starting…' });
         startScorePoll();
         _startOpsPoll();
     } catch (e) {
@@ -508,6 +504,7 @@ async function estimateSalariesAll() {
         btn.disabled = true;
         btn.textContent = limitVal ? `Estimating (${limitVal})...` : 'Estimating all...';
         document.getElementById('estimate-salaries-stop-btn').style.display = '';
+        trackRun('estimate', { status: 'active', pct: 0, detail: 'Estimating market salaries…' });
         toast('Salary estimation started!', 'success');
         _startOpsPoll();
     } catch (e) {

@@ -632,9 +632,9 @@ const TOUR_STEPS = [
     },
     {
         hash: '#dashboard',
-        selector: '.action-cards',
-        title: 'Quick actions',
-        body: 'Each card kicks off a workflow — fetch new jobs, score them against your profile, estimate salaries, or tailor resumes. Start here for any one-off task.',
+        selector: '.run-console',
+        title: 'Run console',
+        body: 'Kick off any workflow from the verb buttons — Fetch, Score, Tailor, Estimate (each caret opens its options), plus More for Detect Easy Apply, Add Job by URL, and refetching descriptions. The live log below tracks every run.',
     },
     {
         hash: '#jobs',

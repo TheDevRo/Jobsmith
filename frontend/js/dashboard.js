@@ -15,11 +15,15 @@ async function loadDashboard() {
             api('/api/activity?limit=20'),
         ]);
 
+        // Cache for the Now rail's "Today" line (used from other tabs without refetch).
+        window._lastStats = stats;
+
         document.getElementById('stat-total').textContent = stats.total_jobs || 0;
         document.getElementById('stat-pending').textContent = stats.pending_review || 0;
         document.getElementById('stat-today').textContent = stats.applied_today || 0;
         document.getElementById('stat-applied').textContent = stats.total_applied || 0;
         document.getElementById('stat-score').textContent = stats.avg_fit_score || 0;
+        renderNowRail();  // refresh the "Today" line with fresh stats
 
         // Show paused indicator on Pending Review tile
         const pausedCount = stats.paused || 0;
@@ -48,9 +52,15 @@ async function loadDashboard() {
                 </div>
             `).join('');
         }
+
+        // Seed the run console's live log with the same activity feed.
+        renderActivityLog(activity);
     } catch (e) {
         toast('Failed to load dashboard', 'error');
     }
+
+    // Fit-score histogram — ambient market read; hides itself on error.
+    loadFitHistogram();
 
     // Outcomes panel — non-fatal if it fails
     try {
@@ -277,6 +287,314 @@ function _notifyShellRunStatus(active, text) {
     } catch (e) { /* shell without the command */ }
 }
 
+// ===========================================================================
+// Foundry — run console (live log), the "Now" registry, the global Now rail,
+// and the fit-score histogram. The run polls (fetch/score/tailor/estimate/
+// detect/refetch) all feed a single `_nowRuns` registry via trackRun(); that
+// one registry drives the console's live log line AND the global rail, while
+// updateRunChip() keeps mirroring to the topbar chip + Tauri tray unchanged.
+// ===========================================================================
+
+// kind -> { kind, label, status:'active'|'done'|'error', progressText, pct,
+//           detail, result, startedAt, finishedAt }
+const _nowRuns = {};
+const NOW_RUN_TTL_MS = 10 * 60 * 1000;  // finished runs linger this long
+const _RUN_LABELS = {
+    fetch: 'Fetch', score: 'Score', tailor: 'Tailor', estimate: 'Estimate',
+    detect: 'Detect Easy Apply', refetch: 'Refetch descriptions',
+};
+// Cancel handler name per kind — wired to each op's existing cancel endpoint.
+const _RUN_CANCELS = {
+    fetch: 'cancelFetch', score: 'cancelScoreBatch', tailor: 'cancelTailorBatch',
+    estimate: 'cancelEstimateSalaries', detect: 'cancelDetectApplyTypes',
+    refetch: 'cancelRefetchDescriptions',
+};
+
+let _runEvents = [];            // session run start/finish lines for the console log
+let _activityCache = [];        // last activity feed payload (for the log history)
+let _railExpiryTimer = null;    // ticks to expire finished runs off the rail
+
+// The single entry point the polls call. Merges `patch` into the run's record,
+// emits a start/finish log event on status transitions, and re-renders the
+// console live log + the global rail.
+function trackRun(kind, patch) {
+    const now = Date.now();
+    const prev = _nowRuns[kind];
+    const prevStatus = prev && prev.status;
+    const next = Object.assign({ kind, label: _RUN_LABELS[kind] || kind, startedAt: now }, prev || {}, patch);
+    if (patch.status === 'active') next.finishedAt = null;
+    if ((patch.status === 'done' || patch.status === 'error') && !next.finishedAt) next.finishedAt = now;
+    _nowRuns[kind] = next;
+
+    if (patch.status && patch.status !== prevStatus) {
+        if (patch.status === 'active') _pushRunEvent('run', `${next.label} started`);
+        else if (patch.status === 'done') _pushRunEvent('ok', `${next.label} — ${next.result || 'done'}`);
+        else if (patch.status === 'error') _pushRunEvent('err', `${next.label} failed`);
+    }
+    _ensureRailExpiry();
+    renderRunLogLive();
+    renderNowRail();
+}
+
+// Runs still worth showing: active, or finished within the TTL window.
+function nowRunsForRender(now) {
+    now = now || Date.now();
+    return Object.keys(_nowRuns).map(k => _nowRuns[k]).filter(r =>
+        r.status === 'active' || (r.finishedAt && (now - r.finishedAt) < NOW_RUN_TTL_MS));
+}
+
+function pruneRuns(now) {
+    now = now || Date.now();
+    Object.keys(_nowRuns).forEach(k => {
+        const r = _nowRuns[k];
+        if (r.status !== 'active' && r.finishedAt && (now - r.finishedAt) >= NOW_RUN_TTL_MS) {
+            delete _nowRuns[k];
+        }
+    });
+}
+
+function _ensureRailExpiry() {
+    if (_railExpiryTimer) return;
+    _railExpiryTimer = setInterval(() => {
+        pruneRuns();
+        renderNowRail();
+        renderRunLogLive();
+        if (Object.keys(_nowRuns).length === 0) {
+            clearInterval(_railExpiryTimer);
+            _railExpiryTimer = null;
+        }
+    }, 30000);
+}
+
+// ---- Console live log ----
+function _hhmm(ts) {
+    const d = new Date(ts);
+    if (isNaN(d)) return '';
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Pure, escaped renderer for one log line. entry: { time, cls, action, details }.
+function runLogLineHtml(entry) {
+    const t = entry.time != null ? _hhmm(entry.time) : '';
+    const cls = entry.cls ? ` ${entry.cls}` : '';
+    const action = escapeHtml(entry.action || '');
+    const details = escapeHtml(entry.details || '');
+    return `<div class="rl-line${cls}"><span class="rl-t">${escapeHtml(t)}</span>`
+        + `<span class="rl-msg"><span class="rl-action">${action}</span> ${details}</span></div>`;
+}
+
+function _pushRunEvent(cls, msg) {
+    _runEvents.push({ time: Date.now(), cls, msg });
+    if (_runEvents.length > 30) _runEvents = _runEvents.slice(-30);
+    renderRunLogEvents();
+    _scrollLog();
+}
+
+function renderRunLogEvents() {
+    const el = document.getElementById('run-log-events');
+    if (!el) return;
+    el.innerHTML = _runEvents.map(e =>
+        runLogLineHtml({ time: e.time, cls: e.cls, action: e.msg })).join('');
+}
+
+// Activity feed → the log's history block (newest-last) plus the footer line.
+function renderActivityLog(activity) {
+    _activityCache = activity || [];
+    const hist = document.getElementById('run-log-history');
+    const foot = document.getElementById('run-log-foot');
+    if (hist) {
+        const lines = _activityCache.slice(0, 18).reverse();  // API is newest-first
+        hist.innerHTML = lines.length
+            ? lines.map(a => runLogLineHtml({ time: a.timestamp, action: a.action, details: a.details || '' })).join('')
+            : '<div class="rl-empty">No activity yet — run a verb above to get started.</div>';
+    }
+    if (foot) {
+        foot.textContent = _activityCache.length ? `Last activity: ${timeAgo(_activityCache[0].timestamp)}` : '';
+    }
+    _scrollLog();
+}
+
+function renderRunLogLive() {
+    const el = document.getElementById('run-log-live');
+    if (!el) return;
+    const active = Object.keys(_nowRuns).map(k => _nowRuns[k]).filter(r => r.status === 'active');
+    el.innerHTML = active.map(r => {
+        const pct = Math.max(0, Math.min(100, Number(r.pct) || 0));
+        const txt = escapeHtml(r.progressText || r.detail || 'working…');
+        const cancel = _RUN_CANCELS[r.kind];
+        const stop = cancel ? `<button class="rl-stop" onclick="${cancel}()">Stop</button>` : '';
+        return `<div class="rl-line rl-run"><span class="rl-t">${escapeHtml(_hhmm(Date.now()))}</span>`
+            + `<span class="rl-msg"><span class="rl-action">&#9654; ${escapeHtml(r.label)}</span> ${txt}</span>`
+            + `<span class="rl-bar"><i class="progress-bar-heat" style="width:${pct}%"></i></span>${stop}</div>`;
+    }).join('');
+    _scrollLog();
+}
+
+function _scrollLog() {
+    const log = document.getElementById('run-log');
+    if (log) log.scrollTop = log.scrollHeight;
+}
+
+// ---- Global "Now" rail ----
+function renderNowRail() {
+    const rail = document.getElementById('now-rail');
+    if (!rail) return;
+    pruneRuns();
+    const runs = nowRunsForRender();
+    if (runs.length === 0) {
+        rail.hidden = true;
+        rail.classList.remove('collapsed');
+        rail.innerHTML = '';
+        return;
+    }
+    const collapsed = localStorage.getItem('jobsmith_nowrail') === 'collapsed';
+    rail.hidden = false;
+    rail.classList.toggle('collapsed', collapsed);
+    const cards = runs.map(nowRunCardHtml).join('');
+    rail.innerHTML = `
+        <div class="now-rail-head">
+            <span class="eyebrow">Now</span>
+            <button class="now-rail-collapse" aria-label="${collapsed ? 'Expand' : 'Collapse'} the Now rail"
+                onclick="toggleNowRail()">${collapsed ? '&#8249;' : '&#8250;'}</button>
+        </div>
+        <div class="now-rail-body">${cards}${_railTodayHtml()}</div>`;
+}
+
+function nowRunCardHtml(r) {
+    const done = r.status === 'done', err = r.status === 'error';
+    const pct = Math.max(0, Math.min(100, Number(r.pct) || 0));
+    const mark = done ? '&#10003;' : err ? '&#10007;' : '';
+    const cls = done ? 'done' : err ? 'error' : 'active';
+    let sub;
+    if (done) sub = `${escapeHtml(r.result || 'done')} · ${escapeHtml(timeAgo(new Date(r.finishedAt).toISOString()))}`;
+    else if (err) sub = 'failed';
+    else sub = escapeHtml(r.progressText || r.detail || 'working…');
+    const bar = r.status === 'active'
+        ? `<div class="progress-track"><div class="progress-bar progress-bar-heat" style="width:${pct}%"></div></div>` : '';
+    const cancel = _RUN_CANCELS[r.kind];
+    const stop = (r.status === 'active' && cancel)
+        ? `<button class="runcard-stop" onclick="${cancel}()">Stop</button>` : '';
+    return `<div class="runcard ${cls}">
+        <div class="runcard-top"><span class="runcard-kind">${escapeHtml(r.label)}</span>`
+        + `<span class="runcard-mark">${mark}</span></div>`
+        + `<div class="runcard-sub">${sub}</div>${bar}${stop}</div>`;
+}
+
+let _railStatsFetching = false;
+function _railTodayHtml() {
+    const s = window._lastStats;
+    if (!s) {
+        // Fetch once (not on a timer) so the rail's Today line works off-dashboard.
+        if (!_railStatsFetching) {
+            _railStatsFetching = true;
+            api('/api/stats').then(st => { window._lastStats = st; renderNowRail(); })
+                .catch(() => {}).finally(() => { _railStatsFetching = false; });
+        }
+        return '';
+    }
+    const applied = s.applied_today || 0;
+    const pending = s.pending_review || 0;
+    return `<div class="now-rail-today"><span class="eyebrow">Today</span>`
+        + `<div class="now-rail-today-line">${applied} applied · ${pending} to review</div></div>`;
+}
+
+// Toggle open/collapsed (the topbar chip and the rail's edge button both call it).
+function toggleNowRail() {
+    const cur = localStorage.getItem('jobsmith_nowrail') === 'collapsed';
+    localStorage.setItem('jobsmith_nowrail', cur ? 'open' : 'collapsed');
+    renderNowRail();
+}
+
+// ---- Run-verb option popovers ----
+function toggleRunPopover(verb) {
+    const pop = document.getElementById(`run-popover-${verb}`);
+    if (!pop) return;
+    const wasOpen = !pop.hidden;
+    // Close every popover first (only one open at a time).
+    document.querySelectorAll('.run-popover').forEach(p => { p.hidden = true; });
+    document.querySelectorAll('.run-verb-caret, #more-caret').forEach(c => c.setAttribute('aria-expanded', 'false'));
+    if (!wasOpen) {
+        pop.hidden = false;
+        const caret = document.getElementById(`${verb === 'more' ? 'more' : verb}-caret`);
+        if (caret) caret.setAttribute('aria-expanded', 'true');
+        if (!_runPopoverDismissBound) {
+            document.addEventListener('click', _maybeCloseRunPopover, true);
+            _runPopoverDismissBound = true;
+        }
+    }
+}
+let _runPopoverDismissBound = false;
+function _maybeCloseRunPopover(e) {
+    if (e.target.closest && (e.target.closest('.run-popover') || e.target.closest('.run-split') || e.target.closest('#more-caret'))) return;
+    document.querySelectorAll('.run-popover').forEach(p => { p.hidden = true; });
+    document.querySelectorAll('.run-verb-caret, #more-caret').forEach(c => c.setAttribute('aria-expanded', 'false'));
+}
+
+// ---- Fit-score histogram ----
+// Consumes the /api/fit-breakdown payload the Fit Breakdown page uses. That
+// endpoint exposes coarse score buckets (unscored / 1-39 / 40-69 / 70+), so the
+// home histogram renders those four bins along the steel→ember heat ramp.
+const _FIT_HISTO_BINS = [
+    { key: 'unscored', label: 'None', mid: null },
+    { key: 'low', label: '1–39', mid: 20 },
+    { key: 'mid', label: '40–69', mid: 55 },
+    { key: 'high', label: '70+', mid: 85 },
+];
+
+function computeFitHistogram(breakdown) {
+    const b = (breakdown && breakdown.score_buckets) || {};
+    const bins = _FIT_HISTO_BINS.map(def => ({
+        key: def.key,
+        label: def.label,
+        mid: def.mid,
+        count: Math.max(0, Number(b[def.key]) || 0),
+        color: def.mid === null ? 'var(--text-muted)' : heatColor(def.mid),
+    }));
+    const total = bins.reduce((s, x) => s + x.count, 0);
+    const max = bins.reduce((m, x) => Math.max(m, x.count), 0);
+    let maxSeen = false;
+    bins.forEach(x => {
+        x.pct = max > 0 ? Math.round((x.count / max) * 100) : 0;
+        x.isMax = !maxSeen && max > 0 && x.count === max;
+        if (x.isMax) maxSeen = true;
+    });
+    return { bins, total, max };
+}
+
+async function loadFitHistogram() {
+    const card = document.getElementById('histogram-card');
+    if (!card) return;
+    try {
+        renderFitHistogram(await api('/api/fit-breakdown'));
+    } catch (e) {
+        card.style.display = 'none';
+    }
+}
+
+function renderFitHistogram(breakdown) {
+    const card = document.getElementById('histogram-card');
+    const host = document.getElementById('fit-histo');
+    const title = document.getElementById('histogram-title');
+    if (!card || !host) return;
+
+    const { bins, total } = computeFitHistogram(breakdown);
+    if (total === 0) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    if (title) title.textContent = `Fit score distribution · ${total} jobs`;
+
+    host.setAttribute('aria-label',
+        `Fit score distribution across ${total} jobs: ` +
+        bins.map(b => `${b.count} ${b.label === 'None' ? 'unscored' : b.label}`).join(', '));
+
+    host.innerHTML = bins.map(b => {
+        const h = Math.round(6 + b.pct * 0.74);  // 6..80px
+        const vlab = b.isMax ? `<span class="hbar-val">${b.count}</span>` : '';
+        return `<div class="hbar" title="${b.count} jobs (${escapeHtml(b.label)})">`
+            + `${vlab}<i style="height:${h}px;background:${b.color}"></i>`
+            + `<span class="hbar-lab">${escapeHtml(b.label)}</span></div>`;
+    }).join('');
+}
+
 // One-shot on page load: if a fetch or scoring batch is already in flight
 // (page reload, second window, run started from the API), re-attach the
 // button states, progress cards, polls and the header chip to it.
@@ -289,7 +607,7 @@ async function reattachActiveRuns() {
             btn.textContent = 'Fetching...';
             document.getElementById('fetch-stop-btn').style.display = '';
             document.getElementById('fetch-finish-btn').style.display = '';
-            showFetchStatus(true);
+            trackRun('fetch', { status: 'active', pct: 0, detail: 'Reconnecting…' });
             startFetchPoll();
         }
     } catch (e) { /* backend not up yet — the polls start on demand anyway */ }
@@ -300,7 +618,6 @@ async function reattachActiveRuns() {
             btn.disabled = true;
             btn.textContent = 'Scoring...';
             document.getElementById('score-stop-btn').style.display = '';
-            showScoreStatus(true);
             renderScoreStatus(s);
             startScorePoll();
         }
@@ -320,7 +637,7 @@ async function fetchNewJobs() {
     btn.textContent = 'Fetching...';
     document.getElementById('fetch-stop-btn').style.display = '';
     document.getElementById('fetch-finish-btn').style.display = '';
-    showFetchStatus(true);
+    trackRun('fetch', { status: 'active', pct: 0, detail: 'Starting…' });
 
     try {
         await api('/api/jobs/fetch', {
@@ -331,10 +648,10 @@ async function fetchNewJobs() {
     } catch (e) {
         toast('Failed to start job fetch', 'error');
         btn.disabled = false;
-        btn.textContent = 'Fetch New Jobs';
+        btn.textContent = 'Fetch';
         document.getElementById('fetch-stop-btn').style.display = 'none';
         document.getElementById('fetch-finish-btn').style.display = 'none';
-        showFetchStatus(false);
+        trackRun('fetch', { status: 'error', detail: 'Failed to start' });
     }
 }
 
@@ -356,28 +673,11 @@ async function finishFetch() {
     }
 }
 
-function showFetchStatus(visible) {
-    document.getElementById('fetch-status').style.display = visible ? '' : 'none';
-}
-
 function startFetchPoll() {
     stopFetchPoll();
     _fetchPollInterval = setInterval(async () => {
         try {
             const s = await api('/api/jobs/fetch/status');
-            const textEl = document.getElementById('fetch-status-text');
-            const barEl = document.getElementById('fetch-progress-bar');
-            const spinnerEl = document.getElementById('fetch-spinner');
-
-            // Navigated away mid-tick: the status card is gone. Tear the poll
-            // down instead of dereferencing nulls into the swallowed catch
-            // (which would leak the interval).
-            if (!textEl || !barEl) {
-                stopFetchPoll();
-                return;
-            }
-
-            textEl.textContent = s.detail || 'Working...';
 
             let pct = 0;
             if (s.phase === 'fetching' && s.sources_total > 0) {
@@ -387,38 +687,36 @@ function startFetchPoll() {
             } else if (s.phase === 'done' || s.phase === 'error') {
                 pct = 100;
             }
-            barEl.style.width = pct + '%';
 
             // Header chip mirrors the run from every tab.
             if (s.active) {
+                const progressText = s.sources_total > 0
+                    ? `${s.sources_done}/${s.sources_total}`
+                    : (s.phase === 'saving' ? 'saving' : 'searching…');
                 updateRunChip('fetch', s.sources_total > 0
                     ? `Searching · ${s.sources_done}/${s.sources_total}`
                     : (s.phase === 'saving' ? 'Searching · saving' : 'Searching…'));
+                trackRun('fetch', { status: 'active', pct, progressText, detail: s.detail || 'Working…' });
             } else {
                 updateRunChip('fetch', null);
-            }
-
-            if (!s.active) {
                 stopFetchPoll();
-                spinnerEl.style.display = 'none';
                 const btn = document.getElementById('fetch-btn');
                 btn.disabled = false;
-                btn.textContent = 'Fetch New Jobs';
+                btn.textContent = 'Fetch';
                 document.getElementById('fetch-stop-btn').style.display = 'none';
                 document.getElementById('fetch-finish-btn').style.display = 'none';
 
                 if (s.phase === 'done') {
-                    const msg = s.detail && s.detail.includes('ancelled')
-                        ? s.detail
-                        : `Found ${s.jobs_found} jobs (${s.jobs_inserted} new)`;
+                    const cancelled = s.detail && s.detail.includes('ancelled');
+                    const msg = cancelled ? s.detail : `Found ${s.jobs_found} jobs (${s.jobs_inserted} new)`;
+                    trackRun('fetch', { status: 'done', pct: 100, result: cancelled ? 'stopped' : `${s.jobs_inserted} new jobs`, detail: msg });
                     toast(msg, 'success');
                     loadJobs();
                     loadDashboard();
                 } else if (s.phase === 'error') {
+                    trackRun('fetch', { status: 'error', detail: 'Job fetch failed' });
                     toast('Job fetch failed', 'error');
                 }
-
-                setTimeout(() => showFetchStatus(false), 5000);
             }
         } catch (e) {
             // Ignore poll errors
@@ -440,11 +738,6 @@ function stopFetchPoll() {
 // ---------------------------------------------------------------------------
 let _scorePollInterval = null;
 
-function showScoreStatus(visible) {
-    const el = document.getElementById('score-status');
-    if (el) el.style.display = visible ? '' : 'none';
-}
-
 function startScorePoll() {
     stopScorePoll();
     _scorePollInterval = setInterval(async () => {
@@ -464,28 +757,18 @@ function stopScorePoll() {
 }
 
 function renderScoreStatus(s) {
-    const textEl = document.getElementById('score-status-text');
-    const currentEl = document.getElementById('score-status-current');
-    const barEl = document.getElementById('score-progress-bar');
-    const spinnerEl = document.getElementById('score-spinner');
-    if (!textEl || !barEl) return;
-
     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
 
     if (s.status === 'scoring') {
-        textEl.textContent = s.total > 0 ? `${s.done} of ${s.total} · ${pct}%` : (s.detail || 'Scoring…');
-        if (currentEl) currentEl.textContent = s.current || '';
-        barEl.style.width = pct + '%';
-        if (spinnerEl) spinnerEl.style.display = '';
+        const progressText = s.total > 0 ? `${s.done}/${s.total}` : '';
         updateRunChip('score', s.total > 0 ? `Scoring · ${s.done}/${s.total}` : 'Scoring…');
+        trackRun('score', { status: 'active', pct, progressText, detail: s.current || s.detail || 'Scoring…' });
         return;
     }
 
     // Terminal (done/cancelled/error) or idle: tear the run UI down.
     stopScorePoll();
     updateRunChip('score', null);
-    if (spinnerEl) spinnerEl.style.display = 'none';
-    if (currentEl) currentEl.textContent = '';
     const btn = document.getElementById('score-btn');
     if (btn) {
         btn.disabled = false;
@@ -495,21 +778,21 @@ function renderScoreStatus(s) {
     if (stopBtn) stopBtn.style.display = 'none';
 
     if (s.status === 'done') {
-        barEl.style.width = '100%';
-        textEl.textContent = s.detail || `Scored ${s.done} jobs`;
-        toast(textEl.textContent, 'success');
+        const msg = s.detail || `Scored ${s.done} jobs`;
+        trackRun('score', { status: 'done', pct: 100, result: `${s.done} scored`, detail: msg });
+        toast(msg, 'success');
         loadJobs();
         loadDashboard();
     } else if (s.status === 'cancelled') {
-        textEl.textContent = s.detail || `Stopped after ${s.done} jobs`;
-        toast(textEl.textContent, 'info');
+        const msg = s.detail || `Stopped after ${s.done} jobs`;
+        trackRun('score', { status: 'done', pct, result: `stopped · ${s.done} scored`, detail: msg });
+        toast(msg, 'info');
         loadJobs();
         loadDashboard();
     } else if (s.status === 'error') {
-        textEl.textContent = s.detail || 'Batch scoring failed';
+        trackRun('score', { status: 'error', detail: s.detail || 'Batch scoring failed' });
         toast('Batch scoring failed', 'error');
     }
-    setTimeout(() => showScoreStatus(false), 5000);
 }
 
 // Add a single job by URL
@@ -569,15 +852,17 @@ async function refetchMissingDescriptions() {
     stopBtn.style.display = '';
     statusEl.style.display = '';
     statusEl.textContent = 'Starting...';
+    trackRun('refetch', { status: 'active', pct: 0, detail: 'Starting…' });
     try {
         await api('/api/jobs/refetch-descriptions', { method: 'POST' });
         _startRefetchDescPoll();
     } catch (e) {
         toast(e.message || 'Failed to start refetch', 'error');
         btn.disabled = false;
-        btn.textContent = 'Refetch missing descriptions';
+        btn.textContent = 'Refetch descriptions';
         stopBtn.style.display = 'none';
         statusEl.style.display = 'none';
+        trackRun('refetch', { status: 'error', detail: 'Failed to start' });
     }
 }
 
@@ -597,18 +882,24 @@ function _startRefetchDescPoll() {
             const s = await api('/api/jobs/refetch-descriptions/status');
             const statusEl = document.getElementById('refetch-desc-status');
             statusEl.textContent = s.detail || 'Working...';
-            if (!s.active) {
+            const rTotal = s.total || 0;
+            const rPct = rTotal > 0 ? Math.round(((s.updated || 0) + (s.failed || 0)) / rTotal * 100) : 0;
+            if (s.active) {
+                trackRun('refetch', { status: 'active', pct: rPct, progressText: rTotal ? `${(s.updated || 0) + (s.failed || 0)}/${rTotal}` : '', detail: s.detail || 'Working…' });
+            } else {
                 clearInterval(_refetchDescPollInterval);
                 _refetchDescPollInterval = null;
                 const btn = document.getElementById('refetch-desc-btn');
                 const stopBtn = document.getElementById('refetch-desc-stop-btn');
                 btn.disabled = false;
-                btn.textContent = 'Refetch missing descriptions';
+                btn.textContent = 'Refetch descriptions';
                 stopBtn.style.display = 'none';
                 if (s.total > 0) {
+                    trackRun('refetch', { status: 'done', pct: 100, result: `updated ${s.updated}, failed ${s.failed}` });
                     toast(`Refetch done — updated ${s.updated}, failed ${s.failed} of ${s.total}`, 'success');
                     loadJobs();
                 } else {
+                    trackRun('refetch', { status: 'done', pct: 100, result: 'nothing to refetch' });
                     toast('No LinkedIn jobs with empty descriptions', 'info');
                 }
                 setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
@@ -630,7 +921,7 @@ function _startOpsPoll() {
                 const btn = document.getElementById('score-btn');
                 if (btn.disabled) {
                     btn.disabled = false;
-                    btn.textContent = document.getElementById('score-rescore-cb')?.checked ? 'Rescore Jobs' : 'Score Unscored';
+                    btn.textContent = document.getElementById('score-rescore-cb')?.checked ? 'Rescore' : 'Score';
                     document.getElementById('score-stop-btn').style.display = 'none';
                 }
             }
@@ -638,16 +929,18 @@ function _startOpsPoll() {
                 const btn = document.getElementById('tailor-btn');
                 if (btn.disabled) {
                     btn.disabled = false;
-                    btn.textContent = 'Tailor All Unprocessed';
+                    btn.textContent = 'Tailor';
                     document.getElementById('tailor-stop-btn').style.display = 'none';
+                    trackRun('tailor', { status: 'done', pct: 100, result: 'done' });
                 }
             }
             if (!s.estimate_salaries) {
                 const btn = document.getElementById('estimate-salaries-btn');
                 if (btn && btn.disabled) {
                     btn.disabled = false;
-                    btn.textContent = 'Estimate Missing';
+                    btn.textContent = 'Estimate';
                     document.getElementById('estimate-salaries-stop-btn').style.display = 'none';
+                    trackRun('estimate', { status: 'done', pct: 100, result: 'done' });
                 }
             }
             if (!s.score_batch && !s.tailor_batch && !s.apply && !s.estimate_salaries) {
@@ -670,14 +963,16 @@ async function detectApplyTypes() {
     btn.textContent = 'Detecting...';
     document.getElementById('detect-stop-btn').style.display = '';
     document.getElementById('detect-result').style.display = 'none';
+    trackRun('detect', { status: 'active', pct: 0, detail: 'Classifying…' });
     try {
         await api('/api/detect-apply-types', { method: 'POST' });
         _startDetectPoll();
     } catch (e) {
         toast('Failed to start apply type detection', 'error');
         btn.disabled = false;
-        btn.textContent = 'Run Detection';
+        btn.textContent = 'Detect Easy Apply';
         document.getElementById('detect-stop-btn').style.display = 'none';
+        trackRun('detect', { status: 'error', detail: 'Failed to start' });
     }
 }
 
@@ -700,17 +995,21 @@ function _startDetectPoll() {
                 _detectPollInterval = null;
                 const btn = document.getElementById('detect-btn');
                 btn.disabled = false;
-                btn.textContent = 'Run Detection';
+                btn.textContent = 'Detect Easy Apply';
                 document.getElementById('detect-stop-btn').style.display = 'none';
                 if (s.processed > 0) {
                     const msg = `Processed ${s.processed} jobs \u2014 ${s.easy_apply} Easy Apply, ${s.quick_apply} Quick Apply, ${s.external} External`;
                     const resultEl = document.getElementById('detect-result');
                     resultEl.textContent = msg;
                     resultEl.style.display = '';
+                    trackRun('detect', { status: 'done', pct: 100, result: `${s.processed} classified` });
                     toast(msg, 'success');
-                } else if (s.detail) {
-                    toast(s.detail, 'info');
+                } else {
+                    trackRun('detect', { status: 'done', pct: 100, result: s.detail || 'nothing to classify' });
+                    if (s.detail) toast(s.detail, 'info');
                 }
+            } else {
+                trackRun('detect', { status: 'active', pct: 0, detail: s.detail || 'Classifying\u2026' });
             }
         } catch (e) {}
     }, 1500);
@@ -726,6 +1025,7 @@ async function tailorAll() {
         btn.disabled = true;
         btn.textContent = 'Tailoring...';
         document.getElementById('tailor-stop-btn').style.display = '';
+        trackRun('tailor', { status: 'active', pct: 0, detail: 'Tailoring shortlisted jobs…' });
         toast('Batch tailoring started!', 'success');
         _startOpsPoll();
     } catch (e) {
