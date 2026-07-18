@@ -65,9 +65,9 @@ async function refreshFunnelCounts() {
     const grab = (p) => p.catch(() => null);
     const [s, p, su, f, ip] = await Promise.all([
         grab(api('/api/jobs?status=shortlisted&limit=1').then(d => (d && typeof d.total === 'number') ? d.total : ((d && d.jobs) || []).length)),
-        grab(api('/api/applications/pending?limit=200').then(a => (a || []).length)),
-        grab(api('/api/applications/submitted?limit=200').then(a => (a || []).length)),
-        grab(api('/api/applications/failed?limit=200').then(a => (a || []).length)),
+        grab(api('/api/applications/pending?limit=100').then(a => (a || []).length)),
+        grab(api('/api/applications/submitted?limit=100').then(a => (a || []).length)),
+        grab(api('/api/applications/failed?limit=100').then(a => (a || []).length)),
         grab(api('/api/applications/in-progress').then(d => ((d && d.in_progress) || []).length + ((d && d.needs_attention) || []).length)),
     ]);
     if (s !== null) _funnelCounts.shortlisted = s;

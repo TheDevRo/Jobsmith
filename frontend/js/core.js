@@ -107,16 +107,20 @@ const PAGE_TITLES = {
     'fit-breakdown': 'Fit Score Breakdown',
 };
 
-// ---- Layout preference (Phase 3 · Deck vs Classic) ----
-// Deck features (triage stage, kanban board) are additive and only active in
-// the 'deck' layout. DEFAULT is 'classic' this phase (Phase 4 flips it), so the
-// Phase 1–2 UI stays pixel-identical until the user opts in.
+// ---- Layout preference (Deck vs Classic) ----
+// Deck is the default layout (triage stage, kanban board). 'classic' keeps the
+// list-based Inbox and tabbed Pipeline; switch any time in Settings or via ⌘K.
 function getLayout() {
-    return localStorage.getItem('jobsmith_layout') === 'deck' ? 'deck' : 'classic';
+    return localStorage.getItem('jobsmith_layout') === 'classic' ? 'classic' : 'deck';
 }
 function isDeckLayout() { return getLayout() === 'deck'; }
 function applyLayout() {
-    document.body.classList.toggle('layout-deck', isDeckLayout());
+    const deck = isDeckLayout();
+    document.body.classList.toggle('layout-deck', deck);
+    const bDeck = document.getElementById('layout-mode-deck');
+    const bClassic = document.getElementById('layout-mode-classic');
+    if (bDeck) bDeck.classList.toggle('active', deck);
+    if (bClassic) bClassic.classList.toggle('active', !deck);
 }
 function setLayout(v) {
     localStorage.setItem('jobsmith_layout', v === 'deck' ? 'deck' : 'classic');

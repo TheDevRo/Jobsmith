@@ -2,7 +2,7 @@
 // escapes hostile input, the kanban drag map exposes EXACTLY the five allowed
 // transitions (each hitting the right endpoint + payload), the stage keyboard
 // verdicts PATCH the right status, and the layout toggle flips the body class
-// while defaulting to 'classic'.
+// with 'deck' as the default layout.
 //
 // Same jsdom-as-one-eval-unit style as test_ledger.js / test_foundry.js: the
 // production scripts are eval'd unmodified as ONE unit so top-level function
@@ -168,10 +168,12 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["stage T then tailors the top card", calls.some((c) => c.url === "/api/jobs/s1/tailor" && methodOf(c) === "POST")]);
 
   // ===================================================================
-  // 6. Layout toggle applies the body class and defaults to 'classic'
+  // 6. Layout toggle applies the body class and defaults to 'deck'
   // ===================================================================
   window.localStorage.removeItem("jobsmith_layout");
-  checks.push(["default layout is classic", window.getLayout() === "classic" && window.isDeckLayout() === false]);
+  checks.push(["default layout is deck", window.getLayout() === "deck" && window.isDeckLayout() === true]);
+  checks.push(["explicit classic choice is honored", (window.localStorage.setItem("jobsmith_layout", "classic"), window.getLayout() === "classic")]);
+  window.localStorage.removeItem("jobsmith_layout");
   window.handleHash = () => {};  // setLayout re-renders via handleHash — no-op it here
   window.setLayout("deck");
   checks.push(["setLayout('deck') adds the layout-deck body class", doc.body.classList.contains("layout-deck")]);

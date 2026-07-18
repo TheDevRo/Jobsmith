@@ -451,6 +451,10 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
+                    <div class="settings-mode-toggle" role="group" aria-label="Layout" title="Deck: card-stage triage and a drag-and-drop Pipeline board. Classic: the list-based Inbox and tabbed Pipeline.">
+                        <button id="layout-mode-deck" onclick="setLayout('deck')">Deck</button>
+                        <button id="layout-mode-classic" onclick="setLayout('classic')">Classic</button>
+                    </div>
                     <div class="settings-mode-toggle" role="group" aria-label="Settings mode" title="Basic shows the essentials; Advanced exposes every knob (AI prompts, logs, and more).">
                         <button id="settings-mode-basic" onclick="setSettingsMode('basic')">Basic</button>
                         <button id="settings-mode-advanced" onclick="setSettingsMode('advanced')">Advanced</button>
@@ -1351,7 +1355,7 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=43"></script>
+    <script src="js/core.js?v=44"></script>
     <script src="js/dashboard.js?v=38"></script>
     <script src="js/jobs.js?v=43"></script>
     <script src="js/review.js?v=40"></script>
