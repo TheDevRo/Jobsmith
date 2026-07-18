@@ -1,11 +1,11 @@
 # Python
-.venv/
+.venv
 __pycache__/
 *.pyc
 *.pyo
 
 # Node
-node_modules/
+node_modules
 
 # Desktop build (Tauri + PyInstaller)
 /build/
