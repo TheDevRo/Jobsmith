@@ -77,6 +77,14 @@ PROFILE_ENTITY = "profile"
 PROFILE_ID = "me"
 SETTING_ENTITY = "setting"
 
+# Entities gated by the `inbox` settings category. When `inbox` is not enabled
+# on a device, these skip BOTH export and import (live records AND tombstones)
+# and — crucially — their sync_snapshot rows are left untouched, so re-enabling
+# the category diffs against a still-accurate snapshot and re-exports whatever
+# changed while it was off. The category defaults ON, so the pre-toggle
+# behavior (job + triage always sync) is preserved. iOS gates the same pair.
+INBOX_ENTITIES = frozenset({"job", "triage"})
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -149,8 +157,9 @@ class SyncEngine:
     def _enabled_categories(self) -> frozenset[str]:
         if self._load_settings is None:
             # No settings bridge wired: preserve pre-feature behavior — the
-            # profile bridge stays unconditionally on.
-            return frozenset({"profile"})
+            # profile bridge AND the job/triage entities (`inbox`) stay
+            # unconditionally on, exactly as they synced before these toggles.
+            return frozenset({"profile", "inbox"})
         cfg = self._load_settings() or {}
         return sr.enabled_categories(cfg)
 
@@ -279,7 +288,15 @@ class SyncEngine:
             if force:
                 await self._set_meta(conn, "pending_migration", "0")
 
+            enabled = self._enabled_categories()
+            inbox_on = "inbox" in enabled
+
             for adapter in self._adapters(folder):
+                # `inbox` OFF: skip job/triage entirely — no records emitted and,
+                # deliberately, no snapshot rows written/deleted, so re-enabling
+                # re-exports what changed while off.
+                if not inbox_on and adapter.entity in INBOX_ENTITIES:
+                    continue
                 current = await adapter.snapshot(conn)
                 snap = await self._load_snapshot(conn, adapter.entity)
                 for sid, data in current.items():
@@ -298,8 +315,6 @@ class SyncEngine:
                         records.append(self._tombstone_record(adapter.entity, sid, ts))
                         await self._put_snapshot(conn, adapter.entity, sid, ts, True, None)
                         stats.tombstones += 1
-
-            enabled = self._enabled_categories()
 
             # Profile bridge — GATED by the `profile` category. When off we skip
             # export entirely (and, crucially, never tombstone profile/me), so
@@ -401,7 +416,14 @@ class SyncEngine:
 
         conn = await self._connect()
         stats = ImportStats()
-        adapters = self._adapters(folder)
+        enabled = self._enabled_categories()
+        inbox_on = "inbox" in enabled
+        # `inbox` OFF: drop the job/triage adapters so incoming records (live AND
+        # tombstone) are neither applied nor allowed to touch their snapshot rows.
+        all_adapters = self._adapters(folder)
+        adapters = [
+            a for a in all_adapters if inbox_on or a.entity not in INBOX_ENTITIES
+        ]
         adapters_by_entity = {a.entity: a for a in adapters}
         try:
             await self._mark_migration_if_needed(conn)
@@ -430,8 +452,6 @@ class SyncEngine:
                     if entity == adapter.entity and rec.get("deleted"):
                         await adapter.apply_tombstone(conn, sid)
                         stats.deletes += 1
-
-            enabled = self._enabled_categories()
 
             # Profile — GATED by the `profile` category (symmetric with export).
             prof_winner = winners.get((PROFILE_ENTITY, PROFILE_ID))
@@ -509,6 +529,11 @@ class SyncEngine:
             settings_reread = sr.export_settings(cfg)
 
         for (entity, sid), rec in winners.items():
+            # `inbox` OFF filtered job/triage out of adapters_by_entity: leave
+            # their snapshot rows untouched (never applied, never diffed) so a
+            # later re-enable re-imports them cleanly.
+            if entity in INBOX_ENTITIES and entity not in adapters_by_entity:
+                continue
             if rec.get("deleted"):
                 if entity == SETTING_ENTITY and (
                     sr.category_for_path(sid) is None

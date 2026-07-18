@@ -116,6 +116,49 @@ def test_http_secret_fields_are_registry_api_masked():
         assert f"{section}.{key}" in masked, f"{section}.{key} not in api_masked_keys()"
 
 
+def test_inbox_category_and_settings_registered():
+    """The `inbox` category (default ON) plus its two synced prefs are in the
+    registry, with the exact enum contract the iOS twin uses."""
+    cats = {c.key: c for c in sr.CATEGORIES}
+    assert "inbox" in cats
+    assert cats["inbox"].default is True
+    assert cats["inbox"].label == "Inbox"
+
+    ids = sr.syncable_canonical_ids()
+    assert "inbox.require_stated_pay" in ids
+    assert "inbox.sort" in ids
+
+    by_canon = {s.canonical: s for s in sr.syncable()}
+    rsp = by_canon["inbox.require_stated_pay"]
+    assert rsp.kind is sr.Kind.BOOL and rsp.category == "inbox"
+    srt = by_canon["inbox.sort"]
+    assert srt.kind is sr.Kind.ENUM and srt.category == "inbox"
+    assert srt.enum_values == ("best_bets", "best_match", "newest", "salary", "company")
+
+    assert sr.category_for_path("inbox.sort") == "inbox"
+    assert sr.category_for_path("inbox.require_stated_pay") == "inbox"
+
+
+def test_inbox_settings_export_apply_and_gating():
+    cfg = {"sync": {"settings": {"inbox": True}},
+           "inbox": {"require_stated_pay": True, "sort": "salary"}}
+    out = sr.export_settings(cfg)
+    assert out["inbox.require_stated_pay"] == {"value": True}
+    assert out["inbox.sort"] == {"value": "salary"}
+
+    # Category OFF -> neither pref is exported.
+    off = sr.export_settings({"sync": {"settings": {"inbox": False}},
+                              "inbox": {"sort": "newest"}})
+    assert "inbox.sort" not in off and "inbox.require_stated_pay" not in off
+
+    # apply_setting routes both back into cfg["inbox"] (default path mapping).
+    dest = {}
+    sr.apply_setting(dest, "inbox.sort", "company")
+    sr.apply_setting(dest, "inbox.require_stated_pay", True)
+    assert dest["inbox"]["sort"] == "company"
+    assert dest["inbox"]["require_stated_pay"] is True
+
+
 def test_api_key_is_masked_but_not_folder_stripped():
     # The one deliberate asymmetry: the AI api_key syncs through the folder but is
     # still masked over HTTP.

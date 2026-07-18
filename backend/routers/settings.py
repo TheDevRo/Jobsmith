@@ -77,6 +77,7 @@ class ConfigUpdate(BaseModel):
     assist: Optional[dict] = None
     salary_estimator: Optional[dict] = None
     server: Optional[dict] = None
+    inbox: Optional[dict] = None
 
 
 class HonestyLevelUpdate(BaseModel):
@@ -243,6 +244,12 @@ async def get_config(
             "host": (cfg.get("server") or {}).get("host", "127.0.0.1"),
             "port": (cfg.get("server") or {}).get("port", 8888),
         },
+        # Inbox display prefs (synced under the `inbox` category). Defaults match
+        # the registry: sort=best_match, require_stated_pay=false.
+        "inbox": {
+            "sort": (cfg.get("inbox") or {}).get("sort", "best_match"),
+            "require_stated_pay": bool((cfg.get("inbox") or {}).get("require_stated_pay", False)),
+        },
     }
     return payload if _local else _mask_secrets(payload)
 
@@ -289,8 +296,22 @@ async def update_config(body: ConfigUpdate):
         allowed = {k: v for k, v in body.server.items() if k in ("host", "port")}
         if allowed:
             cfg["server"] = {**(cfg.get("server") or {}), **allowed}
+    if body.inbox is not None:
+        # Only the two known Inbox prefs are recognized; sort is validated so a
+        # bad value can't poison the deck's ORDER BY mapping.
+        allowed = {}
+        if "sort" in body.inbox and body.inbox["sort"] in _INBOX_SORTS:
+            allowed["sort"] = body.inbox["sort"]
+        if "require_stated_pay" in body.inbox:
+            allowed["require_stated_pay"] = bool(body.inbox["require_stated_pay"])
+        if allowed:
+            cfg["inbox"] = {**(cfg.get("inbox") or {}), **allowed}
     state.save_config(cfg)
     return {"message": "Config updated"}
+
+
+# Keep in lockstep with settings_registry inbox.sort enum_values + JobSort (iOS).
+_INBOX_SORTS = ("best_bets", "best_match", "newest", "salary", "company")
 
 
 # ---------------------------------------------------------------------------

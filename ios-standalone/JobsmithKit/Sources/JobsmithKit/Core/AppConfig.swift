@@ -59,6 +59,11 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     /// without a `minSalary` floor; the filter ignores it when the floor is
     /// off.
     public var requireStatedPay: Bool
+    /// The Inbox swipe-deck sort order, stored in canonical snake_case
+    /// (best_bets/best_match/newest/salary/company) so it round-trips through
+    /// the settings-sync `inbox.sort` key without translation. The UI maps it
+    /// to `JobSort`; an unrecognized value falls back to best_match at read.
+    public var inboxSort: String
     public var maxAgeDays: Int?
     public var remoteOnly: Bool
     /// Per-company ATS watchlists (board slugs).
@@ -78,6 +83,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     public init(keywords: [String] = [], locations: [String] = ["Remote"],
                 excludeKeywords: [String] = [], minSalary: Int? = nil,
                 requireStatedPay: Bool = false,
+                inboxSort: String = "best_match",
                 maxAgeDays: Int? = 7, remoteOnly: Bool = false,
                 greenhouseBoards: [String] = [], leverCompanies: [String] = [],
                 ashbyBoards: [String] = [], workableAccounts: [String] = [],
@@ -87,6 +93,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         self.keywords = keywords; self.locations = locations
         self.excludeKeywords = excludeKeywords; self.minSalary = minSalary
         self.requireStatedPay = requireStatedPay
+        self.inboxSort = inboxSort
         self.maxAgeDays = maxAgeDays; self.remoteOnly = remoteOnly
         self.greenhouseBoards = greenhouseBoards; self.leverCompanies = leverCompanies
         self.ashbyBoards = ashbyBoards; self.workableAccounts = workableAccounts
@@ -107,6 +114,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
         // means "this build didn't write it", so decodeIfPresent won't do.
         minSalary = c.contains(.minSalary) ? ((try? c.decode(Int?.self, forKey: .minSalary)) ?? nil) : nil
         requireStatedPay = c.lenient(Bool.self, .requireStatedPay, d.requireStatedPay)
+        inboxSort = c.lenient(String.self, .inboxSort, d.inboxSort)
         maxAgeDays = c.contains(.maxAgeDays)
             ? ((try? c.decode(Int?.self, forKey: .maxAgeDays)) ?? nil)
             : d.maxAgeDays
@@ -121,7 +129,7 @@ public struct SearchConfig: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case keywords, locations, excludeKeywords, minSalary, requireStatedPay, maxAgeDays, remoteOnly
+        case keywords, locations, excludeKeywords, minSalary, requireStatedPay, inboxSort, maxAgeDays, remoteOnly
         case greenhouseBoards, leverCompanies, ashbyBoards, workableAccounts
         case recruiteeCompanies, enabledSources, linkedInEnabled
     }

@@ -32,6 +32,7 @@ public enum SettingsSync {
     /// it gates the EXISTING profile bridge, not a `registry` row below.
     public static let categories: [Category] = [
         Category(key: "profile", label: "Profile", defaultOn: true),
+        Category(key: "inbox", label: "Inbox", defaultOn: true),
         Category(key: "postings", label: "Postings (Search & sources)", defaultOn: false),
         Category(key: "documents", label: "Documents (resume & honesty)", defaultOn: false),
         Category(key: "ai_connection", label: "AI Connection", defaultOn: false),
@@ -59,6 +60,12 @@ public enum SettingsSync {
     /// Secrets/local keys are NOT listed here — they are excluded by omission
     /// (never emitted) exactly as on the desktop.
     static let registry: [Entry] = [
+        // inbox (the swipe deck): the standing pay gate + the deck sort order.
+        // Both live on `SearchConfig` on iOS but gate on the `inbox` category, so
+        // the Postings toggle and the Inbox toggle stay independent.
+        .init("inbox.require_stated_pay", category: "inbox", ios: "search.requireStatedPay"),
+        .init("inbox.sort", category: "inbox", ios: "search.inboxSort",
+              note: "ENUM: best_bets/best_match/newest/salary/company. Unknown values are ignored on apply."),
         // documents / honesty
         .init("application_honesty.honesty_level", category: "documents", ios: "honesty.level"),
         .init("application_honesty.cover_letter_tone", category: "documents", ios: "honesty.coverLetterTone"),
@@ -141,6 +148,11 @@ public enum SettingsSync {
         if path.hasPrefix("prompts.") { return "prompts" }   // prompts.* expansion
         return nil
     }
+
+    /// Allowed values for `inbox.sort` (canonical JobSort). An import carrying
+    /// anything else is ignored, exactly as a desktop ENUM setting normalizes an
+    /// unrecognized value rather than writing it.
+    static let inboxSortValues: Set<String> = ["best_bets", "best_match", "newest", "salary", "company"]
 
     private static let legacyResumeStyles = ["standard": "ledger", "modern": "ledger", "minimal": "swiss"]
 
@@ -251,6 +263,10 @@ public enum SettingsSync {
             return
         }
         guard let e = byCanonical[path], let iosPath = e.ios else { return }  // unmodeled: base-overlay
+        // ENUM guard: an out-of-vocabulary inbox sort is ignored, never written.
+        if path == "inbox.sort" {
+            guard case .string(let s) = value, inboxSortValues.contains(s) else { return }
+        }
         // A tier the user routed on-device is pinned device-local. The
         // sentinel is never exported, so the folder only ever holds another
         // device's endpoint model for this path — applying it would silently

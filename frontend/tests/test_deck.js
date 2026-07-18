@@ -226,6 +226,44 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["boardOpenApp with a job id opens the peek modal", !!doc.getElementById("job-modal-overlay")]);
   window.closeJobModal();
 
+  // ===================================================================
+  // 8. Stage fetch honors the synced Inbox prefs (sort mapping + pay gate),
+  //    and is byte-identical to the legacy query when nothing is set.
+  // ===================================================================
+  // Drive through loadStage(), which loads /api/config then fetches /api/jobs.
+  // A stub returns the config; we assert the resulting /api/jobs query string.
+  async function stageFetchUrlFor(cfg) {
+    window.api = (url) => {
+      calls.push({ url });
+      if (url === "/api/config") return Promise.resolve(cfg);
+      return Promise.resolve({ jobs: [], total: 0 });
+    };
+    calls.length = 0;
+    await window.loadStage();
+    await new Promise((r) => setTimeout(r, 0));
+    return calls.map((c) => c.url).find((u) => u.startsWith("/api/jobs"));
+  }
+
+  // Defaults (no inbox prefs, no floor): unchanged from the pre-feature string.
+  const defUrl = await stageFetchUrlFor({});
+  checks.push(["default stage fetch is the legacy query",
+    defUrl === "/api/jobs?status=discovered&sort_by=fit_score&sort_dir=desc&limit=30"]);
+
+  // Salary sort + a floor + require_stated_pay -> mapped sort and pay params.
+  const salUrl = await stageFetchUrlFor({ inbox: { sort: "salary", require_stated_pay: true }, search: { min_salary: 90000 } });
+  checks.push(["salary sort maps to sort_by=salary desc", salUrl.includes("sort_by=salary") && salUrl.includes("sort_dir=desc")]);
+  checks.push(["floor set adds pay_floor", salUrl.includes("pay_floor=90000")]);
+  checks.push(["require_stated_pay passed with a floor", salUrl.includes("require_stated_pay=true")]);
+
+  // Company sort maps to ascending.
+  const coUrl = await stageFetchUrlFor({ inbox: { sort: "company" }, search: {} });
+  checks.push(["company sort maps to sort_by=company asc", coUrl.includes("sort_by=company") && coUrl.includes("sort_dir=asc")]);
+
+  // require_stated_pay WITHOUT a floor is ignored (contract): no pay params.
+  const noFloorUrl = await stageFetchUrlFor({ inbox: { sort: "newest", require_stated_pay: true }, search: { min_salary: 0 } });
+  checks.push(["newest sort maps to date_discovered desc", noFloorUrl.includes("sort_by=date_discovered") && noFloorUrl.includes("sort_dir=desc")]);
+  checks.push(["require_stated_pay ignored without a floor", !noFloorUrl.includes("pay_floor") && !noFloorUrl.includes("require_stated_pay")]);
+
   const fail = report(checks);
   if (fail) {
     console.error(`\ntest_deck: ${fail} check(s) failed`);

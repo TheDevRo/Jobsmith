@@ -51,6 +51,11 @@ CATEGORIES: tuple[Category, ...] = (
     Category("profile", "Profile", True,
              note="Handled by the existing profile bridge (profile/me), now GATED by this "
                   "toggle. ON by default = no regression; turning it OFF is a new capability."),
+    Category("inbox", "Inbox", True,
+             note="Job postings, triage decisions, and the Inbox filters (stated-pay gate + "
+                  "sort). ON by default so the job/triage entities keep syncing exactly as they "
+                  "did before this toggle existed; turning it OFF keeps the phone's and desktop's "
+                  "feeds independent."),
     Category("postings", "Postings (Search & sources)", False),
     Category("documents", "Documents (resume & honesty)", False),
     Category("ai_connection", "AI Connection", False,
@@ -147,6 +152,19 @@ REGISTRY: tuple[Setting, ...] = (
                  "sort to a stable array. iOS `linkedInEnabled` folds in as the 'linkedin' member. "
                  "Sort before hashing or the snapshot re-emits every cycle."),
 
+    # -- Inbox filters (inbox.*) — SYNC. The job/triage ENTITIES are gated by the
+    #    same `inbox` category in the engine; these two rows carry the standing
+    #    Inbox display prefs. iOS reference: JobListFilter.applyPayFilter +
+    #    JobFilters.statedAnnualPay + JobSort. ------------------------------------
+    Setting("inbox.require_stated_pay", Cls.SYNC, Kind.BOOL, "inbox", ios="search.requireStatedPay",
+            note="Companion to search.min_salary: hide jobs with no stated pay / unknown pay "
+                 "period. Ignored without a floor (see statedAnnualPay). Default false. "
+                 "iOS carries it on SearchConfig but gates on the `inbox` category."),
+    Setting("inbox.sort", Cls.SYNC, Kind.ENUM, "inbox", ios="search.inboxSort",
+            enum_values=("best_bets", "best_match", "newest", "salary", "company"),
+            note="Inbox deck ordering. Default best_match. Desktop maps best_bets->fit_score desc "
+                 "(documented approximation — iOS best-bets consults device-local reply data)."),
+
     # -- Pipeline ranking (pipeline.*) — SYNC (desktop-only concept today) ----
     Setting("pipeline.ghost_after_days", Cls.SYNC, Kind.INT, "pipeline",
             note="iOS does not model pipeline; base-overlay preserves it on the phone untouched."),
@@ -241,6 +259,7 @@ REGISTRY: tuple[Setting, ...] = (
     # The per-category toggles for THIS feature (sync.settings.<key>). Local by
     # definition — each device opts itself into each category. See CATEGORIES.
     Setting("sync.settings.profile", Cls.LOCAL, Kind.BOOL, "_excluded"),
+    Setting("sync.settings.inbox", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("sync.settings.postings", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("sync.settings.documents", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("sync.settings.pipeline", Cls.LOCAL, Kind.BOOL, "_excluded"),

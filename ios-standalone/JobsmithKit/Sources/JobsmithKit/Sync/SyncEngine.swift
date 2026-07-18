@@ -50,13 +50,18 @@ public final class SyncEngine {
     let now: () -> Date
 
     private var profileEnabled: Bool { settingsEnabled.contains("profile") }
+    /// Gates the `job` (facts) and `triage` (lifecycle decision) entities. When
+    /// off, this device neither exports nor imports either — and, crucially,
+    /// never touches their sync_snapshot rows, so a change made while off is
+    /// re-exported on re-enable (diff vs the frozen snapshot). Default ON.
+    private var inboxEnabled: Bool { settingsEnabled.contains("inbox") }
 
     public init(db: AppDatabase, deviceId: String,
                 loadProfile: @escaping () -> [String: JSONValue]? = { nil },
                 saveProfile: @escaping ([String: JSONValue]) -> Void = { _ in },
                 loadSettings: @escaping () -> [String: JSONValue]? = { nil },
                 saveSettings: @escaping ([String: JSONValue]) -> Void = { _ in },
-                settingsEnabled: Set<String> = ["profile"],
+                settingsEnabled: Set<String> = ["profile", "inbox"],
                 docsLocalDir: URL? = nil,
                 now: @escaping () -> Date = { Date() }) {
         self.db = db
@@ -510,8 +515,13 @@ public final class SyncEngine {
                 }
             }
 
-            try diff(entity: "job", current: try jobSnapshot(dbc))
-            try diff(entity: "triage", current: try triageSnapshot(dbc))
+            // Inbox facts + lifecycle decision — GATED by the `inbox` category.
+            // Off ⇒ skip both diffs, leaving their snapshot rows untouched so a
+            // change made while off re-exports on re-enable.
+            if inboxEnabled {
+                try diff(entity: "job", current: try jobSnapshot(dbc))
+                try diff(entity: "triage", current: try triageSnapshot(dbc))
+            }
             try diff(entity: "application", current: try appSnapshot(dbc, store))
             try diff(entity: "application_event", current: try appEventSnapshot(dbc))
             try diff(entity: "application_schedule", current: try scheduleSnapshot(dbc))
@@ -633,12 +643,16 @@ public final class SyncEngine {
             // Live upserts in dependency order. A delete is NOT special here — it
             // is a `triage` record whose canonical status is 'deleted', applied
             // like any other decision. Facts first, then the decision, then apps.
-            for (key, rec) in winners where key.entity == "job" && !rec.deleted {
-                try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
-            }
-            for (key, rec) in winners where key.entity == "triage" && !rec.deleted {
-                do { try applyTriage(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
-                catch is DeferError { deferred.insert("triage:\(key.id)"); stats.deferred += 1 }
+            // Inbox facts + decision — GATED by `inbox` (symmetric with export).
+            // Off ⇒ incoming job/triage records are not applied.
+            if inboxEnabled {
+                for (key, rec) in winners where key.entity == "job" && !rec.deleted {
+                    try applyJob(dbc, rec.data ?? [:]); stats.upserts += 1
+                }
+                for (key, rec) in winners where key.entity == "triage" && !rec.deleted {
+                    do { try applyTriage(dbc, key.id, rec.data ?? [:]); stats.upserts += 1 }
+                    catch is DeferError { deferred.insert("triage:\(key.id)"); stats.deferred += 1 }
+                }
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
                 do { try applyApplication(dbc, key.id, rec.data ?? [:], store); stats.upserts += 1 }
@@ -692,8 +706,10 @@ public final class SyncEngine {
             for (key, rec) in winners where key.entity == "application" && rec.deleted {
                 try dbc.execute(sql: "DELETE FROM applications WHERE id = ?", arguments: [key.id]); stats.deletes += 1
             }
-            for (key, rec) in winners where key.entity == "job" && rec.deleted {
-                try deleteJob(dbc, key.id); stats.deletes += 1
+            if inboxEnabled {
+                for (key, rec) in winners where key.entity == "job" && rec.deleted {
+                    try deleteJob(dbc, key.id); stats.deletes += 1
+                }
             }
             // Profile — GATED by the `profile` category (symmetric with export).
             if profileEnabled,
@@ -859,6 +875,10 @@ public final class SyncEngine {
         // no-op; only modeled paths in an enabled category were applied.
         let settingsExport = settingsCfg.map { SettingsSync.export($0, enabled: settingsEnabled) } ?? [:]
         for (key, rec) in winners {
+            // While the `inbox` category is off we never applied job/triage and
+            // must not touch their snapshot rows — freezing them so a local
+            // change made offline still diffs (and re-exports) on re-enable.
+            if !inboxEnabled && (key.entity == "job" || key.entity == "triage") { continue }
             if rec.deleted {
                 if key.entity == "setting",
                    !(SettingsSync.isModeled(key.id)

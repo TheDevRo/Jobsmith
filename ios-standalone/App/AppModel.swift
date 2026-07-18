@@ -84,6 +84,7 @@ final class AppModel {
         #endif
         Task {
             config = await configStore.load()
+            await migrateInboxSortIfNeeded()
             #if DEBUG
             // Test-only: "-E2EKeywords a,b,c" / "-E2ESources x,y" inject
             // search config in-memory so walkthrough tests can exercise a
@@ -350,6 +351,17 @@ final class AppModel {
         } catch {
             lastError = "Could not save settings: \(error.localizedDescription)"
         }
+    }
+
+    /// One-time seed of the synced Inbox sort from the pre-sync, per-device
+    /// `@AppStorage("jobSort")` value. Runs only while the config still holds the
+    /// default, so a value already set (or arrived over sync) wins. The Pipeline
+    /// keeps using the same @AppStorage key, so this reads but never clears it.
+    private func migrateInboxSortIfNeeded() async {
+        guard config.search.inboxSort == SearchConfig().inboxSort else { return }
+        guard let raw = UserDefaults.standard.string(forKey: AppStorageKey.jobSort),
+              let sort = JobSort(rawValue: raw), sort != .bestMatch else { return }
+        await saveConfigNow { $0.search.inboxSort = sort.canonical }
     }
 
     func triage(_ job: Job, as triage: String) {

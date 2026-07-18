@@ -458,6 +458,8 @@ async def get_jobs(
     date_to: Optional[str] = None,
     min_salary: Optional[int] = None,
     include_estimated: bool = False,
+    pay_floor: Optional[int] = None,
+    require_stated_pay: bool = False,
     sort_by: str = "date_discovered",
     sort_dir: str = "desc",
     limit: int = 50,
@@ -534,6 +536,33 @@ async def get_jobs(
                 conditions.append("(" + real_clause + ")")
                 params.extend([min_salary, min_salary])
 
+        # Lenient Inbox pay gate (independent of the strict `min_salary` filter
+        # above). Mirrors iOS JobListFilter.applyPayFilter + statedAnnualPay:
+        #   stated amount = salary_max unless null/0, else salary_min;
+        #   "stated" also requires a KNOWN period ('hourly'|'annual', hourly
+        #   annualizes *2080). A job with no stated amount or an unknown period
+        #   is "unstated". A job passes iff it is unstated AND we don't require
+        #   stated pay, OR its annualized stated pay >= the floor. No floor
+        #   (None/0) means no gate at all (require_stated_pay is ignored).
+        if pay_floor:
+            stated_amt = (
+                "(CASE WHEN j.salary_max IS NOT NULL AND j.salary_max != 0 "
+                "THEN j.salary_max ELSE j.salary_min END)"
+            )
+            has_stated = (
+                f"({stated_amt} IS NOT NULL AND {stated_amt} != 0 "
+                "AND LOWER(COALESCE(j.salary_period, '')) IN ('hourly', 'annual'))"
+            )
+            annual = (
+                f"(CASE WHEN LOWER(j.salary_period) = 'hourly' "
+                f"THEN {stated_amt} * 2080 ELSE {stated_amt} END)"
+            )
+            if require_stated_pay:
+                conditions.append(f"({has_stated} AND {annual} >= ?)")
+            else:
+                conditions.append(f"(NOT {has_stated} OR {annual} >= ?)")
+            params.append(pay_floor)
+
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         # Validate sort column to prevent injection
@@ -547,6 +576,30 @@ async def get_jobs(
                 f"ORDER BY (CASE WHEN j.salary_period = 'hourly' "
                 f"          THEN j.salary_min * 2080 ELSE j.salary_min END) {direction}"
             )
+        elif sort_by == "salary":
+            # Inbox "Salary" order (parity with iOS JobSort.salaryKey): RAW stated
+            # number (NOT annualized) — salary_max if non-null/non-zero, else
+            # salary_min, else the market-estimate midpoint, else 0. Ties: newest.
+            salary_key = (
+                "(CASE "
+                "WHEN j.salary_max IS NOT NULL AND j.salary_max != 0 THEN j.salary_max "
+                "WHEN j.salary_min IS NOT NULL AND j.salary_min != 0 THEN j.salary_min "
+                "WHEN j.estimated_salary_min IS NOT NULL AND j.estimated_salary_max IS NOT NULL "
+                "THEN (j.estimated_salary_min + j.estimated_salary_max) / 2 "
+                "ELSE 0 END)"
+            )
+            order_clause = f"ORDER BY {salary_key} {direction}, j.date_discovered DESC"
+        elif sort_by == "company":
+            # Inbox "Company A–Z": case-insensitive company name, blank/whitespace
+            # companies sort to the very end (iOS JobSort.companyKey). Ties: newest.
+            order_clause = (
+                "ORDER BY (TRIM(COALESCE(j.company, '')) = '') ASC, "
+                f"LOWER(j.company) {direction}, j.date_discovered DESC"
+            )
+        elif sort_by == "fit_score":
+            # bestMatch parity: unscored (NULL) and 0-score jobs sink below scored
+            # ones. COALESCE(NULL,-1) drops NULLs under 0; tie-break newest first.
+            order_clause = f"ORDER BY COALESCE(j.fit_score, -1) {direction}, j.date_discovered DESC"
         else:
             col = sort_by if sort_by in allowed_sorts else "date_discovered"
             order_clause = f"ORDER BY j.{col} {direction}"

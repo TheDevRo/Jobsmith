@@ -399,6 +399,84 @@ final class SyncEngineTests: XCTestCase {
                            "deleted")
         }
     }
+
+    // MARK: - inbox-category gating (job + triage)
+
+    /// With the `inbox` category off, export emits neither `job` nor `triage`,
+    /// but the rest of the pipeline (here: an application) still flows.
+    func testInboxDisabledSkipsJobAndTriageExportButAppsFlow() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        let jobId = try seedJob(dbA, externalId: "444", fitScore: 60)
+        _ = try dbA.writer.write { dbc -> Void in
+            try Application(jobId: jobId, resumeContent: "R", coverLetterContent: "C",
+                            honestyLevel: "honest", stylePreset: "standard").insert(dbc)
+        }
+        // inbox OFF (only profile enabled).
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", settingsEnabled: ["profile"], now: clock.now)
+        let exp = try a.export(to: folder)
+        XCTAssertEqual(exp.live, 1)   // application only; job + triage suppressed
+        XCTAssertEqual(exp.tombstones, 0)
+
+        let logs = try SyncMerge.loadLogs(folder)
+        XCTAssertFalse(logs.contains { $0.entity == "job" }, "job emitted while inbox off")
+        XCTAssertFalse(logs.contains { $0.entity == "triage" }, "triage emitted while inbox off")
+        XCTAssertTrue(logs.contains { $0.entity == "application" })
+    }
+
+    /// With the `inbox` category off on the importing device, incoming `job` and
+    /// `triage` records (from a default-ON peer) are not applied.
+    func testInboxDisabledDropsIncomingJobAndTriage() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        _ = try seedJob(dbA, externalId: "445", fitScore: 60)
+        let a = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)   // inbox ON (default)
+        XCTAssertEqual(try a.export(to: folder).live, 2)               // job + triage
+
+        let dbB = try AppDatabase.inMemory()
+        let b = SyncEngine(db: dbB, deviceId: "C3D4", settingsEnabled: ["profile"], now: clock.now)
+        let imp = try b.importChanges(from: folder)
+        XCTAssertEqual(imp.upserts, 0)
+        try dbB.writer.read { XCTAssertEqual(try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM jobs"), 0) }
+    }
+
+    /// A change made while the category is off must re-export once it is turned
+    /// back on — the snapshot rows were frozen while off, so the offline edit
+    /// still diffs against them on re-enable.
+    func testChangeMadeWhileInboxOffReexportsOnReEnable() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+
+        let dbA = try AppDatabase.inMemory()
+        _ = try seedJob(dbA, externalId: "446", fitScore: 60)
+        // Export once with inbox ON so the snapshot records job + triage.
+        let on = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        XCTAssertEqual(try on.export(to: folder).live, 2)
+
+        // Inbox OFF: change the job. Export emits nothing and leaves the frozen
+        // snapshot untouched.
+        try dbA.writer.write { dbc in
+            try dbc.execute(sql: "UPDATE jobs SET fitScore = 99 WHERE externalId = '446'")
+        }
+        let off = SyncEngine(db: dbA, deviceId: "A1B2", settingsEnabled: ["profile"], now: clock.now)
+        XCTAssertEqual(try off.export(to: folder.appendingPathComponent("off")).total, 0)
+
+        // Re-enable: the offline change diffs against the frozen snapshot and
+        // re-exports the job facts.
+        let reOn = SyncEngine(db: dbA, deviceId: "A1B2", now: clock.now)
+        let re = try reOn.export(to: folder.appendingPathComponent("reon"))
+        XCTAssertGreaterThanOrEqual(re.live, 1)
+        let logs = try SyncMerge.loadLogs(folder.appendingPathComponent("reon"))
+        XCTAssertTrue(logs.contains { $0.entity == "job" && $0.id == "greenhouse:446" },
+                      "the offline job edit was not re-exported on re-enable")
+    }
 }
 
 // MARK: - outcome history (the `application_event` entity)

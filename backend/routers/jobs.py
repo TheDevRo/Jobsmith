@@ -42,6 +42,8 @@ async def list_jobs(
     date_to: Optional[str] = None,
     min_salary: Optional[int] = None,
     include_estimated: bool = False,
+    pay_floor: Optional[int] = None,
+    require_stated_pay: bool = False,
     sort_by: str = "date_discovered",
     sort_dir: str = "desc",
     limit: int = Query(50, ge=1, le=200),
@@ -54,6 +56,7 @@ async def list_jobs(
         easy_apply_only=easy_apply_only,
         date_from=date_from, date_to=date_to, min_salary=min_salary,
         include_estimated=include_estimated,
+        pay_floor=pay_floor, require_stated_pay=require_stated_pay,
         sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset,
     )
 

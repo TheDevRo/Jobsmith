@@ -71,6 +71,58 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count)
         XCTAssertTrue(ids.contains("search.enabled_sources"))
         XCTAssertTrue(ids.contains("prompts.*"))
+        // The two new inbox settings (parity with settings_registry.py).
+        XCTAssertTrue(ids.contains("inbox.require_stated_pay"))
+        XCTAssertTrue(ids.contains("inbox.sort"))
+    }
+
+    // MARK: inbox category + settings
+
+    func testInboxCategoryIsRegisteredDefaultOn() {
+        let cat = SettingsSync.categories.first { $0.key == "inbox" }
+        XCTAssertEqual(cat?.label, "Inbox")
+        XCTAssertEqual(cat?.defaultOn, true)   // default ON preserves today's behavior
+        XCTAssertEqual(SettingsSync.category(for: "inbox.require_stated_pay"), "inbox")
+        XCTAssertEqual(SettingsSync.category(for: "inbox.sort"), "inbox")
+    }
+
+    func testInboxSettingsExportAndApplyRoundTrip() {
+        let config: [String: JSONValue] = ["search": .object([
+            "requireStatedPay": .bool(true),
+            "inboxSort": .string("salary"),
+        ])]
+        let out = SettingsSync.export(config, enabled: ["inbox"])
+        XCTAssertEqual(out["inbox.require_stated_pay"]?["value"], .bool(true))
+        XCTAssertEqual(out["inbox.sort"]?["value"], .string("salary"))
+
+        var dest: [String: JSONValue] = [:]
+        SettingsSync.apply(&dest, path: "inbox.require_stated_pay", value: .bool(true))
+        SettingsSync.apply(&dest, path: "inbox.sort", value: .string("newest"))
+        XCTAssertEqual(dest["search"]?.objectValue?["requireStatedPay"], .bool(true))
+        XCTAssertEqual(dest["search"]?.objectValue?["inboxSort"], .string("newest"))
+    }
+
+    /// The `inbox` category gates its two paths: with it excluded, neither is
+    /// emitted even though the values are present in the config.
+    func testInboxCategoryGatesExport() {
+        let config: [String: JSONValue] = ["search": .object([
+            "requireStatedPay": .bool(true),
+            "inboxSort": .string("salary"),
+        ])]
+        let out = SettingsSync.export(config, enabled: ["documents", "postings"])  // inbox OFF
+        XCTAssertNil(out["inbox.require_stated_pay"])
+        XCTAssertNil(out["inbox.sort"])
+    }
+
+    /// An out-of-vocabulary sort value is ignored on apply — the existing value
+    /// stands (desktop ENUM-normalization parity).
+    func testInboxSortRejectsUnknownEnumValue() {
+        var dest: [String: JSONValue] = ["search": .object(["inboxSort": .string("best_match")])]
+        SettingsSync.apply(&dest, path: "inbox.sort", value: .string("bogus"))
+        XCTAssertEqual(dest["search"]?.objectValue?["inboxSort"], .string("best_match"))
+        // A valid one does write.
+        SettingsSync.apply(&dest, path: "inbox.sort", value: .string("company"))
+        XCTAssertEqual(dest["search"]?.objectValue?["inboxSort"], .string("company"))
     }
 
     // MARK: engine round-trip (config-backed)

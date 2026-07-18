@@ -10,6 +10,30 @@ enum JobSort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Canonical snake_case id used by the settings-sync `inbox.sort` key and
+    /// the desktop (best_bets/best_match/newest/salary/company). Distinct from
+    /// `rawValue` (camelCase), which is the per-device @AppStorage encoding.
+    init?(canonical: String) {
+        switch canonical {
+        case "best_bets": self = .bestBets
+        case "best_match": self = .bestMatch
+        case "newest": self = .newest
+        case "salary": self = .salary
+        case "company": self = .company
+        default: return nil
+        }
+    }
+
+    var canonical: String {
+        switch self {
+        case .bestBets: return "best_bets"
+        case .bestMatch: return "best_match"
+        case .newest: return "newest"
+        case .salary: return "salary"
+        case .company: return "company"
+        }
+    }
+
     var label: String {
         switch self {
         case .bestBets: return "Best bets"

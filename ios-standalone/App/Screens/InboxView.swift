@@ -11,7 +11,6 @@ struct InboxView: View {
     @State private var swipeToken = 0
     @State private var showAddByURL = false
     @State private var pastedURL = ""
-    @AppStorage(AppStorageKey.jobSort) private var sortRaw = JobSort.bestMatch.rawValue
     @State private var showScoreAllConfirm = false
     @State private var showDeleteAllConfirm = false
     @State private var searchQuery = ""
@@ -24,7 +23,17 @@ struct InboxView: View {
     /// Tap targets grow with the user's text size (44pt HIG minimum at default).
     @ScaledMetric(relativeTo: .title2) private var triageButtonSize: CGFloat = 58
 
-    private var sort: JobSort { JobSort(rawValue: sortRaw) ?? .bestMatch }
+    /// The Inbox sort is config-backed (synced via the `inbox.sort` setting),
+    /// unlike the Pipeline which keeps its own per-device @AppStorage sort.
+    private var sort: JobSort { JobSort(canonical: model.config.search.inboxSort) ?? .bestMatch }
+    /// Picker binding that persists a change straight to the config (so it
+    /// exports on the next sync) instead of a device-local @AppStorage slot.
+    private var sortSelection: Binding<JobSort> {
+        Binding(
+            get: { JobSort(canonical: model.config.search.inboxSort) ?? .bestMatch },
+            set: { newValue in model.saveConfig { $0.search.inboxSort = newValue.canonical } }
+        )
+    }
     /// The standing pay gate runs before the session filters (search text,
     /// board picker): it's a settings-driven view of the inbox, and its hidden
     /// count is badged below the deck so strict mode reads as reversible.
@@ -185,9 +194,9 @@ struct InboxView: View {
     /// overflow menu to keep the toolbar uncluttered on iPhone.
     private var sortAndScoreMenu: some View {
         Menu {
-            Picker("Sort by", selection: $sortRaw) {
+            Picker("Sort by", selection: sortSelection) {
                 ForEach(JobSort.allCases) { option in
-                    Label(option.label, systemImage: option.systemImage).tag(option.rawValue)
+                    Label(option.label, systemImage: option.systemImage).tag(option)
                 }
             }
             Divider()

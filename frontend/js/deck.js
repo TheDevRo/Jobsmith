@@ -52,11 +52,71 @@ function enterInbox() {
 let _stageJobs = [];   // remaining discovered jobs (top of deck = _stageJobs[0])
 let _stageTotal = 0;   // server total when the deck was (re)loaded, for "N of M"
 
-// Single fetch for the stage. A thin, explicit wrapper (status=discovered,
-// fit desc, capped at 30) — deliberately NOT loadJobs()'s DOM-filter builder,
-// which reads the classic filter inputs.
+// The synced Inbox prefs (backend config, category `inbox`): the display sort
+// and the stated-pay gate. Cached here so the stage renders + re-fetches without
+// a config round-trip every keystroke; loadStage() refreshes it, so a change
+// made elsewhere (or on the phone, post-sync) lands on the next full load.
+let _inboxPrefs = null;   // { sort, requireStatedPay, minSalary }
+
+// sort key -> the backend get_jobs ORDER BY. best_bets is a documented
+// approximation of iOS's device-local reply-weighted ranking (fit desc here).
+const INBOX_SORT_MAP = {
+    best_bets:  { sort_by: 'fit_score',       sort_dir: 'desc' },
+    best_match: { sort_by: 'fit_score',       sort_dir: 'desc' },
+    newest:     { sort_by: 'date_discovered', sort_dir: 'desc' },
+    salary:     { sort_by: 'salary',          sort_dir: 'desc' },
+    company:    { sort_by: 'company',          sort_dir: 'asc'  },
+};
+
+// Label shown on the queue's count line, per sort.
+const INBOX_SORT_LABEL = {
+    best_bets: 'best bets', best_match: 'best match', newest: 'newest',
+    salary: 'salary', company: 'company',
+};
+
+// Dropdown options — same wording as iOS JobSort.label.
+const INBOX_SORT_OPTIONS = [
+    ['best_bets', 'Best bets'], ['best_match', 'Best match'], ['newest', 'Newest'],
+    ['salary', 'Salary'], ['company', 'Company A–Z'],
+];
+
+// Read the synced Inbox prefs from backend config. Cached; pass force=true on a
+// full stage (re)load so edits made elsewhere are reflected.
+async function loadInboxPrefs(force) {
+    if (_inboxPrefs && !force) return _inboxPrefs;
+    try {
+        const cfg = await api('/api/config');
+        _inboxPrefs = {
+            sort: (cfg && cfg.inbox && cfg.inbox.sort) || 'best_match',
+            requireStatedPay: !!(cfg && cfg.inbox && cfg.inbox.require_stated_pay),
+            minSalary: Number((cfg && cfg.search && cfg.search.min_salary) || 0) || 0,
+        };
+    } catch (e) {
+        _inboxPrefs = { sort: 'best_match', requireStatedPay: false, minSalary: 0 };
+    }
+    return _inboxPrefs;
+}
+
+// Build the /api/jobs query from the synced prefs. With no prefs / defaults this
+// is byte-identical to the pre-feature string, so behavior is unchanged when
+// nothing is set. The pay floor is search.min_salary (already synced under
+// `postings`); require_stated_pay only applies WITH a floor (contract).
+function buildInboxParams(prefs) {
+    const p = prefs || _inboxPrefs || {};
+    const map = INBOX_SORT_MAP[p.sort] || INBOX_SORT_MAP.best_match;
+    const parts = ['status=discovered', `sort_by=${map.sort_by}`, `sort_dir=${map.sort_dir}`, 'limit=30'];
+    const floor = Number(p.minSalary) || 0;
+    if (floor > 0) {
+        parts.push(`pay_floor=${floor}`);
+        if (p.requireStatedPay) parts.push('require_stated_pay=true');
+    }
+    return '?' + parts.join('&');
+}
+
+// Single fetch for the stage. A thin, explicit wrapper — deliberately NOT
+// loadJobs()'s DOM-filter builder, which reads the classic filter inputs.
 function fetchInboxJobs(paramsOverride) {
-    const params = paramsOverride || '?status=discovered&sort_by=fit_score&sort_dir=desc&limit=30';
+    const params = paramsOverride || buildInboxParams(_inboxPrefs);
     return api(`/api/jobs${params}`);
 }
 
@@ -64,6 +124,7 @@ async function loadStage() {
     const host = document.getElementById('inbox-stage');
     if (!host) return;
     try {
+        await loadInboxPrefs(true);   // full load: pick up prefs changed elsewhere
         const data = await fetchInboxJobs();
         stageSetJobs(data.jobs || [], (data && typeof data.total === 'number') ? data.total : (data.jobs || []).length);
     } catch (e) {
@@ -154,6 +215,49 @@ function _stageTopCardHtml(job) {
         </div>`;
 }
 
+// Compact stage controls: the synced sort + the stated-pay gate. Edits persist
+// to backend config (category `inbox`) and reload the stage. The pay checkbox
+// only shows with a salary floor set (search.min_salary) — it is inert without
+// one, matching the contract and iOS.
+function _stageControlsHtml() {
+    const p = _inboxPrefs || {};
+    const sort = INBOX_SORT_MAP[p.sort] ? p.sort : 'best_match';
+    const opts = INBOX_SORT_OPTIONS.map(([v, l]) =>
+        `<option value="${escapeHtml(v)}"${v === sort ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
+    const floor = Number(p.minSalary) || 0;
+    const payControl = floor > 0
+        ? `<label class="deck-qctl-pay" title="Hide jobs with no stated pay or an unknown pay period">
+             <input type="checkbox" ${p.requireStatedPay ? 'checked' : ''} onchange="stageSetRequireStatedPay(this.checked)"> Stated pay only
+           </label>`
+        : '';
+    return `
+        <div class="deck-qctls" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 10px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px">Sort
+                <select class="deck-qsort" onchange="stageSetSort(this.value)"
+                    style="font-size:12px;padding:2px 4px">${opts}</select>
+            </label>
+            ${payControl}
+        </div>`;
+}
+
+// Persist a sort choice, then reload the stage in the new order.
+async function stageSetSort(value) {
+    if (_inboxPrefs) _inboxPrefs.sort = value;
+    try {
+        await api('/api/config', { method: 'POST', body: JSON.stringify({ inbox: { sort: value } }) });
+    } catch (e) { toast('Failed to save sort', 'error'); }
+    await loadStage();
+}
+
+// Persist the stated-pay gate, then reload the stage.
+async function stageSetRequireStatedPay(on) {
+    if (_inboxPrefs) _inboxPrefs.requireStatedPay = !!on;
+    try {
+        await api('/api/config', { method: 'POST', body: JSON.stringify({ inbox: { require_stated_pay: !!on } }) });
+    } catch (e) { toast('Failed to save pay filter', 'error'); }
+    await loadStage();
+}
+
 function _stageQueueHtml() {
     const upNext = _stageJobs.slice(1, 9);
     const rows = upNext.map((j) => `
@@ -166,11 +270,13 @@ function _stageQueueHtml() {
             </span>
         </button>`).join('');
     const pos = _stageTotal - _stageJobs.length + 1;
+    const sortLabel = INBOX_SORT_LABEL[(_inboxPrefs || {}).sort] || 'best match';
     return `
         <div class="deck-queue">
             <p class="eyebrow">Up next</p>
+            ${_stageControlsHtml()}
             <div class="deck-qrows">${rows || '<p class="deck-qempty">Nothing queued.</p>'}</div>
-            <span class="deck-qcount"><b class="num">${Math.max(pos, 1)} of ${_stageTotal}</b> · sorted by fit</span>
+            <span class="deck-qcount"><b class="num">${Math.max(pos, 1)} of ${_stageTotal}</b> · sorted by ${escapeHtml(sortLabel)}</span>
         </div>`;
 }
 
