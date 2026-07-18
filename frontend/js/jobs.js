@@ -303,12 +303,19 @@ function selectJob(jobId) {
     window._detailJobId = jobId;
 
     const pane = document.getElementById('job-detail-pane');
+    pane.innerHTML = buildJobDetailHtml(job);
+}
+
+// The full job detail body. Shared by the classic split-pane (selectJob) and
+// the deck layout's peek modal (openJobModal in deck.js) so both render the
+// exact same content and actions.
+function buildJobDetailHtml(job) {
     const tags = safeParseJSON(job.tags, []);
     const hasScore = job.fit_score !== null && job.fit_score !== undefined && job.fit_score !== '' && !isNaN(Number(job.fit_score)) && Number(job.fit_score) > 0;
     const status = job.app_status || job.status;
     const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
 
-    pane.innerHTML = `
+    return `
         <div class="detail-header" style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between">
             <div style="min-width:0;flex:1">
                 <div class="detail-title">${escapeHtml(job.title)}</div>
@@ -347,7 +354,7 @@ function selectJob(jobId) {
             <button class="btn btn-secondary btn-sm" onclick="scoreJob('${job.id}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
             <button class="btn btn-primary btn-sm" onclick="tailorJob('${job.id}')">Tailor Resume</button>
             ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${job.id}')">Assist Me</button>` : ''}
-            ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="location.hash='review'">View Application</button>` : ''}
+            ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="viewApplicationFor('${escapeHtml(String(job.id))}')">View Application</button>` : ''}
             ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
             ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${job.id}')">Mark Applied</button>` : ''}
             <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${job.id}')">Embellishments</button>
@@ -394,6 +401,20 @@ function renderFitAnalysis(job) {
             ${reportHtml}
         </div>
     `;
+}
+
+// "View Application" from a job detail. Classic layout jumps to the Review
+// tab; the deck layout routes through deckShowApplication (deck.js) so the
+// user lands on the right classic list behind a Back-to-board bar instead of
+// getting silently switched out of deck mode.
+function viewApplicationFor(jobId) {
+    const job = window._currentJobs && window._currentJobs[jobId];
+    const status = job && (job.app_status || (job.application && job.application.status));
+    if (typeof isDeckLayout === 'function' && isDeckLayout() && typeof deckShowApplication === 'function') {
+        deckShowApplication(status);
+        return;
+    }
+    location.hash = 'review';
 }
 
 function clearDetailPane() {
@@ -664,6 +685,7 @@ document.addEventListener('keydown', (e) => {
     // while active — stand down so these keys don't double-fire.
     if (typeof isPaletteOpen === 'function' && isPaletteOpen()) return;
     if (typeof isInboxStageActive === 'function' && isInboxStageActive()) return;
+    if (typeof isJobModalOpen === 'function' && isJobModalOpen()) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     switch (e.key) {

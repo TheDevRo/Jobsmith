@@ -69,7 +69,17 @@ async function deleteSingleJob(jobId) {
         await api(`/api/jobs/${jobId}`, { method: 'DELETE' });
         toast('Job deleted', 'info');
         if (selectedJobId === jobId) clearDetailPane();
-        loadJobs();
+        // Deck layout: the delete may have come from the peek modal — close it
+        // and refresh whichever deck surface is showing underneath.
+        if (typeof closeJobModal === 'function') closeJobModal();
+        if (typeof isInboxStageActive === 'function' && isInboxStageActive()) {
+            loadStage();
+        } else if (typeof isDeckLayout === 'function' && isDeckLayout()
+                   && (location.hash.replace('#', '') === 'review')) {
+            renderBoard();
+        } else {
+            loadJobs();
+        }
     } catch (e) {
         toast('Failed to delete job', 'error');
     }

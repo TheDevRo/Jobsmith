@@ -181,6 +181,46 @@ async function assertDrop(from, to, id, verify) {
   window.setLayout("classic");
   checks.push(["setLayout('classic') removes the body class", !doc.body.classList.contains("layout-deck")]);
 
+  // ===================================================================
+  // 7. Job peek modal — clicking a posting pops a modal in place and NEVER
+  //    flips the inbox view pref or navigates (the "stuck in classic" bug).
+  // ===================================================================
+  window.setLayout("deck");
+  window.localStorage.setItem("jobsmith_inbox_view", "stage");
+  calls.length = 0;
+  const hashBefore = window.location.hash;
+  window.api = (url) => {
+    calls.push({ url });
+    if (url === "/api/jobs/j7") {
+      return Promise.resolve({
+        id: "j7", title: "Modal role <b>x</b>", company: "Acme", status: "shortlisted",
+        url: "https://x.test/7", description: "desc",
+        application: { id: "app7", status: "pending_review" },
+      });
+    }
+    return Promise.resolve({ jobs: [], total: 0 });
+  };
+  await window.boardOpenJob("j7");
+  await new Promise((r) => setTimeout(r, 0));
+  const overlay = doc.getElementById("job-modal-overlay");
+  checks.push(["boardOpenJob opens the peek modal", !!overlay]);
+  checks.push(["modal fetched the single-job endpoint", calls.some((c) => c.url === "/api/jobs/j7")]);
+  checks.push(["modal renders the shared detail body", !!(overlay && overlay.querySelector(".detail-title"))]);
+  checks.push(["modal escapes the job title", !(overlay && overlay.querySelector(".detail-title b"))]);
+  checks.push(["nested application surfaces View Application", !!(overlay && overlay.innerHTML.includes("View Application"))]);
+  checks.push(["boardOpenJob leaves the inbox view pref alone", window.localStorage.getItem("jobsmith_inbox_view") === "stage"]);
+  checks.push(["boardOpenJob does not navigate", window.location.hash === hashBefore]);
+  checks.push(["isJobModalOpen reports open", window.isJobModalOpen() === true]);
+  window.closeJobModal();
+  checks.push(["closeJobModal removes the overlay", !doc.getElementById("job-modal-overlay") && window.isJobModalOpen() === false]);
+
+  // App cards route through the same modal via their job id.
+  calls.length = 0;
+  await window.boardOpenApp("pending", "app7", "j7");
+  await new Promise((r) => setTimeout(r, 0));
+  checks.push(["boardOpenApp with a job id opens the peek modal", !!doc.getElementById("job-modal-overlay")]);
+  window.closeJobModal();
+
   const fail = report(checks);
   if (fail) {
     console.error(`\ntest_deck: ${fail} check(s) failed`);

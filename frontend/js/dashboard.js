@@ -124,6 +124,11 @@ function digestReasons(job, conversionBySource) {
 }
 
 function showJobFromDigest(jobId) {
+    // Deck layout: peek at the job in place instead of navigating away.
+    if (typeof isDeckLayout === 'function' && isDeckLayout() && typeof openJobModal === 'function') {
+        openJobModal(jobId);
+        return;
+    }
     window.location.hash = '#jobs';
     // The Jobs view owns selection; it picks this up once it has rendered.
     window._pendingJobSelection = jobId;

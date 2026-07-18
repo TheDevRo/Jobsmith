@@ -136,7 +136,7 @@ function _stageTopCardHtml(job) {
     return `
         <div class="deck-tcard b2" aria-hidden="true"></div>
         <div class="deck-tcard b1" aria-hidden="true"></div>
-        <div class="deck-tcard deck-top">
+        <div class="deck-tcard deck-top" onclick="openJobModal('${escapeHtml(String(job.id))}')" title="Click for full details &amp; actions">
             <span class="deck-stamp stamp-shortlist" aria-hidden="true">SHORTLIST</span>
             <span class="deck-stamp stamp-pass" aria-hidden="true">PASS</span>
             <div class="deck-co">
@@ -329,6 +329,7 @@ async function refreshStageLive() {
 // (jobs.js's classic handler stands down via isInboxStageActive()).
 document.addEventListener('keydown', (e) => {
     if (typeof isPaletteOpen === 'function' && isPaletteOpen()) return;
+    if (isJobModalOpen()) return;   // the peek modal owns the keyboard
     if (!isInboxStageActive()) return;
     if ((location.hash.replace('#', '') || 'jobs') !== 'jobs') return;
     const t = e.target;
@@ -472,7 +473,7 @@ function _appKcardHtml(app, colKey) {
     const attnCls = colKey === 'needs-attention' ? ' kcard-attn' : '';
     return `
         <div class="kcard${attnCls}" draggable="true" tabindex="0" data-id="${escapeHtml(String(app.id))}" data-from="${escapeHtml(colKey)}"
-            role="button" onclick="boardOpenApp('${escapeHtml(colKey)}','${escapeHtml(String(app.id))}')" aria-label="${escapeHtml(app.title || app.job_title || 'Application')}">
+            role="button" onclick="boardOpenApp('${escapeHtml(colKey)}','${escapeHtml(String(app.id))}','${escapeHtml(String(app.job_id || ''))}')" aria-label="${escapeHtml(app.title || app.job_title || 'Application')}">
             <span class="kt">${escapeHtml(app.title || app.job_title || 'Untitled')}</span>
             <span class="kc">${escapeHtml(app.company || '')}</span>
             <span class="kfoot">${heat}${tag}</span>
@@ -567,18 +568,41 @@ async function loadColAttention() {
 }
 
 // ---- Card navigation ----
+// Clicking a job anywhere in the deck layout opens the peek modal in place —
+// it must never flip layout/view prefs or navigate away (that was the
+// "stuck in classic" bug: this used to set jobsmith_inbox_view='list' and
+// deep-link into the classic Inbox).
 function boardOpenJob(id) {
-    // Deep-link to the classic Inbox list with this job selected.
-    localStorage.setItem('jobsmith_inbox_view', 'list');
-    window._pendingJobSelection = id;
-    location.hash = 'jobs';
+    openJobModal(id);
 }
 
-function boardOpenApp(colKey, appId) {
+function boardOpenApp(colKey, appId, jobId) {
+    if (jobId) { openJobModal(jobId); return; }
+    // Fallback (no job id on the card): the old classic-list detour.
     const view = { pending: 'pending', applied: 'submitted', 'needs-attention': 'in-progress' }[colKey] || 'pending';
     const rev = document.getElementById('review');
     if (rev) rev.classList.add('review-detail');
     switchReviewView(view);
+}
+
+// "View Application" inside the peek modal (via viewApplicationFor, jobs.js):
+// land on the matching classic Review list behind the board's back bar.
+function deckShowApplication(appStatus) {
+    closeJobModal();
+    const view = (appStatus === 'applied') ? 'submitted'
+        : (appStatus === 'pending_review' || appStatus === 'paused') ? 'pending'
+        : 'in-progress';
+    const go = () => {
+        const rev = document.getElementById('review');
+        if (rev) { rev.classList.add('review-mode-board', 'review-detail'); }
+        switchReviewView(view);
+    };
+    if ((location.hash.replace('#', '') || 'dashboard') !== 'review') {
+        location.hash = 'review';
+        setTimeout(go, 0);   // after handleHash()'s enterReview() resets classes
+    } else {
+        go();
+    }
 }
 
 function backToBoard() {
@@ -586,6 +610,59 @@ function backToBoard() {
     if (rev) rev.classList.remove('review-detail');
     renderBoard();
 }
+
+// ==========================================================================
+// Job peek modal — the deck layout's "click a posting" surface. Renders the
+// SAME detail body as the classic split pane (buildJobDetailHtml, jobs.js)
+// in a popped-out overlay, so no click ever navigates out of deck mode.
+// ==========================================================================
+async function openJobModal(jobId) {
+    closeJobModal();
+    let job = (window._currentJobs && window._currentJobs[jobId]) || null;
+    try {
+        const fresh = await api(`/api/jobs/${jobId}`);
+        if (fresh && fresh.id) {
+            // The single-job endpoint nests the application; flatten the two
+            // fields the shared detail renderer expects (app_status, app_id).
+            if (fresh.application) {
+                fresh.app_status = fresh.application.status;
+                fresh.app_id = fresh.application.id;
+            }
+            job = fresh;
+        }
+    } catch (e) { /* fall back to the cached list row, if any */ }
+    if (!job) { toast('Failed to load job details', 'error'); return; }
+
+    // Detail actions (Rescore, Embellishments, undo snapshots…) read the job
+    // from this cache, so make sure the modal's job is in it.
+    window._currentJobs = window._currentJobs || {};
+    window._currentJobs[jobId] = job;
+
+    const ov = document.createElement('div');
+    ov.className = 'job-modal-overlay';
+    ov.id = 'job-modal-overlay';
+    ov.innerHTML = `
+        <div class="job-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(job.title || 'Job details')}">
+            <button type="button" class="job-modal-close" aria-label="Close" title="Close (Esc)" onclick="closeJobModal()">&#10005;</button>
+            <div class="job-modal-body">${buildJobDetailHtml(job)}</div>
+        </div>`;
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeJobModal(); });
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('open'));
+    const closeBtn = ov.querySelector('.job-modal-close');
+    if (closeBtn) closeBtn.focus();
+}
+
+function closeJobModal() {
+    const ov = document.getElementById('job-modal-overlay');
+    if (ov) ov.remove();
+}
+
+function isJobModalOpen() { return !!document.getElementById('job-modal-overlay'); }
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isJobModalOpen()) { e.preventDefault(); closeJobModal(); }
+});
 
 // ---- Keyboard-accessible fallback: per-card "⋯" menu ----
 function boardCardMenu(ev, colKey, id) {
