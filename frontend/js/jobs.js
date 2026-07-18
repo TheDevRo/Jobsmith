@@ -660,6 +660,10 @@ function _selectedIsDiscovered() {
 // Keyboard scouting — only on the Inbox tab and never while typing in a field.
 document.addEventListener('keydown', (e) => {
     if ((location.hash.replace('#', '') || 'jobs') !== 'jobs') return;
+    // Phase 3: the command palette and the deck triage stage own the keyboard
+    // while active — stand down so these keys don't double-fire.
+    if (typeof isPaletteOpen === 'function' && isPaletteOpen()) return;
+    if (typeof isInboxStageActive === 'function' && isInboxStageActive()) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     switch (e.key) {

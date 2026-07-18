@@ -107,9 +107,31 @@ const PAGE_TITLES = {
     'fit-breakdown': 'Fit Score Breakdown',
 };
 
+// ---- Layout preference (Phase 3 · Deck vs Classic) ----
+// Deck features (triage stage, kanban board) are additive and only active in
+// the 'deck' layout. DEFAULT is 'classic' this phase (Phase 4 flips it), so the
+// Phase 1–2 UI stays pixel-identical until the user opts in.
+function getLayout() {
+    return localStorage.getItem('jobsmith_layout') === 'deck' ? 'deck' : 'classic';
+}
+function isDeckLayout() { return getLayout() === 'deck'; }
+function applyLayout() {
+    document.body.classList.toggle('layout-deck', isDeckLayout());
+}
+function setLayout(v) {
+    localStorage.setItem('jobsmith_layout', v === 'deck' ? 'deck' : 'classic');
+    applyLayout();
+    handleHash();  // re-render the active view under the new layout
+}
+function toggleLayout() {
+    setLayout(isDeckLayout() ? 'classic' : 'deck');
+    toast(isDeckLayout() ? 'Command Deck layout on' : 'Classic layout on', 'info');
+}
+
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
     applyAutoApplyVisibility(false);
+    applyLayout();
     setupTabs();
     handleHash();
     window.addEventListener('hashchange', handleHash);
@@ -172,8 +194,11 @@ function handleHash() {
     // Load tab data
     switch (hash) {
         case 'dashboard': loadDashboard(); loadSources(); statsInterval = setInterval(loadDashboard, 30000); break;
-        case 'jobs': loadJobs(); break;
-        case 'review': switchReviewView('shortlisted'); refreshFunnelCounts(); break;
+        case 'jobs': (typeof enterInbox === 'function') ? enterInbox() : loadJobs(); break;
+        case 'review':
+            if (typeof enterReview === 'function') enterReview();
+            else { switchReviewView('shortlisted'); refreshFunnelCounts(); }
+            break;
         case 'settings': loadSettings(); break;
         case 'fit-breakdown':
             loadFitBreakdown();
@@ -214,8 +239,15 @@ async function refreshActiveView() {
     try {
         switch (hash) {
             case 'dashboard': await loadDashboard(); break;
-            case 'jobs': await loadJobs(); break;
+            case 'jobs':
+                // In deck stage mode, refresh the queue data WITHOUT yanking the
+                // card the user is deciding on (refreshStageLive keeps the top
+                // card stable). List/classic mode just reloads the list.
+                if (typeof isInboxStageActive === 'function' && isInboxStageActive()) await refreshStageLive();
+                else await loadJobs();
+                break;
             case 'review':
+                if (typeof isBoardModeActive === 'function' && isBoardModeActive()) { await refreshBoardLive(); break; }
                 if (currentReviewView === 'shortlisted') await loadShortlisted();
                 else if (currentReviewView === 'pending') await loadReviewQueue();
                 else if (currentReviewView === 'submitted') await loadSubmittedApplications();

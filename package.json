@@ -10,7 +10,7 @@
   "scripts": {
     "test": "npm run test:extension && npm run test:frontend",
     "test:extension": "node extension/tests/test_snapshot.js && node extension/tests/test_fill.js && node extension/tests/test_combobox.js && node extension/tests/test_overlay.js && node extension/tests/test_dropcatch.js",
-    "test:frontend": "node frontend/tests/test_safe_href.js && node frontend/tests/test_ledger.js && node frontend/tests/test_foundry.js"
+    "test:frontend": "node frontend/tests/test_safe_href.js && node frontend/tests/test_ledger.js && node frontend/tests/test_foundry.js && node frontend/tests/test_deck.js"
   },
   "keywords": [],
   "author": "",

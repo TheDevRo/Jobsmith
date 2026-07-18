@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=43">
+    <link rel="stylesheet" href="style.css?v=44">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -42,6 +42,10 @@
                 <h2 id="page-title">Inbox</h2>
             </div>
             <div class="topbar-right">
+                <button class="cmdk-pill" id="cmdk-pill" onclick="openPalette()" title="Command palette" aria-label="Open command palette">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <span class="cmdk-pill-kbd">&#8984;K</span>
+                </button>
                 <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="toggleNowRail()" title="A run is in progress — toggle the Now rail">
                     <span class="run-chip-dot" aria-hidden="true"></span>
                     <span id="run-status-chip-text"></span>
@@ -352,6 +356,7 @@
                         <span class="eyebrow" style="margin-right:4px">Scout</span>
                         <button class="btn btn-primary btn-sm" onclick="location.hash='dashboard'" title="Fetch new jobs from Activity">Fetch Jobs</button>
                         <button class="btn btn-ghost btn-sm" id="toggle-select-btn" onclick="toggleSelectMode()">Select</button>
+                        <button class="btn btn-ghost btn-sm inbox-view-toggle" id="inbox-view-toggle" onclick="toggleInboxView()" title="Switch between the triage stage and the list (L)">List view</button>
                     </div>
                     <div class="toolbar-right" id="select-actions" style="display:none">
                         <label class="select-all-toggle"><input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs(this.checked)"> All on Page</label>
@@ -384,11 +389,19 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Phase 3 · Triage stage (deck layout only; JS-rendered) -->
+                <div id="inbox-stage" class="inbox-stage"></div>
             </section>
 
             <!-- Pipeline Tab (shortlisted → staged applications) -->
             <section id="review" class="tab-content">
                 <div id="pipeline-funnel" class="pipeline-funnel" role="tablist" aria-label="Pipeline stages"></div>
+                <!-- Phase 3 · Kanban board (deck layout only; JS-rendered) -->
+                <div id="board-detail-bar" class="board-detail-bar">
+                    <button class="btn btn-ghost btn-sm" onclick="backToBoard()">&larr; Back to board</button>
+                </div>
+                <div id="pipeline-board" class="pipeline-board"></div>
                 <div class="review-tab-bar">
                     <button class="review-tab-btn active" id="review-tab-shortlisted" onclick="switchReviewView('shortlisted')">Shortlisted</button>
                     <button class="review-tab-btn" id="review-tab-pending" onclick="switchReviewView('pending')">Ready to Review</button>
@@ -396,12 +409,12 @@
                     <button class="review-tab-btn" id="review-tab-failed" onclick="switchReviewView('failed')">Failed</button>
                     <button class="review-tab-btn" id="review-tab-in-progress" onclick="switchReviewView('in-progress')">In Progress <span id="in-progress-badge" style="display:none;background:var(--accent-red);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:4px;vertical-align:middle"></span></button>
                 </div>
-                <div id="review-shortlisted-view">
+                <div id="review-shortlisted-view" class="review-classic-view">
                     <div id="shortlisted-list" class="review-list">
                         <p class="placeholder">Loading shortlisted jobs...</p>
                     </div>
                 </div>
-                <div id="review-pending-view" style="display:none">
+                <div id="review-pending-view" class="review-classic-view" style="display:none">
                     <div class="review-actions">
                         <button class="btn btn-danger btn-sm" onclick="bulkReject()">Reject All</button>
                     </div>
@@ -409,17 +422,17 @@
                         <p class="placeholder">Loading review queue...</p>
                     </div>
                 </div>
-                <div id="review-submitted-view" style="display:none">
+                <div id="review-submitted-view" class="review-classic-view" style="display:none">
                     <div id="submitted-list" class="review-list">
                         <p class="placeholder">Loading submitted applications...</p>
                     </div>
                 </div>
-                <div id="review-failed-view" style="display:none">
+                <div id="review-failed-view" class="review-classic-view" style="display:none">
                     <div id="failed-list" class="review-list">
                         <p class="placeholder">Loading failed applications...</p>
                     </div>
                 </div>
-                <div id="review-in-progress-view" style="display:none">
+                <div id="review-in-progress-view" class="review-classic-view" style="display:none">
                     <div id="in-progress-list" class="review-list">
                         <p class="placeholder">Loading...</p>
                     </div>
@@ -1338,14 +1351,15 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=42"></script>
+    <script src="js/core.js?v=43"></script>
     <script src="js/dashboard.js?v=38"></script>
-    <script src="js/jobs.js?v=42"></script>
+    <script src="js/jobs.js?v=43"></script>
     <script src="js/review.js?v=40"></script>
     <script src="js/settings.js?v=44"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=37"></script>
+    <script src="js/deck.js?v=1"></script>
     <script src="js/onboarding.js?v=38"></script>
 </body>
 </html>
