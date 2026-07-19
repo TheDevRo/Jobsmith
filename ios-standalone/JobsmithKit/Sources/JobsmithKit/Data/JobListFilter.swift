@@ -37,12 +37,17 @@ public enum JobListFilter {
     ///   unknown pay period. It is ignored without a floor (the settings UI
     ///   only offers it as a companion toggle).
     ///
-    /// `hiddenNoPay` counts only the strict-mode hides, so the UI can badge
-    /// "N hidden — no stated pay" and the mode reads as reversible, not lossy.
+    /// Both hide reasons are counted separately (`hiddenNoPay` for strict-mode
+    /// hides, `hiddenBelowFloor` for stated pay under the floor) so the UI can
+    /// badge every hidden job with its reason — the deck count plus the badge
+    /// must always add back up to the full inbox, or the gate reads as jobs
+    /// silently going missing.
     public static func applyPayFilter(_ jobs: [Job], minSalary: Int?,
-                                      requireStatedPay: Bool) -> (jobs: [Job], hiddenNoPay: Int) {
-        guard let minSalary, minSalary != 0 else { return (jobs, 0) }
+                                      requireStatedPay: Bool)
+        -> (jobs: [Job], hiddenNoPay: Int, hiddenBelowFloor: Int) {
+        guard let minSalary, minSalary != 0 else { return (jobs, 0, 0) }
         var hiddenNoPay = 0
+        var hiddenBelowFloor = 0
         let kept = jobs.filter { job in
             guard let annual = JobFilters.statedAnnualPay(salaryMin: job.salaryMin,
                                                           salaryMax: job.salaryMax,
@@ -50,9 +55,10 @@ public enum JobListFilter {
                 if requireStatedPay { hiddenNoPay += 1; return false }
                 return true
             }
-            return annual >= minSalary
+            if annual < minSalary { hiddenBelowFloor += 1; return false }
+            return true
         }
-        return (kept, hiddenNoPay)
+        return (kept, hiddenNoPay, hiddenBelowFloor)
     }
 
     /// Distinct source slugs present in `jobs`, ordered by display name — the

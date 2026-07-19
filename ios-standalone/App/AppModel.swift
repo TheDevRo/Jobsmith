@@ -416,8 +416,14 @@ final class AppModel {
     private var scoreAllTask: Task<Void, Never>?
 
     /// Untriaged jobs that have no fit score yet — the Score-all candidates.
+    /// Runs behind the standing pay gate: jobs the user's salary settings hide
+    /// from the deck must not spend AI calls either. Relaxing the gate later
+    /// surfaces them unscored, and the next Score-all picks them up.
     var unscoredInboxJobs: [Job] {
-        ScoreBatch.unscored(inbox)
+        let visible = JobListFilter.applyPayFilter(inbox,
+                                                   minSalary: config.search.minSalary,
+                                                   requireStatedPay: config.search.requireStatedPay).jobs
+        return ScoreBatch.unscored(visible)
     }
 
     /// Shortlisted (in-pipeline) jobs that were never scored — e.g. shortlisted

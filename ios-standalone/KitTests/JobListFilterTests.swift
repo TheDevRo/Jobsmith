@@ -81,6 +81,7 @@ final class JobListFilterTests: XCTestCase {
         XCTAssertEqual(result.jobs.map(\.externalId), ["straddle", "high"])
         // Below-floor is a floor hide, not a no-pay hide.
         XCTAssertEqual(result.hiddenNoPay, 0)
+        XCTAssertEqual(result.hiddenBelowFloor, 1)
     }
 
     func testHourlyPayIsAnnualizedAgainstTheFloor() {
@@ -104,5 +105,19 @@ final class JobListFilterTests: XCTestCase {
         let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: true)
         XCTAssertEqual(result.jobs.map(\.externalId), ["stated"])
         XCTAssertEqual(result.hiddenNoPay, 2)
+        XCTAssertEqual(result.hiddenBelowFloor, 0)
+    }
+
+    func testBothHideReasonsAreCountedSeparatelyAndSumToAllHidden() {
+        let all = [paidJob("none"),
+                   paidJob("low", max: 80_000, period: "annual"),
+                   paidJob("lower", max: 50_000, period: "annual"),
+                   paidJob("kept", min: 120_000, period: "annual")]
+        let result = JobListFilter.applyPayFilter(all, minSalary: 100_000, requireStatedPay: true)
+        XCTAssertEqual(result.jobs.map(\.externalId), ["kept"])
+        XCTAssertEqual(result.hiddenNoPay, 1)
+        XCTAssertEqual(result.hiddenBelowFloor, 2)
+        // The invariant the Inbox badge depends on: kept + hidden == input.
+        XCTAssertEqual(result.jobs.count + result.hiddenNoPay + result.hiddenBelowFloor, all.count)
     }
 }

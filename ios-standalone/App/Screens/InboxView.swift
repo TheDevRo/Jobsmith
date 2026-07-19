@@ -39,10 +39,19 @@ struct InboxView: View {
     /// count is badged below the deck so strict mode reads as reversible.
     /// Pipeline deliberately skips it — those jobs were hand-triaged, and a
     /// filter must never hide something the user explicitly kept.
-    private var payFiltered: (jobs: [Job], hiddenNoPay: Int) {
+    private var payFiltered: (jobs: [Job], hiddenNoPay: Int, hiddenBelowFloor: Int) {
         JobListFilter.applyPayFilter(model.inbox,
                                      minSalary: model.config.search.minSalary,
                                      requireStatedPay: model.config.search.requireStatedPay)
+    }
+    private var hiddenByPayFilter: Int { payFiltered.hiddenNoPay + payFiltered.hiddenBelowFloor }
+    /// Every pay-gate hide is badged with its reason: the deck count plus this
+    /// badge must add back up to the inbox total, or hidden jobs read as lost.
+    private var hiddenBadgeText: String {
+        let (noPay, belowFloor) = (payFiltered.hiddenNoPay, payFiltered.hiddenBelowFloor)
+        if belowFloor == 0 { return "\(noPay) hidden — no stated pay" }
+        if noPay == 0 { return "\(belowFloor) hidden — pay under your floor" }
+        return "\(noPay + belowFloor) hidden by pay filter — \(noPay) no stated pay, \(belowFloor) under your floor"
     }
     private var filteredInbox: [Job] {
         JobListFilter.apply(payFiltered.jobs, query: searchQuery, boards: selectedBoards)
@@ -80,8 +89,8 @@ struct InboxView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { if showSearch { closeSearch() } }
-                        if payFiltered.hiddenNoPay > 0 {
-                            Text("\(payFiltered.hiddenNoPay) hidden — no stated pay")
+                        if hiddenByPayFilter > 0 {
+                            Text(hiddenBadgeText)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .padding(.bottom, 6)
