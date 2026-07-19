@@ -185,13 +185,17 @@ public struct NativeMessageRouter: Sendable {
         profile.desiredSalary = Self.contextualDesiredSalary(storedJob)
 
         let mapper = FieldMapper(engine: engine, bank: AnswerBankMatcher(db))
-        let values = await mapper.map(fields: fields, profile: profile,
-                                      job: job, config: config)
+        let outcome = await mapper.mapWithDiagnostics(fields: fields, profile: profile,
+                                                      job: job, config: config)
 
         let encoder = JSONEncoder()
-        let data = try encoder.encode(values)
+        let data = try encoder.encode(outcome.values)
         let dicts = (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
-        return ["fields": dicts, "count": dicts.count]
+        var payload: [String: Any] = ["fields": dicts, "count": dicts.count]
+        // Surfaced so the caller can say "the AI engine was unreachable"
+        // instead of presenting its fields as deliberately skipped.
+        if let llmError = outcome.llmError { payload["llm_error"] = llmError }
+        return payload
     }
 
     /// "" forces blank/skip; a "$NNN,NNN" string quotes the posting's high end.

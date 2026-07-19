@@ -53,19 +53,33 @@
     return null;
   }
 
+  // Page chrome that hosts popup toggles which are NOT form fields (nav menus,
+  // account buttons, share menus). aria-haspopup="true" alone is too weak a
+  // signal inside these regions.
+  function inChromeRegion(el) {
+    try {
+      return !!(el.closest && el.closest(
+        'nav, header, footer, [role="navigation"], [role="menubar"], [role="banner"], [role="menu"], [role="toolbar"]'));
+    } catch (_) { return false; }
+  }
+
   // Workday / custom-widget dropdowns: a button or div acting as a select.
   // Not an <input>, so fill.js can't type into it — it opens the popup and
   // clicks the matching [role=option] instead. Matches role=combobox, a
-  // button/div toggle with aria-haspopup="listbox" OR "true" (BambooHR's
-  // Fabric toggle uses "true"), or a toggle backed by a hidden native <select>.
+  // button/div toggle with aria-haspopup="listbox", or a toggle backed by a
+  // hidden native <select>. A bare aria-haspopup="true" toggle (BambooHR's
+  // Fabric uses it) additionally needs a label or a backing select and must
+  // sit outside page chrome — otherwise every nav/share menu button on the
+  // page would be captured as a select field.
   function isComboboxWidget(el) {
     if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") return false;
     const role = (el.getAttribute("role") || "").toLowerCase();
     const haspop = (el.getAttribute("aria-haspopup") || "").toLowerCase();
     if (role === "combobox") return true;
     const isToggle = el.tagName === "BUTTON" || el.tagName === "DIV";
-    if (isToggle && (haspop === "listbox" || haspop === "true")) return true;
+    if (isToggle && haspop === "listbox") return true;
     if (isToggle && hiddenNativeSelectFor(el)) return true;
+    if (isToggle && haspop === "true" && !inChromeRegion(el) && labelFor(el)) return true;
     return false;
   }
 
@@ -97,11 +111,17 @@
       }
       if (text.trim()) return text.trim();
     }
-    // 4. Previous sibling text
+    // 4. Previous sibling text — but only text that reads like a label. The
+    // first non-empty sibling decides: helper prose (multi-sentence, long)
+    // between fields must not become the next field's label.
     let sib = el.previousElementSibling;
     while (sib) {
       const t = (sib.textContent || "").trim();
-      if (t && t.length < 200) return t;
+      if (t) {
+        if ((sib.tagName === "LABEL" || sib.tagName === "LEGEND") && t.length < 200) return t;
+        if (t.length < 120 && !/[.!?]\s+\S/.test(t)) return t;
+        return "";
+      }
       sib = sib.previousElementSibling;
     }
     return "";
@@ -154,10 +174,14 @@
     if (/leave\s+(this\s+)?(field\s+)?blank/i.test(lbl) ||
         /leave\s+(this\s+)?(field\s+)?blank/i.test(ph)) return true;
     // Off-screen via absolute positioning (BambooHR hides its trap this way, not
-    // display:none, so it slips past isVisible).
+    // display:none, so it slips past isVisible). Document-relative coordinates,
+    // NOT viewport-relative: on a scrolled page every field above the fold has a
+    // negative viewport rect, and those are real fields.
     try {
       const r = el.getBoundingClientRect();
-      if (r.right < 0 || r.left < -9999) return true;
+      const absLeft = r.left + (window.pageXOffset || 0);
+      const absTop = r.top + (window.pageYOffset || 0);
+      if (absLeft + r.width < 0 || absLeft <= -9999 || absTop <= -9999) return true;
     } catch (_) {}
     let node = el;
     for (let hops = 0; node && hops < 5; hops++, node = node.parentElement) {
@@ -166,6 +190,8 @@
         if (st.position === "absolute" || st.position === "fixed") {
           const left = parseFloat(st.left);
           if (!isNaN(left) && left <= -9999) return true;
+          const top = parseFloat(st.top);
+          if (!isNaN(top) && top <= -9999) return true;
         }
       } catch (_) {}
     }
@@ -194,11 +220,37 @@
     return false;
   }
 
-  // BambooHR & many design systems mark required fields with a trailing/inline
-  // "*" in the label, not the native required attribute. Only the field's OWN
-  // label text is passed in here (never arbitrary page asterisks).
+  // BambooHR & many design systems mark required fields with a leading or
+  // trailing "*" in the label, not the native required attribute. Only edge
+  // asterisks count — a "*" mid-label is usually a footnote reference, and
+  // treating it as required floods the panel with false "required, not
+  // filled" rows.
   function hasRequiredMarker(text) {
-    return /\*/.test(text || "");
+    return /^\s*\*|\*\s*$/.test(text || "");
+  }
+
+  // Workday renders one date as separate spinbutton inputs
+  // (data-automation-id="dateSectionMonth-input" / Day / Year) that carry no
+  // label of their own. Name the segment so the mapper sees
+  // "Start Date — Month" instead of an anonymous text input.
+  function workdayDateSegment(el) {
+    const aid = (el.getAttribute && (el.getAttribute("data-automation-id") || "")) || "";
+    const m = aid.match(/dateSection(Month|Day|Year)/i);
+    return m ? m[1] : "";
+  }
+
+  // The owning field's label for a widget whose inputs sit a few wrappers
+  // below it (Workday date segments). First labelled ancestor wins; the walk
+  // stops at broad containers whose first <label> belongs to some other field.
+  function ancestorLabelText(el) {
+    let anc = el.parentElement;
+    for (let hops = 0; anc && hops < 6; hops++, anc = anc.parentElement) {
+      if (anc.tagName === "FORM" || anc.tagName === "BODY") break;
+      let lab = null;
+      try { lab = anc.querySelector("label"); } catch (_) {}
+      if (lab && lab.textContent.trim()) return lab.textContent.trim().slice(0, 200);
+    }
+    return "";
   }
 
   const FIELD_QUERY = 'input, select, textarea, [role="combobox"], button[aria-haspopup="listbox"], button[aria-haspopup="true"], [aria-haspopup="true"], [contenteditable="true"], [contenteditable=""]';
@@ -294,7 +346,12 @@
     // Stamp the element so fill.js can locate it later via a stable selector
     // that survives React/Vue re-renders and auto-generated id churn.
     try { el.setAttribute("data-jobsmith-fid", fid); } catch (_) {}
-    const label = labelFor(el);
+    let label = labelFor(el);
+    const dateSeg = workdayDateSegment(el);
+    if (dateSeg) {
+      const owner = ancestorLabelText(el) || label;
+      label = owner ? owner + " — " + dateSeg : dateSeg;
+    }
     fields.push({
       field_id: fid,
       label: label,

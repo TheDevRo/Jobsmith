@@ -13,6 +13,9 @@ public struct Profile: Codable, Equatable, Sendable {
     public var city: String
     public var state: String
     public var zipCode: String
+    /// Mirrors the desktop UserProfile.country default — deterministic
+    /// country/phone-code answers read this instead of assuming the US.
+    public var country: String
     public var linkedin: String
     public var github: String
     public var portfolio: String
@@ -39,7 +42,8 @@ public struct Profile: Codable, Equatable, Sendable {
         fullName: String = "", middleName: String = "", email: String = "",
         phone: String = "", location: String = "", streetAddress: String = "",
         streetAddress2: String = "", city: String = "",
-        state: String = "", zipCode: String = "", linkedin: String = "",
+        state: String = "", zipCode: String = "",
+        country: String = "United States", linkedin: String = "",
         github: String = "", portfolio: String = "", desiredSalary: String = "",
         workAuthorization: String = "", sponsorshipRequired: String = "",
         gender: String = "", raceEthnicity: String = "", veteranStatus: String = "",
@@ -54,6 +58,7 @@ public struct Profile: Codable, Equatable, Sendable {
         self.location = location; self.streetAddress = streetAddress
         self.streetAddress2 = streetAddress2
         self.city = city; self.state = state; self.zipCode = zipCode
+        self.country = country
         self.linkedin = linkedin; self.github = github; self.portfolio = portfolio
         self.desiredSalary = desiredSalary
         self.workAuthorization = workAuthorization
@@ -81,6 +86,7 @@ public struct Profile: Codable, Equatable, Sendable {
         city = c.lenient(String.self, .city, "")
         state = c.lenient(String.self, .state, "")
         zipCode = c.lenient(String.self, .zipCode, "")
+        country = c.lenient(String.self, .country, "United States")
         linkedin = c.lenient(String.self, .linkedin, "")
         github = c.lenient(String.self, .github, "")
         portfolio = c.lenient(String.self, .portfolio, "")
@@ -103,7 +109,7 @@ public struct Profile: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case fullName, middleName, email, phone, location, streetAddress
-        case streetAddress2, city, state, zipCode
+        case streetAddress2, city, state, zipCode, country
         case linkedin, github, portfolio, desiredSalary, workAuthorization
         case sponsorshipRequired, gender, raceEthnicity, veteranStatus
         case disabilityStatus, availableStart, noticePeriod, summary, skills

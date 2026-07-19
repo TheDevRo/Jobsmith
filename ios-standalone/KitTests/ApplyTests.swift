@@ -445,14 +445,31 @@ final class FieldMapperTests: XCTestCase {
         XCTAssertEqual(engine.requests.count, 1)
     }
 
-    func testLLMFailureGapFillsAsSkip() async throws {
+    func testLLMFailureGapFillsAsEngineError() async throws {
         engine.register("Return the JSON array now.",
                         .failure("boom"), .failure("boom"), .failure("boom"))
         let fields = [FieldDescriptor(fieldId: "q1", label: "What is your spirit animal")]
-        let out = await mapper.map(fields: fields, profile: ApplyFixtures.profile(),
-                                   job: job, config: config)
-        XCTAssertEqual(out.map(\.action), ["skip"])
-        XCTAssertEqual(out.map(\.source), ["skip"])
+        let out = await mapper.mapWithDiagnostics(fields: fields,
+                                                  profile: ApplyFixtures.profile(),
+                                                  job: job, config: config)
+        XCTAssertEqual(out.values.map(\.action), ["skip"])
+        // "engine_error", not "skip": the model never saw the field, and the
+        // UI must be able to say so instead of presenting a deliberate skip.
+        XCTAssertEqual(out.values.map(\.source), ["engine_error"])
+        XCTAssertNotNil(out.llmError)
+    }
+
+    func testLLMOmissionStillGapFillsAsSkip() async throws {
+        // The engine answers fine but omits the field — that IS a model
+        // decision, so the source stays "skip" and no llmError is raised.
+        engine.register("Return the JSON array now.", .text("[]"))
+        let fields = [FieldDescriptor(fieldId: "q1", label: "What is your spirit animal")]
+        let out = await mapper.mapWithDiagnostics(fields: fields,
+                                                  profile: ApplyFixtures.profile(),
+                                                  job: job, config: config)
+        XCTAssertEqual(out.values.map(\.action), ["skip"])
+        XCTAssertEqual(out.values.map(\.source), ["skip"])
+        XCTAssertNil(out.llmError)
     }
 
     func testExtractJSONVariants() {

@@ -408,6 +408,40 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
   function isTruthyAnswer(s) {
     return /^(y(es)?|true|1|on)$/i.test((s || "").trim());
   }
+  // Workday date segments (data-automation-id="dateSectionMonth-input" etc.)
+  // are plain text inputs, but the mapped value is usually a whole date
+  // ("2023-06", "June 2023") — reduce it to the number this segment wants.
+  // Returns null for non-segment elements / unparseable values (caller falls
+  // back to the plain path). ISO-like strings are split by hand: new Date()
+  // parses them as UTC midnight, which getMonth() shifts a day in western
+  // timezones.
+  function workdaySegmentValue(el, value) {
+    const aid = (el.getAttribute && (el.getAttribute("data-automation-id") || "")) || "";
+    const m = aid.match(/dateSection(Month|Day|Year)/i);
+    if (!m) return null;
+    const part = m[1].toLowerCase();
+    const v = (value || "").trim();
+    const iso = v.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
+    if (iso) {
+      if (part === "year") return iso[1];
+      if (part === "month") return String(parseInt(iso[2], 10));
+      return iso[3] ? String(parseInt(iso[3], 10)) : "1";
+    }
+    let d = null;
+    if (/^(immediate(ly)?|asap|now|today)$/i.test(v)) d = new Date();
+    else {
+      const parsed = new Date(v);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d) {
+      if (part === "year" && /^\d{4}$/.test(v)) return v;
+      if (part !== "year" && /^\d{1,2}$/.test(v)) return String(parseInt(v, 10));
+      return null;
+    }
+    if (part === "month") return String(d.getMonth() + 1);
+    if (part === "day") return String(d.getDate());
+    return String(d.getFullYear());
+  }
   function normalizeDateValue(el, value) {
     const t = (el.type || "").toLowerCase();
     if (t !== "date" && t !== "month") return value;
@@ -446,6 +480,9 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
     return { ok: false, actual };
   }
   const results = [];
+  // Plain text/date fields set in the main loop, verified together afterwards
+  // — one shared settle wait instead of a per-field verify delay.
+  const textQueue = [];
   for (const item of items || []) {
     if (item.action === "skip" || !item.value) {
       results.push({ field_id: item.field_id, status: "skipped" });
@@ -511,15 +548,44 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
         if (out.message) { results.push({ field_id: item.field_id, status: "low_confidence", message: out.message }); continue; }
         await sleep(60);  // let dependent fields (country → state) cascade
       } else if (item.field_type === "select") {
-        const opt = pickSelectOption(el, item.value);
-        if (!opt) { results.push({ field_id: item.field_id, status: "failed", message: "no matching option" }); continue; }
-        nativeSet(el, opt.value);
-        fireInputEvents(el);
-        if (el.value !== opt.value) {
-          results.push({ field_id: item.field_id, status: "failed", message: "select did not accept value" });
-          continue;
+        if (el.multiple) {
+          // Native multi-select: split on separators and select every match.
+          const parts = String(item.value).split(/[;,]/).map((s) => s.trim()).filter(Boolean);
+          const picked = [];
+          for (const p of parts) {
+            const o = pickSelectOption(el, p);
+            if (o && !picked.includes(o)) picked.push(o);
+          }
+          if (!picked.length) { results.push({ field_id: item.field_id, status: "failed", message: "no matching option" }); continue; }
+          for (const o of el.options) o.selected = picked.includes(o);
+          fireInputEvents(el);
+          if (picked.length < parts.length) {
+            results.push({ field_id: item.field_id, status: "low_confidence",
+                           message: `selected ${picked.length}/${parts.length}` });
+            await sleep(60);
+            continue;
+          }
+          await sleep(60);
+        } else {
+          const opt = pickSelectOption(el, item.value);
+          if (!opt) { results.push({ field_id: item.field_id, status: "failed", message: "no matching option" }); continue; }
+          nativeSet(el, opt.value);
+          fireInputEvents(el);
+          if (el.value !== opt.value) {
+            results.push({ field_id: item.field_id, status: "failed", message: "select did not accept value" });
+            continue;
+          }
+          await sleep(80);  // dependent dropdowns repopulate; controlled selects may revert
+          if (el.value !== opt.value) {
+            nativeSet(el, opt.value);  // one retry against a framework revert
+            fireInputEvents(el);
+            await sleep(80);
+            if (el.value !== opt.value) {
+              results.push({ field_id: item.field_id, status: "failed", message: "select reverted" });
+              continue;
+            }
+          }
         }
-        await sleep(60);  // dependent dropdowns repopulate after change
       } else if (item.field_type === "radio") {
         const target = pickRadioInGroup(el, item.name || el.name, item.value);
         if (!target) { results.push({ field_id: item.field_id, status: "failed", message: "no matching radio" }); continue; }
@@ -533,6 +599,17 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           continue;
         }
         await sleep(40);
+        if (!target.checked) {  // controlled group reverted on re-render — retry once
+          target.click();
+          if (!target.checked) {
+            target.checked = true;
+            fireInputEvents(target);
+          }
+          if (!target.checked) {
+            results.push({ field_id: item.field_id, status: "failed", message: "radio reverted" });
+            continue;
+          }
+        }
       } else if (item.field_type === "checkbox") {
         const want = isTruthyAnswer(item.value);
         if (el.checked !== want) el.click();
@@ -544,6 +621,18 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           results.push({ field_id: item.field_id, status: "failed", message: "checkbox did not toggle" });
           continue;
         }
+        await sleep(40);
+        if (el.checked !== want) {  // controlled checkbox reverted — retry once
+          el.click();
+          if (el.checked !== want) {
+            el.checked = want;
+            fireInputEvents(el);
+          }
+          if (el.checked !== want) {
+            results.push({ field_id: item.field_id, status: "failed", message: "checkbox reverted" });
+            continue;
+          }
+        }
       } else if (el.isContentEditable || (el.getAttribute && ["", "true"].includes(el.getAttribute("contenteditable")))) {
         fireFocus(el);
         el.textContent = item.value;
@@ -554,21 +643,50 @@ window.__jobsmithFillAndHighlight = async function jobsmithFillAndHighlight(item
           continue;
         }
       } else {
-        const value = normalizeDateValue(el, item.value);
-        const res = await setTextFieldWithRetry(item, el, value);
-        if (!res.ok) {
-          results.push({
-            field_id: item.field_id,
-            status: "failed",
-            message: res.actual ? `reverted to "${res.actual.slice(0, 40)}"` : "value reverted",
-          });
-          continue;
-        }
+        const value = workdaySegmentValue(el, item.value) ?? normalizeDateValue(el, item.value);
+        try { el.focus(); } catch (_) {}
+        fireFocus(el);
+        nativeSet(el, value);
+        fireInputEvents(el, value);
+        textQueue.push({ item, el, value });
+        continue;  // verified in the batched text pass below
       }
       const lowConf = typeof item.confidence === "number" && item.confidence < LOW_CONF;
       results.push({ field_id: item.field_id, status: lowConf ? "low_confidence" : "filled" });
     } catch (e) {
       results.push({ field_id: item.field_id, status: "failed", message: String(e && e.message || e) });
+    }
+  }
+  // Batched verify for the text fields set above: after one shared settle
+  // wait, re-read each; only fields whose value reverted (controlled inputs
+  // whose framework rejected the synthetic events) pay the per-field retry.
+  if (textQueue.length) {
+    await sleep(150);
+    for (const q of textQueue) {
+      try {
+        let actual = (q.el && q.el.value) || "";
+        let ok = actual === q.value || (q.value && actual.includes(q.value));
+        if (ok) {
+          fireBlur(q.el);
+          try { q.el.blur(); } catch (_) {}
+        } else {
+          const res = await setTextFieldWithRetry(q.item, q.el, q.value);
+          ok = res.ok;
+          actual = res.actual;
+        }
+        if (!ok) {
+          results.push({
+            field_id: q.item.field_id,
+            status: "failed",
+            message: actual ? `reverted to "${actual.slice(0, 40)}"` : "value reverted",
+          });
+          continue;
+        }
+        const lowConf = typeof q.item.confidence === "number" && q.item.confidence < LOW_CONF;
+        results.push({ field_id: q.item.field_id, status: lowConf ? "low_confidence" : "filled" });
+      } catch (e) {
+        results.push({ field_id: q.item.field_id, status: "failed", message: String(e && e.message || e) });
+      }
     }
   }
   const styleId = "__jobsmith-hl__";

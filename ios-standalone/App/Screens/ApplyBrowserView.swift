@@ -20,6 +20,7 @@ struct ApplyBrowserView: View {
     @State private var statusVisible = false
     @State private var statusHideTask: Task<Void, Never>?
     @State private var busy = false
+    @State private var autofillTask: Task<Void, Never>?
     @State private var rows: [ApplyFieldRow] = []
     @State private var showPanel = false
     @State private var didStart = false
@@ -122,6 +123,11 @@ struct ApplyBrowserView: View {
                              cookies: isLinkedIn ? storedLinkedInCookies : [])
             showStatus("Load the form, then tap Autofill.", autoHideAfter: 6)
         }
+        .onDisappear {
+            // A mapping run left in flight would keep burning an LLM round
+            // (and battery) after the user gave up on the page.
+            autofillTask?.cancel()
+        }
         .onChange(of: controller.hasPopup) { _, opened in
             if opened {
                 showStatus("The site opened a new window — back returns to the posting.",
@@ -190,14 +196,20 @@ struct ApplyBrowserView: View {
 
                 Spacer(minLength: 4)
 
-                Button(action: autofill) {
-                    Label(busy ? "Working…" : "Autofill", systemImage: "wand.and.stars")
+                Button {
+                    // While a run is in flight the same button cancels it —
+                    // a slow AI endpoint must never pin the browser for
+                    // minutes with no way out.
+                    if busy { autofillTask?.cancel() } else { autofill() }
+                } label: {
+                    Label(busy ? "Cancel" : "Autofill",
+                          systemImage: busy ? "xmark.circle" : "wand.and.stars")
                         .font(.callout.weight(.semibold))
                         .padding(.vertical, 7)
                         .padding(.horizontal, 2)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(busy || URL(string: job.url) == nil)
+                .disabled(URL(string: job.url) == nil)
 
                 if !rows.isEmpty {
                     barButton("list.clipboard", "Answers") { showPanel = true }
@@ -317,7 +329,9 @@ struct ApplyBrowserView: View {
 
     private func refreshWorkdayState() async {
         let host = (controller.currentURL ?? jobURL)?.host?.lowercased() ?? ""
-        guard host.hasSuffix("myworkdayjobs.com") else {
+        // Workday tenants live on both suffixes (wd5.myworkdayjobs.com and
+        // wd1.myworkdaysite.com style career sites).
+        guard host.hasSuffix("myworkdayjobs.com") || host.hasSuffix("myworkdaysite.com") else {
             workdayState = "none"
             return
         }
@@ -383,55 +397,80 @@ struct ApplyBrowserView: View {
     private func autofill() {
         busy = true
         showStatus("Scanning form…")
-        Task {
+        autofillTask = Task {
+            defer { busy = false }
             do {
                 let snap = try await controller.snapshot()
                 guard !snap.fields.isEmpty else {
                     showStatus("No form fields found — the page may still be loading, "
                                + "behind a login, or not a web form.", autoHideAfter: 10)
-                    busy = false
                     return
                 }
                 showStatus("Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…")
-                let values = await model.mapApplyFields(snap.fields, job: job)
-                var items = Self.buildFillItems(descriptors: snap.fields, values: values,
-                                                documents: uploadDocuments(for: values))
+                let mapping = await model.mapApplyFields(snap.fields, job: job)
+                try Task.checkCancellation()
+                var items = Self.buildFillItems(descriptors: snap.fields, values: mapping.values,
+                                                documents: uploadDocuments(for: mapping.values))
                 showStatus("Filling…")
                 // Phase 2 — shrink the snapshot→fill window. Mapping above can
                 // take seconds (LLM), during which an SPA form may re-render and
                 // drop the data-jobsmith-fid stamps snapshot.js applied. Re-run
                 // snapshot to re-stamp the current nodes under the same stable
                 // field_ids, then refresh each item's selector from the fresh
-                // descriptors (matched by field_id) so fill.js targets live nodes.
+                // descriptors (matched by frame + field_id) so fill.js targets
+                // live nodes.
                 if let fresh = try? await controller.snapshot() {
-                    var freshSelectors: [String: String] = [:]
+                    var freshByKey: [String: [String: Any]] = [:]
                     for f in fresh.fields {
-                        if let fid = f["field_id"] as? String,
-                           let sel = f["_selector"] as? String {
-                            freshSelectors[fid] = sel
+                        if let fid = f["field_id"] as? String {
+                            freshByKey["\(f["_frame"] as? Int ?? 0)|\(fid)"] = f
                         }
+                    }
+                    var origByFid: [String: [String: Any]] = [:]
+                    for d in snap.fields {
+                        if let fid = d["field_id"] as? String { origByFid[fid] = d }
                     }
                     for i in items.indices {
-                        if let fid = items[i]["field_id"] as? String,
-                           let sel = freshSelectors[fid] {
-                            items[i]["selector"] = sel
+                        guard let fid = items[i]["field_id"] as? String else { continue }
+                        let frame = items[i]["_frame"] as? Int ?? 0
+                        guard let f = freshByKey["\(frame)|\(fid)"],
+                              let sel = f["_selector"] as? String else { continue }
+                        // Only refresh when the fresh descriptor still
+                        // describes the same field — index-derived ids
+                        // (field_12) can land on a DIFFERENT element when the
+                        // DOM changed between the two snapshots, and silently
+                        // retargeting would fill the wrong box.
+                        if let orig = origByFid[fid] {
+                            guard f["name"] as? String == orig["name"] as? String,
+                                  f["label"] as? String == orig["label"] as? String,
+                                  f["field_type"] as? String == orig["field_type"] as? String
+                            else { continue }
                         }
+                        items[i]["selector"] = sel
                     }
                 }
+                try Task.checkCancellation()
                 let fillResults = try await controller.fill(items: items)
-                rows = Self.buildRows(descriptors: snap.fields, values: values,
+                rows = Self.buildRows(descriptors: snap.fields, values: mapping.values,
                                       fillResults: fillResults)
                 let filled = fillResults.filter { ($0["status"] as? String) == "filled" }.count
+                let review = fillResults.filter { ($0["status"] as? String) == "low_confidence" }.count
                 let pendingUploads = rows.contains { $0.isUpload && !$0.wasFilled }
-                showStatus(pendingUploads
-                    ? "Filled \(filled) of \(items.count). Review the page, attach documents, then submit."
-                    : "Filled \(filled) of \(items.count). Review the page, then submit.",
-                    autoHideAfter: 8)
+                var status = "Filled \(filled + review) of \(items.count)."
+                if review > 0 { status += " \(review) to double-check." }
+                if mapping.llmError != nil {
+                    status += " The AI engine couldn't be reached — some answers were left blank."
+                }
+                status += pendingUploads
+                    ? " Review the page, attach documents, then submit."
+                    : " Review the page, then submit."
+                showStatus(status, autoHideAfter: mapping.llmError == nil ? 8 : 14)
                 showPanel = true
+            } catch is CancellationError {
+                showStatus("Autofill cancelled.", autoHideAfter: 4)
             } catch {
                 showStatus("Autofill failed: \(error.localizedDescription)", autoHideAfter: 10)
             }
-            busy = false
         }
     }
 
@@ -445,13 +484,23 @@ struct ApplyBrowserView: View {
             guard (v["action"] as? String) == "upload" else { return nil }
             return v["value"] as? String
         })
-        let format = model.config.honesty.documentFormat
+        let preferred = model.config.honesty.documentFormat
         var docs: [String: ApplyUploadDocument] = [:]
         for token in kinds {
-            guard let kind = FileVault.Kind(rawValue: token),
-                  let data = FileVault.read(jobId: job.id, kind: kind, format: format) else {
-                continue
+            guard let kind = FileVault.Kind(rawValue: token) else { continue }
+            // The vault holds whatever format the job was tailored under; if
+            // the setting changed since, fall back to the other format rather
+            // than silently skipping the upload.
+            var format = preferred
+            var data = FileVault.read(jobId: job.id, kind: kind, format: format)
+            if data == nil {
+                let alt: FileVault.Format = preferred == .docx ? .pdf : .docx
+                if let altData = FileVault.read(jobId: job.id, kind: kind, format: alt) {
+                    data = altData
+                    format = alt
+                }
             }
+            guard let data else { continue }
             docs[token] = ApplyUploadDocument(
                 base64: data.base64EncodedString(),
                 name: FileVault.exportFilename(name: model.config.profile.fullName,
@@ -495,6 +544,9 @@ struct ApplyBrowserView: View {
                 "options": d["options"] as? [String] ?? [],
                 "required": d["required"] as? Bool ?? false,
                 "_combobox": d["_combobox"] as? Bool ?? false,
+                // Which frame the field was snapshotted in (0 = main) — fill()
+                // routes the item back into that frame's script world.
+                "_frame": d["_frame"] as? Int ?? 0,
             ]
             if (v["action"] as? String) == "upload",
                let doc = documents[v["value"] as? String ?? ""] {
@@ -570,14 +622,18 @@ struct ApplyFieldRow: Identifiable {
     var isUpload: Bool { action == "upload" }
     var isSkipped: Bool { action == "skip" }
     var copyable: Bool { !isUpload && !isSkipped && !value.isEmpty }
-    var wasFilled: Bool { fillStatus == "filled" }
+    /// "low_confidence" fields WERE set on the page (an unsure pick or a
+    /// partial multi-select) — counting them as unfilled made users re-type
+    /// values that were already there.
+    var wasFilled: Bool { fillStatus == "filled" || fillStatus == "low_confidence" }
+    var needsReview: Bool { fillStatus == "low_confidence" }
 
     /// Lower sorts first: unattached uploads and required-but-unfilled need
     /// attention. An upload fill.js managed to attach is resolved.
     var attentionRank: Int {
         if isUpload { return wasFilled ? 3 : 0 }
         if required && !wasFilled { return 1 }
-        if !wasFilled { return 2 }
+        if !wasFilled || needsReview { return 2 }
         return 3
     }
 }
@@ -603,6 +659,21 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// can't spawn unbounded web views.
     private var childWebViews: [WKWebView] = []
     private let maxChildWebViews = 4
+
+    /// Subframes seen navigating, per web view. ATS vendors (Greenhouse embeds,
+    /// iCIMS, Taleo) render the whole application form inside a — usually
+    /// cross-origin — iframe, which plain `evaluateJavaScript` (main frame
+    /// only) can never see; these captured `WKFrameInfo`s let snapshot/fill
+    /// target those frames too. Keyed by frame request URL so a frame that
+    /// re-navigates replaces its stale info; cleared when the owning view's
+    /// main frame navigates.
+    private var subframes: [(view: WKWebView, url: String, frame: WKFrameInfo)] = []
+    private let maxSubframes = 24
+
+    /// The frames the LAST snapshot pulled fields from, by the `_frame` index
+    /// stamped on each descriptor (0 / nil = main frame). fill() routes each
+    /// item back to the frame its field was found in.
+    private var snapshotFrames: [WKFrameInfo?] = [nil]
 
     // Published navigation state so the toolbar can enable/disable controls and
     // show load progress — users tapping into a half-loaded form is a top cause
@@ -799,7 +870,12 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         NSLog("[Apply] window.open → %@", url?.absoluteString ?? "(blank)")
 
         if url == nil || url?.absoluteString == "about:blank" {
-            return makeChildWebView(configuration)
+            let child = makeChildWebView(configuration)
+            // A blank child painted via opener document.write never navigates,
+            // so the first-navigation mount below never fires — watch for
+            // content so the window the site "opened" actually appears.
+            if let child { watchBlankPopupForContent(child) }
+            return child
         }
         guard let url else { return nil }
         if url.scheme == "http" || url.scheme == "https" {
@@ -825,12 +901,43 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// navigation (see decidePolicyFor) — a window that never loads anything
     /// is never shown.
     private func makeChildWebView(_ configuration: WKWebViewConfiguration) -> WKWebView? {
-        guard childWebViews.count < maxChildWebViews else { return nil }
+        if childWebViews.count >= maxChildWebViews {
+            // Evict the oldest background child rather than refuse — refusing
+            // degrades into loading over the opener, which kills OAuth popups
+            // that post back through window.opener.
+            guard let idx = childWebViews.firstIndex(where: { $0 !== activeWebView }) else {
+                return nil
+            }
+            childWebViews.remove(at: idx)
+        }
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         let child = WKWebView(frame: .zero, configuration: configuration)
         configure(child)
         childWebViews.append(child)
         return child
+    }
+
+    /// Poll a blank `window.open` child briefly: a child the opener paints
+    /// with document.write holds content but no URL, and without this it would
+    /// stay invisible forever — the tapped button that opened it looks dead.
+    /// Real popunders stay blank and are never shown.
+    private func watchBlankPopupForContent(_ child: WKWebView) {
+        Task { @MainActor [weak self, weak child] in
+            for delay: UInt64 in [900_000_000, 2_400_000_000] {
+                try? await Task.sleep(nanoseconds: delay)
+                guard let self, let child, self.childWebViews.contains(child) else { return }
+                guard child !== self.activeWebView,
+                      child.url == nil || child.url?.absoluteString == "about:blank"
+                else { return }  // it navigated — decidePolicyFor mounts it
+                let js = "!!(document.body && (document.body.children.length"
+                    + " || (document.body.textContent || '').trim().length))"
+                let has = ((try? await child.evaluateJavaScript(js)) as? Bool) ?? false
+                if has {
+                    self.mount(child)
+                    return
+                }
+            }
+        }
     }
 
     /// A child that scripts `window.close()` — drop it, and if it was the one
@@ -924,6 +1031,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             return
         }
         NSLog("[Apply] navigate → %@", url.absoluteString)
+        trackFrame(navigationAction, in: webView)
         // LinkedIn's guest job pages render fully, then a bot-detection script
         // decides the embedded browser is "scraping" and JS-redirects to the
         // /authwall signup page — replacing a posting the user was already
@@ -958,15 +1066,35 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         }
     }
 
+    /// Record subframe navigations so snapshot/fill can reach into iframes,
+    /// and reset the record when a view's main frame navigates away.
+    private func trackFrame(_ navigationAction: WKNavigationAction, in webView: WKWebView) {
+        guard let frame = navigationAction.targetFrame else { return }
+        if frame.isMainFrame {
+            subframes.removeAll { $0.view === webView }
+            return
+        }
+        guard let url = navigationAction.request.url,
+              url.scheme == "http" || url.scheme == "https" else { return }
+        let key = url.absoluteString
+        subframes.removeAll { $0.view === webView && $0.url == key }
+        subframes.append((view: webView, url: key, frame: frame))
+        if subframes.count > maxSubframes { subframes.removeFirst() }
+    }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: Error) {
         NSLog("[Apply] provisional navigation failed: %@", error.localizedDescription)
         if recoverFromLinkedInRedirectLoop(webView, error) { return }
+        // A hidden window.open child (popunder) failing its load must not
+        // flash "Couldn't load the page" over the healthy visible page.
+        guard webView === activeWebView else { return }
         reportLoadFailure(error)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("[Apply] navigation failed: %@", error.localizedDescription)
+        guard webView === activeWebView else { return }
         reportLoadFailure(error)
     }
 
@@ -1106,22 +1234,83 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
         ])
     }
 
-    /// Inject snapshot.js; its IIFE returns `{ url, fields }` directly. Targets
-    /// the active web view so autofill scans the visible page (including an
-    /// external-apply child), not the posting hidden behind it.
+    /// Inject snapshot.js in the main frame AND every tracked iframe of the
+    /// active web view; its IIFE returns `{ url, fields }` per frame. Merged
+    /// fields carry a `_frame` index (0 = main) so fill() can route each item
+    /// back to the frame it was found in — ATS forms frequently live in a
+    /// cross-origin iframe the main frame can't see. Targets the active web
+    /// view so autofill scans the visible page (including an external-apply
+    /// child), not the posting hidden behind it.
     func snapshot() async throws -> (url: String, fields: [[String: Any]]) {
+        var fields: [[String: Any]] = []
+        var seenFids = Set<String>()
+        func merge(_ raw: [[String: Any]], frameIndex: Int) {
+            for var f in raw {
+                guard var fid = f["field_id"] as? String else { continue }
+                // The same id can exist in two frames ("email" in main +
+                // iframe) — suffix the duplicate; `_selector` still holds the
+                // original stamp, which is resolved inside its own frame.
+                if seenFids.contains(fid) {
+                    fid = "\(fid)__f\(frameIndex)"
+                    f["field_id"] = fid
+                }
+                seenFids.insert(fid)
+                f["_frame"] = frameIndex
+                fields.append(f)
+            }
+        }
         let result = try await activeWebView.evaluateJavaScript(ApplyScripts.snapshot)
         let dict = result as? [String: Any] ?? [:]
-        return (dict["url"] as? String ?? "",
-                dict["fields"] as? [[String: Any]] ?? [])
+        merge(dict["fields"] as? [[String: Any]] ?? [], frameIndex: 0)
+        snapshotFrames = [nil]
+        var seenFrameURLs = Set<String>()
+        for entry in subframes where entry.view === activeWebView {
+            guard !seenFrameURLs.contains(entry.url) else { continue }
+            // A stale frame (navigated away, removed) just throws — skip it.
+            guard let raw = try? await activeWebView.evaluateJavaScript(
+                    ApplyScripts.snapshot, in: entry.frame, contentWorld: .page),
+                  let d = raw as? [String: Any],
+                  let fs = d["fields"] as? [[String: Any]], !fs.isEmpty else { continue }
+            seenFrameURLs.insert(entry.url)
+            snapshotFrames.append(entry.frame)
+            merge(fs, frameIndex: snapshotFrames.count - 1)
+        }
+        return (dict["url"] as? String ?? "", fields)
     }
 
-    /// Register fill.js, then invoke the async global with the merged items.
-    /// Upload items arrive with `file_b64` (a string survives the JS bridge;
-    /// a Data/byte-array does not) — decode each back into the `file_bytes`
-    /// Uint8Array that fill.js's DataTransfer attachment path expects.
+    /// Register fill.js, then invoke the async global with the merged items —
+    /// grouped by the frame each field was snapshotted in, since the script
+    /// world is per frame. Upload items arrive with `file_b64` (a string
+    /// survives the JS bridge; a Data/byte-array does not) — decode each back
+    /// into the `file_bytes` Uint8Array that fill.js's DataTransfer attachment
+    /// path expects.
     func fill(items: [[String: Any]]) async throws -> [[String: Any]] {
-        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.fill)
+        var byFrame: [Int: [[String: Any]]] = [:]
+        for item in items {
+            byFrame[item["_frame"] as? Int ?? 0, default: []].append(item)
+        }
+        var results: [[String: Any]] = []
+        for (frameIdx, group) in byFrame.sorted(by: { $0.key < $1.key }) {
+            let frame: WKFrameInfo? =
+                frameIdx < snapshotFrames.count ? snapshotFrames[frameIdx] : nil
+            do {
+                results += try await fill(items: group, in: frame)
+            } catch where frame != nil {
+                // The iframe went away between snapshot and fill — report its
+                // fields instead of sinking the whole run.
+                results += group.map {
+                    ["field_id": $0["field_id"] as? String ?? "",
+                     "status": "not_found",
+                     "message": "the form's frame reloaded — tap Autofill again"]
+                }
+            }
+        }
+        return results
+    }
+
+    private func fill(items: [[String: Any]], in frame: WKFrameInfo?) async throws -> [[String: Any]] {
+        _ = try await activeWebView.evaluateJavaScript(
+            ApplyScripts.fill, in: frame, contentWorld: .page)
         let out = try await activeWebView.callAsyncJavaScript(
             """
             for (const it of (items || [])) {
@@ -1135,6 +1324,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             return await window.__jobsmithFillAndHighlight(items, {});
             """,
             arguments: ["items": items],
+            in: frame,
             contentWorld: .page)
         let dict = out as? [String: Any] ?? [:]
         return dict["results"] as? [[String: Any]] ?? []
@@ -1256,9 +1446,11 @@ private struct ApplyFallbackPanel: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                    // Why the fill didn't take, straight from fill.js —
-                    // without this a failed upload is undiagnosable on-device.
-                    if !row.wasFilled, let message = row.fillMessage, !message.isEmpty {
+                    // Why the fill didn't take (or needs a second look),
+                    // straight from fill.js — without this a failed upload is
+                    // undiagnosable on-device.
+                    if !row.wasFilled || row.needsReview,
+                       let message = row.fillMessage, !message.isEmpty {
                         Text(message)
                             .font(.caption2)
                             .foregroundStyle(.orange)
@@ -1296,6 +1488,7 @@ private struct ApplyFallbackPanel: View {
     /// The words behind the status dot's color.
     private func statusText(_ row: ApplyFieldRow) -> String {
         if row.isUpload { return row.wasFilled ? "file attached" : "file upload needed" }
+        if row.needsReview { return "filled — double-check it" }
         if row.wasFilled { return "filled" }
         if row.required { return "required, not filled" }
         return "optional, not filled"
@@ -1303,6 +1496,7 @@ private struct ApplyFallbackPanel: View {
 
     private func statusDot(_ row: ApplyFieldRow) -> some View {
         let color: Color = row.isUpload ? (row.wasFilled ? .green : .orange)
+            : row.needsReview ? .yellow
             : row.wasFilled ? .green
             : row.required ? .red
             : .secondary
@@ -1323,8 +1517,19 @@ private struct ApplyDocumentTile: View {
     let title: String
 
     private var fileURL: URL? {
-        let format = model.config.honesty.documentFormat
-        guard let data = FileVault.read(jobId: job.id, kind: kind, format: format) else {
+        // Prefer the current format setting, but fall back to the format the
+        // job was actually tailored under — flipping DOCX↔PDF in Settings must
+        // not make an existing document read as "not tailored yet".
+        var format = model.config.honesty.documentFormat
+        var read = FileVault.read(jobId: job.id, kind: kind, format: format)
+        if read == nil {
+            let alt: FileVault.Format = format == .docx ? .pdf : .docx
+            if let altData = FileVault.read(jobId: job.id, kind: kind, format: alt) {
+                read = altData
+                format = alt
+            }
+        }
+        guard let data = read else {
             return nil
         }
         let base = job.company.isEmpty ? "Jobsmith" : job.company

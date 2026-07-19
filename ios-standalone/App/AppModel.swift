@@ -872,13 +872,19 @@ final class AppModel {
     /// Map a page's scanned form fields to values on-device, reusing the same
     /// pipeline the Safari extension used to reach over native messaging
     /// (FieldMapper → profile/answer-bank/LLM). `rawFields` is the snapshot.js
-    /// `fields` array; the return is FieldValue dicts keyed by `field_id`.
-    func mapApplyFields(_ rawFields: [[String: Any]], job: Job) async -> [[String: Any]] {
+    /// `fields` array; `values` is FieldValue dicts keyed by `field_id`, and
+    /// `llmError` is non-nil when the AI engine failed outright (its fields
+    /// came back "skip" without the model ever seeing them — the Apply browser
+    /// tells the user, since deterministic fields still fill and the run
+    /// otherwise looks like a deliberate half-answer).
+    func mapApplyFields(_ rawFields: [[String: Any]],
+                        job: Job) async -> (values: [[String: Any]], llmError: String?) {
         let router = NativeMessageRouter(db: database, engine: aiEngine, configStore: configStore)
         let body: [String: Any] = ["url": job.url, "job_id": job.id, "fields": rawFields]
         let response = await router.handle(name: "scan", body: body)
         let result = response["result"] as? [String: Any]
-        return (result?["fields"] as? [[String: Any]]) ?? []
+        return ((result?["fields"] as? [[String: Any]]) ?? [],
+                result?["llm_error"] as? String)
     }
 
     /// Called when the Apply browser dismisses — asks the user what happened.

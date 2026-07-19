@@ -42,6 +42,8 @@ struct ProfileEditorView: View {
                 TextField("ZIP code", text: $profile.zipCode)
                     .textContentType(.postalCode)
                     .keyboardType(.numbersAndPunctuation)
+                TextField("Country", text: $profile.country)
+                    .textContentType(.countryName)
             } header: {
                 Eyebrow(text: "Address")
             } footer: {

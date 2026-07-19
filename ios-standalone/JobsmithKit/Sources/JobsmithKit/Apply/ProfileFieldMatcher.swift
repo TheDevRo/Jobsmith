@@ -13,12 +13,12 @@ import Foundation
 ///   2. Ordered regex rules over a normalized haystack built from the field's
 ///      label, name, placeholder, id, autocomplete and extra_context.
 ///
-/// The iOS `Profile` now models the same middle_name / street_address_2 / EEO
-/// answers desktop does, so those getters read the profile directly. Fields the
-/// iOS profile still lacks behave as the Python defaults: the ATS password is
-/// empty, country is "United States", over_18 is "Yes". EEO getters still fall
-/// back to the decline option (or "Prefer not to answer") when the profile
-/// value is empty.
+/// The iOS `Profile` now models the same middle_name / street_address_2 /
+/// country / EEO answers desktop does, so those getters read the profile
+/// directly. Fields the iOS profile still lacks behave as the Python defaults:
+/// the ATS password is empty, over_18 is "Yes". EEO getters still fall back to
+/// the decline option (or "Prefer not to answer") when the profile value is
+/// empty.
 public enum ProfileFieldMatcher {
 
     // Types a rule may apply to. "select" covers native selects AND combobox
@@ -264,8 +264,15 @@ public enum ProfileFieldMatcher {
         if let g = Rx.first(#"^\s*(\+\d{1,3})"#, in: p.phone), let code = g[1] {
             return code
         }
-        // iOS profile has no country field; behave as country="United States".
-        return "+1"
+        // Port of desktop _phone_country_code: +1 only for a US profile;
+        // for another country an unknown code is left to the LLM rather
+        // than confidently misfilled.
+        let c = norm(p.country)
+        return ["united states", "usa", "us", ""].contains(c) ? "+1" : ""
+    }
+
+    static let countryGetter: Getter = { p, _, _ in
+        p.country.isEmpty ? "United States" : p.country
     }
 
     static let city: Getter = { p, _, _ in
@@ -375,7 +382,7 @@ public enum ProfileFieldMatcher {
         rule("zip", #"\b(zip|postal( code)?|postcode)\b"#, attr { $0.zipCode }),
         rule("state", #"\b(state|province|county)\b"#, state,
              negative: #"\b(united states|statement)\b"#),
-        rule("country", #"\bcountry\b"#, const("United States"), negative: #"\bcountry code\b"#),
+        rule("country", #"\bcountry\b"#, countryGetter, negative: #"\bcountry code\b"#),
         rule("location", #"\b(location|city and state|where (are you|do you) (located|based|live|reside))\b"#,
              location),
 

@@ -21,7 +21,9 @@
 (function () {
   "use strict";
 
-  const WORKDAY_HOST_SUFFIX = "myworkdayjobs.com";
+  // Workday career sites live on both suffixes (wd5.myworkdayjobs.com and
+  // wd1.myworkdaysite.com style tenants).
+  const WORKDAY_HOST_SUFFIXES = ["myworkdayjobs.com", "myworkdaysite.com"];
   const SEL = {
     email: "input[data-automation-id='email'], input[type='email']",
     password: "input[data-automation-id='password'], input[type='password']",
@@ -38,7 +40,8 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function onWorkdayHost() {
-    return (location.hostname || "").toLowerCase().endsWith(WORKDAY_HOST_SUFFIX);
+    const host = (location.hostname || "").toLowerCase();
+    return WORKDAY_HOST_SUFFIXES.some((s) => host.endsWith(s));
   }
 
   function q(sel) {

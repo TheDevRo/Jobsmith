@@ -210,7 +210,12 @@ targets:
   JobsmithKitTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [KitTests]
+    sources:
+      - KitTests
+      # The Apply autofill scripts under test, bundled as test resources so
+      # the WKWebView fixture tests inject the exact files the app ships.
+      - path: App/Apply/JS
+        buildPhase: resources
     dependencies:
       - package: JobsmithKit
     settings:

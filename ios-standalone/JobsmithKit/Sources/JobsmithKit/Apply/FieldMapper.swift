@@ -38,9 +38,25 @@ public struct FieldMapper: Sendable {
     // Pipeline
     // ------------------------------------------------------------------
 
+    /// The mapped values plus what went wrong along the way. `llmError` is
+    /// non-nil when at least one LLM chunk failed outright (engine
+    /// unreachable, invalid JSON after retries) — those fields were
+    /// gap-filled as skip with source "engine_error", and the UI can tell
+    /// "the AI declined" apart from "the AI never answered".
+    public struct Outcome: Sendable {
+        public let values: [FieldValue]
+        public let llmError: String?
+    }
+
     public func map(fields: [FieldDescriptor], profile: Profile,
                     job: ApplyJobContext, config: AppConfig) async -> [FieldValue] {
-        guard !fields.isEmpty else { return [] }
+        await mapWithDiagnostics(fields: fields, profile: profile,
+                                 job: job, config: config).values
+    }
+
+    public func mapWithDiagnostics(fields: [FieldDescriptor], profile: Profile,
+                                   job: ApplyJobContext, config: AppConfig) async -> Outcome {
+        guard !fields.isEmpty else { return Outcome(values: [], llmError: nil) }
 
         // --- Phase 0: deterministic mapping for file inputs ---
         // File inputs never reach the LLM — it can't attach files, so a
@@ -122,10 +138,10 @@ public struct FieldMapper: Sendable {
 
         // --- Phase 2: LLM call(s) for remaining fields (chunked, skipped if none) ---
         var llmResults: [FieldValue] = []
+        var llmError: String?
         if !llmFields.isEmpty {
             let system = PromptRegistry.template("auto_apply_field_map", config: config)
             let answerBank = bank.allSnippets()
-            var mappedIds = Set<String>()
 
             var chunks: [[FieldDescriptor]] = []
             var i = 0
@@ -134,27 +150,61 @@ public struct FieldMapper: Sendable {
                 i += chunkSize
             }
 
-            for chunk in chunks {
-                let user = Self.buildFieldMapUser(profile: profile, job: job,
-                                                  fields: chunk, answerBank: answerBank)
-                let raw: Any
-                do {
-                    raw = try await completeJSON(system: system, user: user, config: config)
-                } catch {
-                    raw = [Any]()  // failed chunk → its fields get gap-filled as skip
+            // Chunks are independent — run them concurrently. A large Workday
+            // form is 3-4 chunks; sequential rounds multiplied the wall time
+            // the user sits on "Mapping…" by the chunk count.
+            let outcomes = await withTaskGroup(
+                of: (Int, Result<[FieldValue], Error>).self,
+                returning: [Result<[FieldValue], Error>].self
+            ) { group in
+                for (idx, chunk) in chunks.enumerated() {
+                    group.addTask {
+                        do {
+                            try Task.checkCancellation()
+                            let user = Self.buildFieldMapUser(profile: profile, job: job,
+                                                              fields: chunk, answerBank: answerBank)
+                            let raw = try await completeJSON(system: system, user: user,
+                                                             config: config)
+                            var parsed: [FieldValue] = []
+                            for item in (raw as? [Any]) ?? [] {
+                                // Malformed items → skipped (gap-filled below).
+                                guard let fv = Self.parseItem(item) else { continue }
+                                parsed.append(fv)
+                            }
+                            return (idx, .success(parsed))
+                        } catch {
+                            return (idx, .failure(error))
+                        }
+                    }
                 }
-                for item in (raw as? [Any]) ?? [] {
-                    guard let fv = Self.parseItem(item) else { continue }  // malformed → skipped
-                    llmResults.append(fv)
-                    mappedIds.insert(fv.fieldId)
+                var collected = [Result<[FieldValue], Error>](
+                    repeating: .success([]), count: chunks.count)
+                for await (idx, result) in group { collected[idx] = result }
+                return collected
+            }
+
+            var mappedIds = Set<String>()
+            var failedIds = Set<String>()
+            for (idx, outcome) in outcomes.enumerated() {
+                switch outcome {
+                case .success(let values):
+                    for fv in values {
+                        llmResults.append(fv)
+                        mappedIds.insert(fv.fieldId)
+                    }
+                case .failure(let error):
+                    if llmError == nil { llmError = error.localizedDescription }
+                    for f in chunks[idx] { failedIds.insert(f.fieldId) }
                 }
             }
 
-            // Fill gaps for any llm_fields the LLM omitted.
+            // Fill gaps for any llm_fields the LLM omitted; fields whose whole
+            // chunk failed are marked "engine_error" so a dead endpoint isn't
+            // indistinguishable from a model that chose to skip.
             for f in llmFields where !mappedIds.contains(f.fieldId) {
-                llmResults.append(FieldValue(fieldId: f.fieldId, value: "",
-                                             action: "skip", confidence: 0.0,
-                                             source: "skip"))
+                llmResults.append(FieldValue(
+                    fieldId: f.fieldId, value: "", action: "skip", confidence: 0.0,
+                    source: failedIds.contains(f.fieldId) ? "engine_error" : "skip"))
             }
         }
 
@@ -173,7 +223,7 @@ public struct FieldMapper: Sendable {
                 out.append(fv)
             }
         }
-        return out
+        return Outcome(values: out, llmError: llmError)
     }
 
     // ------------------------------------------------------------------
@@ -192,6 +242,7 @@ public struct FieldMapper: Sendable {
         var prompt = user
         var lastText = ""
         for _ in 1...maxRetries {
+            try Task.checkCancellation()  // a cancelled autofill must not keep retrying
             let text = try await engine.complete(
                 CompletionRequest(system: system, user: prompt, tier: .fast,
                                   temperature: config.ai.temperature,
@@ -281,7 +332,7 @@ public struct FieldMapper: Sendable {
         if !p.city.isEmpty { lines.append("City: \(p.city)") }
         if !p.state.isEmpty { lines.append("State / Province / Region: \(p.state)") }
         if !p.zipCode.isEmpty { lines.append("Zip Code (Postal Code): \(p.zipCode)") }
-        lines.append("Country: United States")
+        lines.append("Country: \(p.country.isEmpty ? "United States" : p.country)")
         if !p.linkedin.isEmpty { lines.append("LinkedIn: \(p.linkedin)") }
         if !p.github.isEmpty { lines.append("GitHub: \(p.github)") }
         if !p.portfolio.isEmpty { lines.append("Portfolio: \(p.portfolio)") }
