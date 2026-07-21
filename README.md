@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="packaging/app-icon.png" alt="Jobsmith icon" width="128">
+</p>
+
 # Jobsmith
 
 A self-hosted job application copilot that uses any OpenAI-compatible AI server (LM Studio by default) for job scoring, resume tailoring, and assisted submission via a browser extension (**Apply Assist**). Features a modern web dashboard for managing your entire job search pipeline — from discovery through application.
