@@ -9,7 +9,7 @@
   "main": "index.js",
   "scripts": {
     "test": "npm run test:extension && npm run test:frontend",
-    "test:extension": "node extension/tests/test_snapshot.js && node extension/tests/test_fill.js && node extension/tests/test_combobox.js && node extension/tests/test_overlay.js && node extension/tests/test_dropcatch.js && node extension/tests/test_workday_auth.js",
+    "test:extension": "node extension/tests/test_snapshot.js && node extension/tests/test_fill.js && node extension/tests/test_combobox.js && node extension/tests/test_overlay.js && node extension/tests/test_dropcatch.js && node extension/tests/test_workday_auth.js && node extension/tests/test_api_fallback.js",
     "test:frontend": "node frontend/tests/test_safe_href.js && node frontend/tests/test_ledger.js && node frontend/tests/test_foundry.js && node frontend/tests/test_deck.js && node frontend/tests/test_layout_migration.js && node frontend/tests/test_job_actions.js && node frontend/tests/test_first_run_hint.js && node frontend/tests/test_checklist.js && node frontend/tests/test_settings_structure.js && node frontend/tests/test_home.js"
   },
   "keywords": [],

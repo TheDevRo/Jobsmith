@@ -89,6 +89,61 @@ function assertFiles(files) {
   return files;
 }
 
+// ---------------------------------------------------------------------------
+// backend.fetch — proxy a backend call through the background.
+//
+// Same root cause as the RPC above: in Firefox the docked panel is an
+// extension page iframed into the job page, so its fetch() is attributed to
+// the PAGE's origin, and Firefox MV3 treats host_permissions (localhost
+// included) as user-opt-in, so the request isn't upgraded to a privileged
+// one. The backend's CORS allowlist only knows localhost and the extension
+// schemes, so the preflight comes back 400 and the panel sees a bare
+// "NetworkError". The background is always a top-level extension context —
+// either the host permission bypasses CORS outright or the moz-extension://
+// Origin passes it — so it can make the call on the panel's behalf.
+//
+// The caller controls the path, so treat it as untrusted: only same-backend
+// /api/ paths, rebuilt from scratch (never a caller-supplied URL, which
+// would turn this into an open proxy carrying the user's token).
+const RPC_ALLOWED_PATH = /^\/api\//;
+
+// Chrome's service worker has no FileReader, and
+// btoa(String.fromCharCode(...bytes)) blows the call stack on anything
+// resume-sized, so encode the body in fixed chunks.
+function bytesToB64(bytes) {
+  const CHUNK = 0x8000;
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function backendFetch(arg) {
+  const { path, method, body } = arg || {};
+  if (typeof path !== "string" || !RPC_ALLOWED_PATH.test(path)) {
+    throw new Error("path not allowed: " + path);
+  }
+  const out = await Storage.get(["backendUrl", "token"]);
+  const backendUrl = (out.backendUrl || "http://localhost:8888").replace(/\/+$/, "");
+  const headers = { "X-Jobsmith-Token": out.token || "" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const resp = await fetch(backendUrl + path, {
+    method: typeof method === "string" ? method : "GET",
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  // Hand back non-2xx responses too: the caller reconstructs a real Response
+  // and applies its own error handling, so behavior matches a direct fetch.
+  const buf = await resp.arrayBuffer();
+  return {
+    status: resp.status,
+    statusText: resp.statusText,
+    contentType: resp.headers.get("content-type") || "",
+    bodyB64: bytesToB64(new Uint8Array(buf)),
+  };
+}
+
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== "jobsmith-rpc") return;
   if (!isOwnExtensionPage(sender)) {
@@ -120,6 +175,8 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           func: (name, a) => { const f = window[name]; return f ? f.apply(null, a) : null; },
           args: [fnName, Array.isArray(fnArgs) ? fnArgs : []],
         });
+      } else if (msg.method === "backend.fetch") {
+        result = await backendFetch(arg);
       } else {
         throw new Error("unknown rpc method: " + msg.method);
       }

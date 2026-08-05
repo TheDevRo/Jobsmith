@@ -73,6 +73,20 @@ function loadBackground() {
   };
   const msgListeners = [];
 
+  // backend.fetch proxies through the background's own fetch(); record the
+  // calls and hand back a minimal Response-alike (jsdom has no fetch).
+  const fetches = [];
+  w.fetch = async (url, init) => {
+    fetches.push({ url, init });
+    const body = new w.TextEncoder().encode(JSON.stringify({ hello: "world" }));
+    return {
+      status: 200,
+      statusText: "OK",
+      headers: { get: (h) => (h.toLowerCase() === "content-type" ? "application/json" : null) },
+      arrayBuffer: async () => body.buffer,
+    };
+  };
+
   w.chrome = {
     runtime: {
       id: EXT_ID,
@@ -109,10 +123,10 @@ function loadBackground() {
     rpcListener(msg, sender, (resp) => { answered = true; resolve(resp); });
     setTimeout(() => { if (!answered) resolve(null); }, 60);  // null = never answered
   });
-  return { rpc, executed };
+  return { rpc, executed, fetches, store, window: w };
 }
 
-const { rpc, executed } = loadBackground();
+const { rpc, executed, fetches, store, window: bgWindow } = loadBackground();
 
 const panelSender = { id: EXT_ID, url: EXT_BASE + "sidepanel.html?tabId=1&overlay=1", tab: { id: 1 } };
 const pageSender = { id: EXT_ID, url: "https://evil.example.com/", tab: { id: 2 } };
@@ -146,6 +160,38 @@ const callInPage = (args) => ({ type: "jobsmith-rpc", method: "scripting.callInP
 
   checks.push(["nothing rejected ever reached scripting", !executed.some((o) =>
     (o.files || []).some((f) => !f.startsWith("common/")) || (o.args || [])[0] === "eval")]);
+
+  // --- backend.fetch: the Firefox CORS fallback ---------------------------
+  // The panel can't reach the backend directly from an iframed extension page
+  // in Firefox, so it asks the background. Same sender lockdown applies, and
+  // the path is validated so this can't become an open proxy for the token.
+  const bfetch = (args) => ({ type: "jobsmith-rpc", method: "backend.fetch", args: [args] });
+
+  store.backendUrl = "http://localhost:9999/";
+  store.token = "tok-123";
+
+  const okFetch = await rpc(panelSender, bfetch({ path: "/api/ext/health" }));
+  checks.push(["backend.fetch succeeds for an /api/ path", !!okFetch && okFetch.ok === true]);
+  checks.push(["backend.fetch returns status + content type",
+    !!okFetch && okFetch.result.status === 200 && /application\/json/.test(okFetch.result.contentType)]);
+  checks.push(["backend.fetch returns a base64 body",
+    !!okFetch && bgWindow.atob(okFetch.result.bodyB64) === JSON.stringify({ hello: "world" })]);
+  checks.push(["backend.fetch strips the trailing slash and sends the token",
+    fetches.some((f) => f.url === "http://localhost:9999/api/ext/health"
+      && f.init.headers["X-Jobsmith-Token"] === "tok-123")]);
+
+  const before = fetches.length;
+  for (const bad of ["/nope", "https://evil.example.com/api/x", "//evil.example.com/api/x", "", 7, undefined]) {
+    const r = await rpc(panelSender, bfetch({ path: bad }));
+    checks.push([`backend.fetch refuses path ${JSON.stringify(bad)}`,
+      !!r && r.ok === false && /path not allowed/.test(r.error)]);
+  }
+  checks.push(["no refused path ever reached fetch", fetches.length === before]);
+
+  const fetchFromPage = await rpc(pageSender, bfetch({ path: "/api/ext/health" }));
+  checks.push(["backend.fetch ignores a web-page sender", fetchFromPage === null]);
+  const fetchFromOther = await rpc(foreignSender, bfetch({ path: "/api/ext/health" }));
+  checks.push(["backend.fetch ignores another extension", fetchFromOther === null]);
 
   checks.push(["SPA removal re-mounts panel", !!host()]);
   const fail = report(checks);
