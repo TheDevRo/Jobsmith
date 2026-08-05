@@ -2857,6 +2857,29 @@ kbd {
     text-overflow: ellipsis;
 }
 .fseg:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: -2px; }
+.fseg[aria-pressed="true"] { box-shadow: inset 0 -3px 0 var(--accent-ember); }
+
+/* Board-view filter chip: the funnel's "clear filter" affordance. */
+.pipeline-filter-chip { margin: -8px 0 12px; }
+.pipeline-filter-chip[hidden] { display: none; }
+/* The column filter only means anything on the board. */
+#review.view-table .pipeline-filter-chip,
+#review.review-detail .pipeline-filter-chip { display: none; }
+.pfilter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: var(--text-secondary);
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px; cursor: pointer;
+}
+.pfilter-chip b { color: var(--text-primary); }
+.pfilter-chip:hover { border-color: var(--accent); color: var(--text-primary); }
+
+/* Stage tab badge (In Progress "needs attention" count). */
+.rtab-badge {
+    background: var(--accent-red); color: #fff; border-radius: 10px;
+    font-size: 10px; font-weight: 700; padding: 1px 6px;
+    margin-left: 4px; vertical-align: middle;
+}
 .fseg.empty { opacity: 0.5; }
 .fseg.active { box-shadow: inset 0 -3px 0 var(--accent-ember); }
 .fseg-steel { background: color-mix(in srgb, var(--steel) 26%, var(--bg-secondary)); }
@@ -3912,6 +3935,10 @@ main:has(> #jobs.tab-content.active.view-cards) {
     background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 13px; padding: 11px;
 }
 .kcol.drop-active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* Funnel filter: the chosen column stays lit, the rest recede (still visible so
+   a drag across them keeps working). */
+.kcol-dim { opacity: 0.32; filter: saturate(0.6); }
+.kcol-focus { border-color: color-mix(in srgb, var(--accent-ember) 60%, var(--border)); }
 .kcolhead { display: flex; align-items: center; gap: 7px; padding: 1px 3px 4px; }
 .kcolhead .cdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .kcolhead b { font-size: 12px; font-weight: 650; color: var(--text-primary); }

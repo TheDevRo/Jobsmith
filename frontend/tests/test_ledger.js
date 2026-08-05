@@ -67,7 +67,7 @@ const { window } = dom;
 const doc = window.document;
 
 // One eval unit, order matches index.html (core → jobs → review → jobs-actions).
-const SCRIPTS = ["core.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js"];
+const SCRIPTS = ["pipeline-stages.js", "core.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );
@@ -116,7 +116,7 @@ checks.push(["resetFilter clears its own input", doc.getElementById("filter-remo
 checks.push(["resetFilter triggers a reload", loadCalls === 1]);
 
 // ---- Funnel rendering (segment per view, counts, exactly one active) ----
-window._setFunnelCount("shortlisted", 4); // renders too
+window.setPipelineCount("shortlisted", 4); // renders too
 const funnelHtml = doc.getElementById("pipeline-funnel").innerHTML;
 checks.push(["funnel renders one segment per view (5)", (funnelHtml.match(/class="fseg/g) || []).length === 5]);
 checks.push(["funnel segment shows its count", funnelHtml.includes(">4<")]);

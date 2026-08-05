@@ -299,9 +299,11 @@ function goToAppliedToday() {
     location.hash = 'jobs';
 }
 
+// Stage jump from the Activity "submitted" stat card. Routes through the one
+// cross-view rule (review.js): board view filters the board to Applied, table
+// view opens the Applied table.
 function goToSubmittedView() {
-    location.hash = 'review';
-    setTimeout(() => switchReviewView('submitted'), 0);
+    goToPipelineStage('applied');
 }
 
 function goToScoreFilter(minScore, maxScore, unscoredOnly) {

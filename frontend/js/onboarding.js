@@ -728,7 +728,7 @@ const TOUR_STEPS = [
         hash: '#review',
         selector: '#pipeline-funnel',
         title: 'Your Pipeline',
-        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied, with Failed and In Progress for auditing. This funnel shows the counts in either view. The board (default) lets you drag a job between stages; "Table view" (or the L key) gives you the classic stage tabs and lists. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from here or from the Inbox.',
+        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied, with Failed and In Progress for auditing. This funnel is the one stage summary in both views: click a segment to filter the board to that stage (click it again, or the ✕ chip, to clear) — or, in Table view, to open that stage’s table. The board (default) lets you drag a job between stages; "Table view" (or the L key) gives you the classic stage tabs and lists. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from here or from the Inbox.',
     },
     {
         hash: '#settings',

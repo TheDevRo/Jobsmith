@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=51">
+    <link rel="stylesheet" href="style.css?v=52">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -428,18 +428,16 @@
                     </div>
                 </div>
                 <div id="pipeline-funnel" class="pipeline-funnel" role="tablist" aria-label="Pipeline stages"></div>
+                <!-- Board-view filter chip (clears the funnel's column filter). -->
+                <div id="pipeline-filter-chip" class="pipeline-filter-chip" hidden></div>
                 <!-- Kanban board (Pipeline "board" view; JS-rendered) -->
                 <div id="board-detail-bar" class="board-detail-bar">
                     <button class="btn btn-ghost btn-sm" onclick="backToBoard()">&larr; Back to board</button>
                 </div>
                 <div id="pipeline-board" class="pipeline-board"></div>
-                <div class="review-tab-bar">
-                    <button class="review-tab-btn active" id="review-tab-shortlisted" onclick="switchReviewView('shortlisted')">Shortlisted</button>
-                    <button class="review-tab-btn" id="review-tab-pending" onclick="switchReviewView('pending')">Ready to Review</button>
-                    <button class="review-tab-btn" id="review-tab-submitted" onclick="switchReviewView('submitted')">Applied</button>
-                    <button class="review-tab-btn" id="review-tab-failed" onclick="switchReviewView('failed')">Failed</button>
-                    <button class="review-tab-btn" id="review-tab-in-progress" onclick="switchReviewView('in-progress')">In Progress <span id="in-progress-badge" style="display:none;background:var(--accent-red);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:4px;vertical-align:middle"></span></button>
-                </div>
+                <!-- Stage tabs are rendered by renderReviewTabs() (review.js) from
+                     the one stage map, so their labels can't drift from the funnel. -->
+                <div class="review-tab-bar" id="review-tab-bar"></div>
                 <div id="review-shortlisted-view" class="review-classic-view">
                     <div id="shortlisted-list" class="review-list">
                         <p class="placeholder">Loading shortlisted jobs...</p>
@@ -1391,18 +1389,21 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=47"></script>
+    <!-- The Pipeline stage vocabulary (labels/order/colours) must exist before
+         review.js and deck.js render the funnel, the tabs or the board. -->
+    <script src="js/pipeline-stages.js?v=1"></script>
+    <script src="js/core.js?v=48"></script>
     <script src="js/dashboard.js?v=41"></script>
     <!-- The per-job action registry must define jobActions()/renderJobActions()
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
     <script src="js/jobs.js?v=49"></script>
-    <script src="js/review.js?v=42"></script>
+    <script src="js/review.js?v=43"></script>
     <script src="js/settings.js?v=46"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=41"></script>
-    <script src="js/deck.js?v=10"></script>
-    <script src="js/onboarding.js?v=40"></script>
+    <script src="js/deck.js?v=11"></script>
+    <script src="js/onboarding.js?v=41"></script>
 </body>
 </html>

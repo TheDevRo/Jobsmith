@@ -485,20 +485,16 @@ document.addEventListener('keydown', (e) => {
 // Column keys map to real backend stages; a drag is a status transition that
 // already exists as a button today (see DECK_TRANSITIONS).
 // ==========================================================================
-const DECK_COLUMNS = [
-    { key: 'shortlisted',     label: 'Shortlisted',      dot: 'var(--steel)' },
-    { key: 'tailoring',       label: 'Tailoring',        dot: 'var(--accent-yellow)' },
-    { key: 'pending',         label: 'Ready to Review',  dot: 'var(--accent-ember)' },
-    { key: 'applied',         label: 'Applied',          dot: 'var(--accent-green)' },
-    { key: 'needs-attention', label: 'Needs Attention',  dot: 'var(--accent-red)' },
-];
+// Columns ARE stages — labels, order and dot colours come from the one stage
+// map (pipeline-stages.js), shared with the funnel and the classic tabs.
+const DECK_COLUMNS = boardStages();
 
 // The ONLY allowed drag transitions. Each maps to exactly one real endpoint.
 // `run(id)` performs the transition; the test drives these with a stubbed api().
 const DECK_TRANSITIONS = [
     {
         from: 'shortlisted', to: 'tailoring', label: 'starts tailoring',
-        toast: 'Tailoring started',
+        toast: `${stageLabel('tailoring')} started`,
         run: (id) => api(`/api/jobs/${id}/tailor`, { method: 'POST' }),
     },
     {
@@ -544,6 +540,18 @@ function deckTransitionsFrom(from) {
     return DECK_TRANSITIONS.filter((t) => t.from === from);
 }
 
+// The board's drag legend, generated from the transition map + the stage
+// labels so it can never describe a move that no longer exists.
+function _boardLegendText() {
+    const byFrom = [];
+    for (const t of DECK_TRANSITIONS) {
+        let row = byFrom.find((r) => r.from === t.from);
+        if (!row) { row = { from: t.from, to: [] }; byFrom.push(row); }
+        row.to.push(stageLabel(t.to));
+    }
+    return byFrom.map((r) => `${stageLabel(r.from)} → ${r.to.join('/')}`).join(' · ');
+}
+
 let _boardDragging = false;
 let _boardDrag = null;  // { id, from }
 
@@ -586,7 +594,10 @@ function enterReview() {
         rev.classList.remove('review-detail');
     }
     _setPipelineViewDom();
-    refreshFunnelCounts();  // the funnel strip sits above BOTH renderings
+    setBoardFilter(null, null);   // entering the Pipeline always shows everything
+    // The funnel strip sits above BOTH renderings. In board view the column
+    // loaders below publish the counts; in table view this fetches them.
+    refreshFunnelCounts();
     if (board) renderBoard();
     else switchReviewView('shortlisted');
 }
@@ -654,12 +665,65 @@ function _appKcardHtml(app, colKey) {
         </div>`;
 }
 
+// ==========================================================================
+// Board column filter — the funnel strip's board-view behavior.
+// Clicking a funnel segment focuses the column that stage lives in and dims
+// the rest; clicking the same segment again (or the ✕ chip) clears it. Pure
+// CSS state over the already-loaded board — no re-fetch.
+// ==========================================================================
+let _boardFilterCol = null;    // board column key being focused
+let _boardFilterStage = null;  // the funnel stage that asked for it
+
+function getBoardFilter() { return _boardFilterCol; }
+function getBoardFilterStage() { return _boardFilterStage; }
+
+function setBoardFilter(colKey, stageKey) {
+    _boardFilterCol = colKey || null;
+    _boardFilterStage = colKey ? (stageKey || colKey) : null;
+    _applyBoardFilter();
+}
+
+function clearBoardFilter() { setBoardFilter(null, null); }
+
+// Toggle semantics keyed on the STAGE: Failed and In Progress share the
+// Needs Attention column, so re-clicking must compare segments, not columns.
+function toggleBoardFilter(colKey, stageKey) {
+    if (_boardFilterStage === stageKey) clearBoardFilter();
+    else setBoardFilter(colKey, stageKey);
+}
+
+function _applyBoardFilter() {
+    const host = document.getElementById('pipeline-board');
+    if (host) {
+        host.classList.toggle('board-filtered', !!_boardFilterCol);
+        host.querySelectorAll('.kcol').forEach((col) => {
+            const on = !_boardFilterCol || col.dataset.col === _boardFilterCol;
+            col.classList.toggle('kcol-dim', !on);
+            col.classList.toggle('kcol-focus', !!_boardFilterCol && on);
+        });
+    }
+    const chip = document.getElementById('pipeline-filter-chip');
+    if (chip) {
+        if (_boardFilterStage) {
+            chip.hidden = false;
+            const label = stageLabel(_boardFilterStage);
+            chip.innerHTML = `<button type="button" class="pfilter-chip" onclick="clearBoardFilter()"
+                title="Show every stage again" aria-label="${escapeHtml(`Clear the ${label} filter`)}"
+                >Showing <b>${escapeHtml(label)}</b> <span aria-hidden="true">&#10005;</span></button>`;
+        } else {
+            chip.hidden = true;
+            chip.innerHTML = '';
+        }
+    }
+    if (typeof renderFunnel === 'function') renderFunnel();
+}
+
 function renderBoard() {
     const host = document.getElementById('pipeline-board');
     if (!host) return Promise.resolve();
 
     host.innerHTML = DECK_COLUMNS.map((c) => `
-        <div class="kcol" data-col="${c.key}">
+        <div class="kcol" data-col="${c.key}" title="${escapeHtml(c.desc)}">
             <div class="kcolhead">
                 <span class="cdot" style="background:${c.dot}"></span>
                 <b>${escapeHtml(c.label)}</b>
@@ -668,10 +732,11 @@ function renderBoard() {
             <div class="kbatch" id="kbatch-${c.key}" hidden><i></i></div>
             <div class="kcards" id="kcards-${c.key}"><p class="placeholder">Loading…</p></div>
         </div>`).join('')
-        + `<div class="kpasszone" id="kpasszone"><span>Drop here to <b>Pass</b></span></div>`
-        + `<div class="kboard-foot">Drag: Shortlist → Tailoring/Applied · Ready → Applied · Attention → Ready · Shortlist → Pass</div>`;
+        + `<div class="kpasszone" id="kpasszone"><span>Drop here to <b>${escapeHtml(stageLabel('pass'))}</b></span></div>`
+        + `<div class="kboard-foot">Drag: ${escapeHtml(_boardLegendText())}</div>`;
 
     _wireBoardDnD(host);
+    _applyBoardFilter();   // innerHTML wiped the state classes
 
     return Promise.all([
         loadColShortlisted(),
@@ -682,10 +747,17 @@ function renderBoard() {
     ]).catch(() => {});
 }
 
+// Column counts go through the shared store (review.js setPipelineCount), which
+// paints the column badge AND the funnel segment — one number, two surfaces.
+// A failed load has no count, so the badge falls back to the '·' placeholder.
 function _renderCol(key, html, count) {
     const cards = document.getElementById(`kcards-${key}`);
-    const ct = document.getElementById(`kct-${key}`);
-    if (ct) ct.textContent = count;
+    if (typeof count === 'number' && typeof setPipelineCount === 'function') {
+        setPipelineCount(key, count);
+    } else {
+        const ct = document.getElementById(`kct-${key}`);
+        if (ct) ct.textContent = count;
+    }
     if (!cards) return;
     cards.innerHTML = html || `<p class="placeholder kcol-empty">Empty</p>`;
 }
@@ -737,6 +809,12 @@ async function loadColAttention() {
         const needs = (ip && ip.needs_attention) || [];
         const list = (failed || []).concat(needs);
         _renderCol('needs-attention', list.map((a) => _appKcardHtml(a, 'needs-attention')).join(''), list.length);
+        // This one fetch also feeds the two funnel segments the column merges:
+        // Failed, and In Progress (in-flight + stalled).
+        if (typeof setPipelineCount === 'function') {
+            setPipelineCount('failed', (failed || []).length);
+            setPipelineCount('in-progress', (((ip && ip.in_progress) || []).length) + needs.length);
+        }
     } catch (e) { _renderCol('needs-attention', '<p class="placeholder kcol-empty">Failed to load</p>', '·'); }
 }
 
@@ -898,8 +976,7 @@ function boardCardMenu(ev, colKey, id, jobId) {
 }
 
 function _transitionMenuLabel(t) {
-    const dest = { tailoring: 'Tailoring', applied: 'Applied', pending: 'Ready to Review', pass: 'Pass' }[t.to] || t.to;
-    return `Move to ${dest} — ${t.label}`;
+    return `Move to ${stageLabel(t.to)} — ${t.label}`;
 }
 
 function _runCardMenu(from, to, id) {

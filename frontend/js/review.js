@@ -17,16 +17,20 @@ function _aiDownHint() {
 
 function switchReviewView(view) {
     currentReviewView = view;
-    document.getElementById('review-tab-shortlisted').classList.toggle('active', view === 'shortlisted');
-    document.getElementById('review-tab-pending').classList.toggle('active', view === 'pending');
-    document.getElementById('review-tab-submitted').classList.toggle('active', view === 'submitted');
-    document.getElementById('review-tab-failed').classList.toggle('active', view === 'failed');
-    document.getElementById('review-tab-in-progress').classList.toggle('active', view === 'in-progress');
-    document.getElementById('review-shortlisted-view').style.display = view === 'shortlisted' ? '' : 'none';
-    document.getElementById('review-pending-view').style.display = view === 'pending' ? '' : 'none';
-    document.getElementById('review-submitted-view').style.display = view === 'submitted' ? '' : 'none';
-    document.getElementById('review-failed-view').style.display = view === 'failed' ? '' : 'none';
-    document.getElementById('review-in-progress-view').style.display = view === 'in-progress' ? '' : 'none';
+    renderReviewTabs();
+    const tabIds = {
+        shortlisted: ['review-tab-shortlisted', 'review-shortlisted-view'],
+        pending: ['review-tab-pending', 'review-pending-view'],
+        submitted: ['review-tab-submitted', 'review-submitted-view'],
+        failed: ['review-tab-failed', 'review-failed-view'],
+        'in-progress': ['review-tab-in-progress', 'review-in-progress-view'],
+    };
+    for (const [name, [tabId, paneId]] of Object.entries(tabIds)) {
+        const tab = document.getElementById(tabId);
+        if (tab) tab.classList.toggle('active', view === name);
+        const pane = document.getElementById(paneId);
+        if (pane) pane.style.display = view === name ? '' : 'none';
+    }
     renderFunnel(); // cheap: sync the active segment (no fetch on tab switches)
     if (view === 'shortlisted') loadShortlisted();
     else if (view === 'pending') loadReviewQueue();
@@ -35,57 +39,153 @@ function switchReviewView(view) {
     else loadFailedApplications();
 }
 
+// ---- Classic stage tabs ----
+// Rendered from PIPELINE_STAGES (pipeline-stages.js) so the tab labels can't
+// drift from the funnel / board copies. Built once — the in-progress badge
+// element is owned by renderInProgress() and must survive tab switches.
+function renderReviewTabs() {
+    const bar = document.getElementById('review-tab-bar');
+    if (!bar || bar.dataset.built === '1') return;
+    bar.innerHTML = PIPELINE_STAGES.filter(s => s.tab).map(s => {
+        const badge = s.key === 'in-progress'
+            ? ' <span id="in-progress-badge" class="rtab-badge" style="display:none"></span>' : '';
+        return `<button class="review-tab-btn" id="review-tab-${s.tab}" title="${escapeHtml(s.desc)}"
+            onclick="switchReviewView('${s.tab}')">${escapeHtml(s.label)}${badge}</button>`;
+    }).join('');
+    bar.dataset.built = '1';
+}
+
 // ---- Pipeline funnel strip ----
-// A second, visual tab bar above .review-tab-bar: five proportional segments,
-// one per existing Pipeline view, with live counts. Segment flex-grow is
-// proportional to count; zero-count segments keep a min-width and dim.
-// Counts are fetched once on entering the Pipeline (refreshFunnelCounts) and
-// patched in-place by each loader from data it already has — no double-fetch.
-const _FUNNEL_SEGS = [
-    { view: 'shortlisted', label: 'Shortlisted', cls: 'fseg-steel' },
-    { view: 'pending',     label: 'Ready to Review', cls: 'fseg-ember' },
-    { view: 'submitted',   label: 'Applied',     cls: 'fseg-green' },
-    { view: 'failed',      label: 'Failed',      cls: 'fseg-red' },
-    { view: 'in-progress', label: 'In Progress', cls: 'fseg-amber' },
-];
-const _funnelCounts = { shortlisted: 0, pending: 0, submitted: 0, failed: 0, 'in-progress': 0 };
+// The ONE Pipeline stage summary, above both renderings. Five proportional
+// segments (flex-grow ∝ count; zero-count segments keep a min-width and dim).
+//
+// Clicking a segment:
+//   table view — opens that stage's table (as before);
+//   board view — filters the board to the column that stage lives in, and
+//                clicking the active segment again clears the filter.
+//
+// Counts live in ONE store (_pipelineCounts) written only through
+// setPipelineCount(), which repaints the funnel AND the matching board column
+// badge — so the funnel, the columns and the tables can never disagree.
+const _pipelineCounts = {
+    shortlisted: 0, tailoring: 0, pending: 0, applied: 0,
+    failed: 0, 'in-progress': 0, 'needs-attention': 0,
+};
+
+function pipelineCount(key) { return _pipelineCounts[key] || 0; }
+
+function setPipelineCount(key, n) {
+    const stage = stageByKey(key);
+    if (!stage) return;
+    _pipelineCounts[stage.key] = Number(n) || 0;
+    // Board column badge (only stages that ARE a column own one).
+    if (stage.board) {
+        const ct = document.getElementById(`kct-${stage.key}`);
+        if (ct) ct.textContent = _pipelineCounts[stage.key];
+    }
+    renderFunnel();
+}
+
+// Which segment reads as "current": the filtered column in board view, the
+// open stage table otherwise.
+function _activeFunnelStageKey() {
+    if (typeof isBoardModeActive === 'function' && isBoardModeActive()) {
+        return (typeof getBoardFilterStage === 'function') ? getBoardFilterStage() : null;
+    }
+    return stageKeyForTab(currentReviewView);
+}
 
 function renderFunnel() {
     const el = document.getElementById('pipeline-funnel');
     if (!el) return;
-    el.innerHTML = _FUNNEL_SEGS.map(seg => {
-        const n = _funnelCounts[seg.view] || 0;
-        const active = seg.view === currentReviewView;
-        return `<button type="button" role="tab" aria-selected="${active}"
-            class="fseg ${seg.cls}${active ? ' active' : ''}${n === 0 ? ' empty' : ''}"
-            style="flex-grow:${n}" onclick="switchReviewView('${seg.view}')"
+    const board = (typeof isBoardModeActive === 'function') && isBoardModeActive();
+    const activeKey = _activeFunnelStageKey();
+    // Counts land on a timer (live refresh); don't yank keyboard focus out of
+    // the strip when the segments are re-rendered under it.
+    const focused = document.activeElement;
+    const keepKey = (focused && focused.closest && focused.closest('#pipeline-funnel'))
+        ? focused.getAttribute('data-stage') : null;
+    // In board view the segments are filter toggles, not tabs.
+    el.setAttribute('role', board ? 'group' : 'tablist');
+    el.innerHTML = funnelStages().map(seg => {
+        const n = pipelineCount(seg.key);
+        const active = seg.key === activeKey;
+        const state = board ? `aria-pressed="${active}"` : `role="tab" aria-selected="${active}"`;
+        const hint = board
+            ? `${seg.desc} — click to ${active ? 'clear the board filter' : 'filter the board'}`
+            : seg.desc;
+        return `<button type="button" ${state} data-stage="${seg.key}"
+            class="fseg ${seg.seg}${active ? ' active' : ''}${n === 0 ? ' empty' : ''}"
+            style="flex-grow:${n}" onclick="pipelineSegmentClick('${seg.key}')"
+            title="${escapeHtml(hint)}"
             aria-label="${escapeHtml(seg.label)}: ${n}"><b class="num">${n}</b><span>${escapeHtml(seg.label)}</span></button>`;
     }).join('');
+    if (keepKey) {
+        const again = el.querySelector(`.fseg[data-stage="${keepKey}"]`);
+        if (again) again.focus();
+    }
 }
 
-function _setFunnelCount(view, n) {
-    _funnelCounts[view] = Number(n) || 0;
-    renderFunnel();
+// Funnel segment click — the per-view behavior split lives here alone.
+function pipelineSegmentClick(stageKey) {
+    const stage = stageByKey(stageKey);
+    if (!stage) return;
+    if (typeof isBoardModeActive === 'function' && isBoardModeActive() && stage.col) {
+        toggleBoardFilter(stage.col, stage.key);
+        return;
+    }
+    if (stage.tab) switchReviewView(stage.tab);
 }
 
-// Fetch all five counts cheaply. Called on entering the Pipeline and after
-// status transitions this file makes.
+// ---- The one cross-view jump ----
+// RULE: anything that points at a STAGE (not at one specific record) routes
+// through here — board view filters the board to that stage's column, table
+// view opens that stage's table. Jumps that must show one application
+// (deckShowApplication, boardOpenApp's no-job fallback) still drill into the
+// stage table behind the board's back bar; they are record jumps, not stage
+// jumps.
+function goToPipelineStage(stageKey) {
+    const stage = stageByKey(stageKey);
+    if (!stage) return;
+    const land = () => {
+        if (typeof isBoardModeActive === 'function' && isBoardModeActive() && stage.col) {
+            setBoardFilter(stage.col, stage.key);
+        } else if (stage.tab) {
+            switchReviewView(stage.tab);
+        }
+    };
+    if ((location.hash.replace('#', '') || '') !== 'review') {
+        location.hash = 'review';
+        setTimeout(land, 0);   // after handleHash() → enterReview() resets state
+    } else {
+        land();
+    }
+}
+
+// Fetch every stage count in one place. In BOARD view the column loaders fetch
+// the same lists and publish through setPipelineCount(), so this would be a
+// second copy of every request — it defers to them instead.
 async function refreshFunnelCounts() {
     renderFunnel(); // paint immediately with whatever we have
+    if (typeof isBoardModeActive === 'function' && isBoardModeActive()) return;
     const grab = (p) => p.catch(() => null);
     const [s, p, su, f, ip] = await Promise.all([
         grab(api('/api/jobs?status=shortlisted&limit=1').then(d => (d && typeof d.total === 'number') ? d.total : ((d && d.jobs) || []).length)),
         grab(api('/api/applications/pending?limit=100').then(a => (a || []).length)),
         grab(api('/api/applications/submitted?limit=100').then(a => (a || []).length)),
         grab(api('/api/applications/failed?limit=100').then(a => (a || []).length)),
-        grab(api('/api/applications/in-progress').then(d => ((d && d.in_progress) || []).length + ((d && d.needs_attention) || []).length)),
+        grab(api('/api/applications/in-progress').then(d => ({
+            total: ((d && d.in_progress) || []).length + ((d && d.needs_attention) || []).length,
+            attention: ((d && d.needs_attention) || []).length,
+        }))),
     ]);
-    if (s !== null) _funnelCounts.shortlisted = s;
-    if (p !== null) _funnelCounts.pending = p;
-    if (su !== null) _funnelCounts.submitted = su;
-    if (f !== null) _funnelCounts.failed = f;
-    if (ip !== null) _funnelCounts['in-progress'] = ip;
-    renderFunnel();
+    if (s !== null) setPipelineCount('shortlisted', s);
+    if (p !== null) setPipelineCount('pending', p);
+    if (su !== null) setPipelineCount('applied', su);
+    if (f !== null) setPipelineCount('failed', f);
+    if (ip !== null) setPipelineCount('in-progress', ip.total);
+    // The board's Needs Attention column is Failed + the stalled ones.
+    if (f !== null && ip !== null) setPipelineCount('needs-attention', f + ip.attention);
 }
 
 // Pipeline → Shortlisted stage: jobs the user kept while scouting the Inbox
@@ -102,7 +202,7 @@ async function loadShortlisted() {
 
 function renderShortlisted(data) {
     const jobs = (data && data.jobs) || [];
-    _setFunnelCount('shortlisted', (data && typeof data.total === 'number') ? data.total : jobs.length);
+    setPipelineCount('shortlisted', (data && typeof data.total === 'number') ? data.total : jobs.length);
     const el = document.getElementById('shortlisted-list');
     if (!jobs.length) {
         el.innerHTML = '<p class="placeholder">No shortlisted jobs yet. Scout your Inbox and shortlist the ones worth pursuing.'
@@ -148,7 +248,7 @@ async function passShortlisted(jobId) {
 async function loadReviewQueue() {
     try {
         const apps = await api('/api/applications/pending?limit=50');
-        _setFunnelCount('pending', (apps || []).length);
+        setPipelineCount('pending', (apps || []).length);
         renderReviewQueue(apps);
     } catch (e) {
         renderError('review-list', 'Failed to load the review queue.', loadReviewQueue);
@@ -158,7 +258,7 @@ async function loadReviewQueue() {
 async function loadSubmittedApplications() {
     try {
         const apps = await api('/api/applications/submitted?limit=50');
-        _setFunnelCount('submitted', (apps || []).length);
+        setPipelineCount('applied', (apps || []).length);
         renderSubmittedApplications(apps);
     } catch (e) {
         renderError('submitted-list', 'Failed to load submitted applications.', loadSubmittedApplications);
@@ -168,7 +268,7 @@ async function loadSubmittedApplications() {
 async function loadFailedApplications() {
     try {
         const apps = await api('/api/applications/failed?limit=50');
-        _setFunnelCount('failed', (apps || []).length);
+        setPipelineCount('failed', (apps || []).length);
         renderFailedApplications(apps);
     } catch (e) {
         renderError('failed-list', 'Failed to load failed applications.', loadFailedApplications);
@@ -188,7 +288,7 @@ function renderInProgress(data) {
     const container = document.getElementById('in-progress-list');
     const inProg = data.in_progress || [];
     const needsAttn = data.needs_attention || [];
-    _setFunnelCount('in-progress', inProg.length + needsAttn.length);
+    setPipelineCount('in-progress', inProg.length + needsAttn.length);
 
     // Update tab badge
     const badge = document.getElementById('in-progress-badge');

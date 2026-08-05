@@ -30,10 +30,12 @@ const dom = new JSDOM(
   `<!DOCTYPE html><html><body>
      <div id="toast-container"></div>
      <div id="pipeline-funnel"></div>
+     <div id="pipeline-filter-chip" hidden></div>
      <div id="theme-toggle"></div>
      <section id="jobs" class="view-cards"><div class="jobs-split-pane"></div><div id="inbox-stage" class="inbox-stage"></div>
        <button id="inbox-view-toggle">List view</button></section>
      <section id="review" class="view-board"><div id="pipeline-board" class="pipeline-board"></div>
+       <div class="review-tab-bar" id="review-tab-bar"></div>
        <button id="pipeline-view-toggle">Table view</button></section>
    </body></html>`,
   { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost:8888/", virtualConsole }
@@ -43,7 +45,7 @@ const doc = window.document;
 
 // One eval unit, order matches index.html (core → dashboard → job-actions →
 // jobs → review → jobs-actions → deck).
-const SCRIPTS = ["core.js", "dashboard.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
+const SCRIPTS = ["pipeline-stages.js", "core.js", "dashboard.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );
@@ -52,6 +54,7 @@ const checks = [];
 
 // ---- Shared stubs so the runners don't hit the network / re-render heavily ----
 const calls = [];
+const _realRenderBoard = window.renderBoard;   // section 10 drives the real one
 window.api = (url, opts) => { calls.push({ url, opts }); return Promise.resolve({ jobs: [], total: 0 }); };
 // core.js's DOMContentLoaded init fires once this async test yields to the event
 // loop; its handleHash()→enterInbox()→loadJobs() would hit the absent classic
@@ -386,6 +389,136 @@ async function assertDrop(from, to, id, verify) {
   const menu = doc.getElementById("kmenu");
   checks.push(["card menu offers Delete posting", !!menu && menu.innerHTML.includes("Delete posting")]);
   window._closeCardMenu();
+
+  // ===================================================================
+  // 10. Phase 2 — the funnel is the ONE Pipeline summary/filter.
+  //     (a) every stage label comes from PIPELINE_STAGES,
+  //     (b) a funnel click filters the board (and toggles off),
+  //     (c) stage jumps route the same way in both views.
+  // ===================================================================
+  window.renderBoard = _realRenderBoard;
+  window.api = (url) => {
+    calls.push({ url });
+    if (url === "/api/applications/in-progress") return Promise.resolve({ in_progress: [], needs_attention: [] });
+    if (url.startsWith("/api/applications/")) return Promise.resolve([]);
+    if (url === "/api/operations/status") return Promise.resolve({});
+    return Promise.resolve({ jobs: [], total: 0 });
+  };
+
+  // --- (a) single source of stage labels ---
+  const stageLabels = window.pipelineStages().map((s) => s.label);
+  checks.push(["board columns are the board stages, in order",
+    JSON.stringify(window.boardStages().map((s) => s.key))
+      === JSON.stringify(["shortlisted", "tailoring", "pending", "applied", "needs-attention"])]);
+  checks.push(["funnel stages are the five funnel segments, in order",
+    JSON.stringify(window.funnelStages().map((s) => s.key))
+      === JSON.stringify(["shortlisted", "pending", "applied", "failed", "in-progress"])]);
+  checks.push(["stageLabel resolves a column key", window.stageLabel("pending") === "Ready to Review"]);
+  checks.push(["stageLabel keeps a word for the Pass verdict", window.stageLabel("pass") === "Pass"]);
+  checks.push(["classic tab name maps back to a stage key", window.stageKeyForTab("submitted") === "applied"]);
+
+  window.setPipelineView("board");
+  await window.renderBoard();
+  await new Promise((r) => setTimeout(r, 0));
+  const boardHtml = doc.getElementById("pipeline-board").innerHTML;
+  checks.push(["column heads render the constant's labels",
+    window.boardStages().every((s) => boardHtml.includes(`<b>${s.label}</b>`))]);
+  const funnelHtml = doc.getElementById("pipeline-funnel").innerHTML;
+  checks.push(["funnel segments render the constant's labels",
+    window.funnelStages().every((s) => funnelHtml.includes(`<span>${s.label}</span>`))]);
+  checks.push(["funnel segments carry a stage tooltip",
+    window.funnelStages().every((s) => funnelHtml.includes(s.desc.slice(0, 24)))]);
+  checks.push(["funnel segments are focusable buttons",
+    doc.querySelectorAll("#pipeline-funnel button.fseg").length === 5]);
+  window.renderReviewTabs();
+  const tabHtml = doc.getElementById("review-tab-bar").innerHTML;
+  checks.push(["stage tabs render the constant's labels",
+    window.pipelineStages().filter((s) => s.tab).every((s) => tabHtml.includes(`>${s.label}`))]);
+  checks.push(["stage tabs keep their deep-link ids",
+    ["shortlisted", "pending", "submitted", "failed", "in-progress"]
+      .every((t) => !!doc.getElementById(`review-tab-${t}`))]);
+  checks.push(["the move menu labels its destination from the constant",
+    window._transitionMenuLabel({ to: "pending", label: "requeues for review" })
+      === "Move to Ready to Review — requeues for review"]);
+  checks.push(["the board legend is generated from the transition map",
+    window._boardLegendText().startsWith("Shortlisted → Tailoring/Applied/Pass")]);
+  // No stage label is hard-coded twice: the labels only exist in the stage map.
+  checks.push(["stage labels are unique strings in the map", new Set(stageLabels).size === stageLabels.length]);
+
+  // --- (b) board filter: apply, toggle off, and the ✕ chip ---
+  const board = doc.getElementById("pipeline-board");
+  const colClasses = (k) => doc.querySelector(`.kcol[data-col="${k}"]`).className;
+  window.pipelineSegmentClick("applied");
+  checks.push(["clicking a segment filters the board", window.getBoardFilter() === "applied"]);
+  checks.push(["the board is marked filtered", board.classList.contains("board-filtered")]);
+  checks.push(["the chosen column is focused", colClasses("applied").includes("kcol-focus")]);
+  checks.push(["other columns are dimmed", colClasses("shortlisted").includes("kcol-dim")
+    && !colClasses("applied").includes("kcol-dim")]);
+  checks.push(["the active segment is marked pressed",
+    doc.getElementById("pipeline-funnel").innerHTML.includes('aria-pressed="true"')]);
+  checks.push(["a clear-filter chip appears", !doc.getElementById("pipeline-filter-chip").hidden
+    && doc.getElementById("pipeline-filter-chip").innerHTML.includes("Applied")]);
+  window.pipelineSegmentClick("applied");
+  checks.push(["clicking the active segment clears the filter", window.getBoardFilter() === null]);
+  checks.push(["clearing un-dims every column", !colClasses("shortlisted").includes("kcol-dim")
+    && !board.classList.contains("board-filtered")]);
+  checks.push(["the chip goes away", doc.getElementById("pipeline-filter-chip").hidden]);
+
+  // Failed and In Progress share the Needs Attention column but are distinct
+  // segments — switching between them must not read as "toggle off".
+  window.pipelineSegmentClick("failed");
+  checks.push(["Failed filters the Needs Attention column",
+    window.getBoardFilter() === "needs-attention" && window.getBoardFilterStage() === "failed"]);
+  window.pipelineSegmentClick("in-progress");
+  checks.push(["In Progress keeps the column and moves the segment",
+    window.getBoardFilter() === "needs-attention" && window.getBoardFilterStage() === "in-progress"]);
+  window.clearBoardFilter();
+
+  // Re-rendering the board must not silently drop an active filter.
+  window.setBoardFilter("pending", "pending");
+  await window.renderBoard();
+  checks.push(["a board re-render keeps the filter applied",
+    colClasses("pending").includes("kcol-focus") && colClasses("applied").includes("kcol-dim")]);
+  window.clearBoardFilter();
+
+  // --- (c) one rule for stage jumps, both views ---
+  const _realEnterReview = window.enterReview;
+  window.enterReview = () => {};              // don't let hashchange reset state
+  window.location.hash = "review";
+  await new Promise((r) => setTimeout(r, 0));
+  const switched = [];
+  const _realSwitch2 = window.switchReviewView;
+  window.switchReviewView = (v) => switched.push(v);
+
+  // enterReview is stubbed above, so drive the view classes directly.
+  reviewSection.classList.add("view-board"); reviewSection.classList.remove("view-table");
+  window.goToSubmittedView();
+  checks.push(["board view: a stage jump filters the board instead of no-oping",
+    window.getBoardFilter() === "applied" && switched.length === 0]);
+  window.clearBoardFilter();
+
+  reviewSection.classList.add("view-table"); reviewSection.classList.remove("view-board");
+  window.goToSubmittedView();
+  checks.push(["table view: a stage jump opens that stage's table",
+    switched.length === 1 && switched[0] === "submitted" && window.getBoardFilter() === null]);
+
+  // In table view the funnel goes back to being a tab bar.
+  switched.length = 0;
+  window.pipelineSegmentClick("failed");
+  checks.push(["table view: a funnel click switches tab", switched.length === 1 && switched[0] === "failed"]);
+
+  window.switchReviewView = _realSwitch2;
+  window.enterReview = _realEnterReview;
+
+  // --- counts: one store feeds the funnel AND the column badge ---
+  reviewSection.classList.add("view-board"); reviewSection.classList.remove("view-table");
+  window.setPipelineView("board");
+  await window.renderBoard();
+  window.setPipelineCount("applied", 7);
+  checks.push(["a count update paints the column badge", doc.getElementById("kct-applied").textContent === "7"]);
+  checks.push(["…and the funnel segment in the same write",
+    doc.getElementById("pipeline-funnel").innerHTML.includes(">7<")]);
+  checks.push(["a tab-named count normalises to its stage key", window.pipelineCount("applied") === 7]);
 
   const fail = report(checks);
   if (fail) {
