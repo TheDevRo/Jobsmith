@@ -15,6 +15,9 @@ src-tauri/binaries/
 src-tauri/binaries-build/
 src-tauri/gen/schemas/
 
+# Swift build output (Apple Intelligence bridge)
+apple-bridge/.build/
+
 # Docker seeded config dir
 /config/
 

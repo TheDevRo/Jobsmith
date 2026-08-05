@@ -35,7 +35,8 @@
       "entitlements": "entitlements.plist"
     },
     "externalBin": [
-      "binaries/jobsmith-backend"
+      "binaries/jobsmith-backend",
+      "binaries/jobsmith-apple-ai"
     ],
     "icon": [
       "icons/32x32.png",
