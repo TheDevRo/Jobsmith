@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.6 -->
+<!-- notes-updated-for: 0.2.7 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -40,6 +40,18 @@ same sync.
 - **Fixed along the way** — HTML5 drag-and-drop now works inside the macOS
   shell, and the pipeline funnel no longer over-asks the API and errors on
   large pipelines.
+
+**Also in this release.**
+
+- **Workday one-tap auth.** Sign in to a Workday tenant once and Apply Assist
+  reuses that session for every posting on it, instead of asking again per job.
+- **Automatic database snapshots.** Jobsmith now writes a dated copy of your
+  database on startup, so a bad run is recoverable.
+- **Apply Assist reliability** — iframe-hosted forms, custom selects, and
+  honeypot fields are handled properly, engine failures surface instead of
+  failing silently, and an in-flight autofill can be canceled.
+- **Better AI scoring** — score responses now parse identically on desktop and
+  iOS, so the two stop disagreeing about the same job.
 
 ## macOS app (Apple Silicon)
 
