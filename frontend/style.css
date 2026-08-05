@@ -711,10 +711,10 @@ main:has(> #review.tab-content.active.view-board) {
 
 /* ==========================================================================
    Foundry — dashboard layout (run console + right column), the live run log,
-   the fit histogram, and the global "Now" rail.
+   the fit histogram, and the "Now" panel behind the header run chip.
    ========================================================================== */
 
-/* Row that holds <main> and the global Now rail side by side, below the topbar. */
+/* Row that holds <main> below the topbar. */
 .main-row {
     display: flex;
     flex: 1;
@@ -878,29 +878,28 @@ main:has(> #review.tab-content.active.view-board) {
 .hbar-lab { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .hbar-val { font-size: 11px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 
-/* ---- Global "Now" rail ---- */
-.now-rail {
-    width: 230px;
-    flex: none;
-    border-left: 1px solid var(--border);
+/* ---- "Now" panel: the run chip's popover (was the global Now rail) ---- */
+.now-wrapper { position: relative; display: inline-flex; }
+.now-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 1200;
+    width: 268px;
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
     background: var(--bg-secondary);
-    padding: 16px 14px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+    padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    position: sticky;
-    top: var(--topbar-height);
-    align-self: flex-start;
-    max-height: calc(100vh - var(--topbar-height));
-    overflow-y: auto;
 }
-.now-rail[hidden] { display: none; }
-.now-rail.collapsed { width: 40px; padding: 16px 6px; overflow: hidden; }
-.now-rail.collapsed .now-rail-body { display: none; }
-.now-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.now-rail.collapsed .now-rail-head { justify-content: center; }
-.now-rail.collapsed .eyebrow { display: none; }
-.now-rail-collapse {
+.now-panel[hidden] { display: none; }
+.now-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.now-panel-close {
     background: none;
     border: 1px solid var(--border);
     color: var(--text-secondary);
@@ -911,9 +910,13 @@ main:has(> #review.tab-content.active.view-board) {
     cursor: pointer;
     flex: none;
 }
-.now-rail-collapse:hover { color: var(--accent-ember); border-color: var(--accent-ember); }
-.now-rail-collapse:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: 2px; }
-.now-rail-body { display: flex; flex-direction: column; gap: 10px; }
+.now-panel-close:hover { color: var(--accent-ember); border-color: var(--accent-ember); }
+.now-panel-close:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: 2px; }
+.now-panel-body { display: flex; flex-direction: column; gap: 10px; }
+/* The chip stays reachable after a run ends (finished runs linger in the
+   panel for 10 minutes) — muted so it doesn't read as "still working". */
+.run-status-chip.idle { opacity: 0.75; }
+.run-status-chip.idle .run-chip-dot { animation: none; background: var(--text-muted); }
 
 .runcard {
     background: var(--bg-card);
@@ -938,16 +941,16 @@ main:has(> #review.tab-content.active.view-board) {
     cursor: pointer;
 }
 .runcard-stop:hover { color: var(--accent-red); border-color: var(--accent-red); }
-.now-rail-today { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 2px; }
-.now-rail-today .eyebrow { display: block; margin-bottom: 4px; }
-.now-rail-today-line { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.now-panel-today { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 2px; }
+.now-panel-today .eyebrow { display: block; margin-bottom: 4px; }
+.now-panel-today-line { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
-/* Foundry responsive: collapse to one column, hide the rail on narrow widths. */
+/* Foundry responsive: collapse to one column. */
 @media (max-width: 1100px) {
     .foundry-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 1000px) {
-    .now-rail { display: none !important; }
+@media (max-width: 640px) {
+    .now-panel { width: min(88vw, 268px); }
 }
 
 /* ==========================================================================
@@ -2963,16 +2966,7 @@ body { overflow-x: hidden; }
    Fit Score Breakdown Page
    ========================================================================== */
 
-.fit-breakdown-page {
-    max-width: 900px;
-}
-
-.fit-breakdown-header {
-    margin-bottom: 24px;
-    display: flex;
-    align-items: center;
-}
-
+/* (The standalone page shell is gone — the breakdown renders inside #fit-modal.) */
 .fit-breakdown-grid {
     display: grid;
     grid-template-columns: 340px 1fr;
@@ -3527,6 +3521,8 @@ body[data-theme="light"] .tour-overlay .tour-dim {
 }
 .ts-modal-title { font-size: 14px; font-weight: 600; }
 .ts-modal-body { padding: 16px; overflow-y: auto; }
+/* Fit-score breakdown reuses the ts-modal shell but needs the wider two-card grid. */
+.fit-modal-content { width: min(940px, 94vw); }
 .ts-title-row {
     display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
     border: 1px solid var(--border); border-radius: var(--radius-sm);

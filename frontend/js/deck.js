@@ -1109,6 +1109,7 @@ function _buildRegistry() {
         { group: 'Navigate', label: 'Fit Breakdown', keywords: 'score distribution', run: () => { location.hash = 'fit-breakdown'; } },
 
         // Actions
+        { group: 'Actions', label: 'Fetch & Score', keywords: 'primary run everything search score', run: () => _runIf('fetchAndScore') },
         { group: 'Actions', label: 'Fetch jobs', keywords: 'search scrape sources', run: paletteFetch },
         { group: 'Actions', label: 'Score jobs', keywords: 'fit rank batch', run: () => _runIf('scoreAll') },
         { group: 'Actions', label: 'Tailor résumés', keywords: 'resume cover batch', run: () => _runIf('tailorAll') },
@@ -1118,7 +1119,7 @@ function _buildRegistry() {
         { group: 'Actions', label: 'Toggle theme', keywords: 'dark light appearance', run: () => _runIf('toggleTheme') },
         { group: 'Actions', label: 'Toggle Inbox view (cards / list)', keywords: 'layout deck stage triage classic', run: () => { location.hash = 'jobs'; setTimeout(() => _runIf('toggleInboxView'), 0); } },
         { group: 'Actions', label: 'Toggle Pipeline view (board / table)', keywords: 'layout kanban classic tabs review', run: () => { location.hash = 'review'; setTimeout(() => _runIf('togglePipelineView'), 0); } },
-        { group: 'Actions', label: 'Toggle Now rail', keywords: 'runs progress sidebar', run: () => _runIf('toggleNowRail') },
+        { group: 'Actions', label: 'Show running work', keywords: 'now runs progress panel rail', run: () => _runIf('toggleNowRail') },
 
         // Settings panes (5 tabs). The extra entries below are deep links to a
         // card inside a tab — the old per-topic tabs people still search for.

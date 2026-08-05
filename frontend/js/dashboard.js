@@ -15,7 +15,7 @@ async function loadDashboard() {
             api('/api/activity?limit=20'),
         ]);
 
-        // Cache for the Now rail's "Today" line (used from other tabs without
+        // Cache for the Now panel's "Today" line (used from other tabs without
         // refetch) and for firstRunHint() (B2).
         window._lastStats = stats;
 
@@ -364,18 +364,46 @@ let _lastShellRunStatus = null;
 
 function updateRunChip(kind, text) {
     _chipRuns[kind] = text || null;
+    const parts = [_chipRuns.fetch, _chipRuns.score].filter(Boolean);
+    _renderRunChip();
+    _notifyShellRunStatus(parts.length > 0, parts.join(' · '));
+}
+
+// Paints the chip from the poll texts first, then from the run registry. The
+// chip is now the ONLY entry point to the "what's happening" surface (the Now
+// rail is gone), so it also stays visible — muted — while finished runs are
+// still lingering in the panel, and hides (closing the panel) once nothing is
+// left to show. Only live runs are forwarded to the Tauri tray, as before.
+function _renderRunChip() {
     const chip = document.getElementById('run-status-chip');
     const textEl = document.getElementById('run-status-chip-text');
+    if (!chip || !textEl) return;
     const parts = [_chipRuns.fetch, _chipRuns.score].filter(Boolean);
-    if (chip && textEl) {
-        if (parts.length) {
-            textEl.textContent = parts.join('  ·  ');
-            chip.style.display = '';
-        } else {
-            chip.style.display = 'none';
-        }
+    const runs = (typeof nowRunsForRender === 'function') ? nowRunsForRender() : [];
+    const active = runs.filter(r => r.status === 'active');
+    let text = null, idle = false;
+
+    if (parts.length) text = parts.join('  ·  ');
+    else if (active.length) text = active.map(r => `${r.label} · ${r.progressText || r.detail || 'working…'}`).join('  ·  ');
+    else if (runs.length) {
+        const last = runs.slice().sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))[0];
+        text = `${last.label} — ${last.result || (last.status === 'error' ? 'failed' : 'done')}`;
+        idle = true;
     }
-    _notifyShellRunStatus(parts.length > 0, parts.join(' · '));
+    // The chained "Fetch & Score" run says so while the fetch half is running.
+    if (text && !idle && _fetchScoreChain && active.some(r => r.kind === 'fetch')) {
+        text += '  ·  then scoring';
+    }
+
+    if (text === null) {
+        chip.style.display = 'none';
+        chip.classList.remove('idle');
+        closeNowPanel();
+        return;
+    }
+    textEl.textContent = text;
+    chip.style.display = '';
+    chip.classList.toggle('idle', idle);
 }
 
 // Tell the Tauri shell about run-state changes (tray status line + tooltip,
@@ -393,7 +421,7 @@ function _notifyShellRunStatus(active, text) {
 }
 
 // ===========================================================================
-// Foundry — run console (live log), the "Now" registry, the global Now rail,
+// Foundry — run console (live log), the "Now" registry, the run-chip panel,
 // and the fit-score histogram. The run polls (fetch/score/tailor/estimate/
 // detect/refetch) all feed a single `_nowRuns` registry via trackRun(); that
 // one registry drives the console's live log line AND the global rail, while
@@ -540,29 +568,31 @@ function _scrollLog() {
     if (log) log.scrollTop = log.scrollHeight;
 }
 
-// ---- Global "Now" rail ----
+// ---- "Now" surface: the run chip's popover (formerly the global Now rail) ----
+// Same content the rail showed — one card per active/recently-finished run with
+// progress + Stop, plus the "Today" counts line — now hanging off the topbar
+// chip so running work is described in exactly one place.
+// (The old `jobsmith_nowrail` collapse preference is deliberately no longer
+// read or written; any leftover value is simply ignored.)
 function renderNowRail() {
-    const rail = document.getElementById('now-rail');
-    if (!rail) return;
+    const panel = document.getElementById('now-panel');
+    if (!panel) { _renderRunChip(); return; }
     pruneRuns();
     const runs = nowRunsForRender();
     if (runs.length === 0) {
-        rail.hidden = true;
-        rail.classList.remove('collapsed');
-        rail.innerHTML = '';
+        panel.hidden = true;
+        panel.innerHTML = '';
+        _renderRunChip();
         return;
     }
-    const collapsed = localStorage.getItem('jobsmith_nowrail') === 'collapsed';
-    rail.hidden = false;
-    rail.classList.toggle('collapsed', collapsed);
     const cards = runs.map(nowRunCardHtml).join('');
-    rail.innerHTML = `
-        <div class="now-rail-head">
+    panel.innerHTML = `
+        <div class="now-panel-head">
             <span class="eyebrow">Now</span>
-            <button class="now-rail-collapse" aria-label="${collapsed ? 'Expand' : 'Collapse'} the Now rail"
-                onclick="toggleNowRail()">${collapsed ? '&#8249;' : '&#8250;'}</button>
+            <button class="now-panel-close" aria-label="Close the Now panel" onclick="closeNowPanel()">&times;</button>
         </div>
-        <div class="now-rail-body">${cards}${_railTodayHtml()}</div>`;
+        <div class="now-panel-body">${cards}${_railTodayHtml()}</div>`;
+    _renderRunChip();
 }
 
 function nowRunCardHtml(r) {
@@ -599,15 +629,43 @@ function _railTodayHtml() {
     }
     const applied = s.applied_today || 0;
     const pending = s.pending_review || 0;
-    return `<div class="now-rail-today"><span class="eyebrow">Today</span>`
-        + `<div class="now-rail-today-line">${applied} applied · ${pending} to review</div></div>`;
+    return `<div class="now-panel-today"><span class="eyebrow">Today</span>`
+        + `<div class="now-panel-today-line">${applied} applied · ${pending} to review</div></div>`;
 }
 
-// Toggle open/collapsed (the topbar chip and the rail's edge button both call it).
+// Open/close the Now panel. Kept under the old name because the topbar chip,
+// the ⌘K palette entry and the tour all call toggleNowRail().
 function toggleNowRail() {
-    const cur = localStorage.getItem('jobsmith_nowrail') === 'collapsed';
-    localStorage.setItem('jobsmith_nowrail', cur ? 'open' : 'collapsed');
-    renderNowRail();
+    const panel = document.getElementById('now-panel');
+    if (!panel) return;
+    if (panel.hidden) openNowPanel(); else closeNowPanel();
+}
+
+function openNowPanel() {
+    const panel = document.getElementById('now-panel');
+    if (!panel) return;
+    renderNowRail();                       // fill it before showing
+    if (!panel.innerHTML) return;          // nothing running and nothing recent
+    panel.hidden = false;
+    const chip = document.getElementById('run-status-chip');
+    if (chip) chip.setAttribute('aria-expanded', 'true');
+    if (!_nowPanelDismissBound) {
+        document.addEventListener('click', _maybeCloseNowPanel, true);
+        _nowPanelDismissBound = true;
+    }
+}
+
+function closeNowPanel() {
+    const panel = document.getElementById('now-panel');
+    if (panel) panel.hidden = true;
+    const chip = document.getElementById('run-status-chip');
+    if (chip) chip.setAttribute('aria-expanded', 'false');
+}
+
+let _nowPanelDismissBound = false;
+function _maybeCloseNowPanel(e) {
+    if (e.target.closest && (e.target.closest('#now-panel') || e.target.closest('#run-status-chip'))) return;
+    closeNowPanel();
 }
 
 // ---- Run-verb option popovers ----
@@ -712,6 +770,7 @@ async function reattachActiveRuns() {
             btn.textContent = 'Fetching...';
             document.getElementById('fetch-stop-btn').style.display = '';
             document.getElementById('fetch-finish-btn').style.display = '';
+            _setFetchScoreBtn(true);
             trackRun('fetch', { status: 'active', pct: 0, detail: 'Reconnecting…' });
             startFetchPoll();
         }
@@ -731,6 +790,67 @@ async function reattachActiveRuns() {
 
 let _fetchPollInterval = null;
 
+// ---------------------------------------------------------------------------
+// "Fetch & Score" — the one primary action on Activity. Purely a frontend
+// chain: it runs the existing fetchNewJobs() and, when the fetch poll reports a
+// clean `done`, triggers the existing scoreAll(). No backend involvement, and
+// every guard of both verbs still applies (source selection, the per-verb
+// button mutex, the AI-offline path — with the AI down the fetch still runs and
+// the score step surfaces the usual "0 scored, N failed" explanation).
+// ---------------------------------------------------------------------------
+let _fetchScoreChain = false;
+
+// The primary button follows the Fetch button's enabled state (both start the
+// same run) and says what the chain is doing while it runs.
+function _setFetchScoreBtn(running) {
+    const b = document.getElementById('fetch-score-btn');
+    if (!b) return;
+    b.disabled = running;
+    b.textContent = running && _fetchScoreChain ? 'Fetching… then scoring' : 'Fetch & Score';
+}
+
+async function fetchAndScore() {
+    // Don't stack a chain on top of a fetch that is already running.
+    const fetchBtn = document.getElementById('fetch-btn');
+    if ((fetchBtn && fetchBtn.disabled) || _fetchPollInterval) {
+        toast('A fetch is already running — scoring can be started from the Score button', 'info');
+        return;
+    }
+    // Reachable from ⌘K on any tab, where the source checkboxes may not have
+    // been rendered yet (fetchNewJobs() reads them for its guard).
+    const box = document.getElementById('source-checkboxes');
+    if (box && !box.querySelector('input') && typeof loadSources === 'function') {
+        try { await loadSources(); } catch (e) { /* fetchNewJobs() warns if still empty */ }
+    }
+    _fetchScoreChain = true;
+    _pushRunEvent('run', 'Fetch & Score — scoring starts when the fetch finishes');
+    await fetchNewJobs();
+    // fetchNewJobs() bails (with its own toast) when no source is selected or
+    // the start call fails; in both cases nothing is polling, so drop the chain.
+    if (!_fetchPollInterval) _fetchScoreChain = false;
+    _renderRunChip();
+}
+
+// Called from the fetch poll's `done` branch, after the existing post-fetch
+// hooks. Skipped for a cancelled fetch, an errored fetch, and while a scoring
+// batch is already in flight.
+function _maybeChainScore(cancelled) {
+    if (!_fetchScoreChain) return false;
+    _fetchScoreChain = false;
+    if (cancelled) {
+        _pushRunEvent('info', 'Fetch stopped — skipping the scoring step');
+        return false;
+    }
+    const scoreBtn = document.getElementById('score-btn');
+    if (_scorePollInterval || (scoreBtn && scoreBtn.disabled)) {
+        _pushRunEvent('info', 'Scoring already running — chain step skipped');
+        return false;
+    }
+    // silent: the fetch already toasted its result; one "started" toast is enough.
+    if (typeof scoreAll === 'function') scoreAll({ silent: true });
+    return true;
+}
+
 async function fetchNewJobs() {
     const sources = getSelectedSources();
     if (sources.length === 0) {
@@ -740,6 +860,7 @@ async function fetchNewJobs() {
     const btn = document.getElementById('fetch-btn');
     btn.disabled = true;
     btn.textContent = 'Fetching...';
+    _setFetchScoreBtn(true);
     document.getElementById('fetch-stop-btn').style.display = '';
     document.getElementById('fetch-finish-btn').style.display = '';
     trackRun('fetch', { status: 'active', pct: 0, detail: 'Starting…' });
@@ -754,6 +875,7 @@ async function fetchNewJobs() {
         toast('Failed to start job fetch', 'error');
         btn.disabled = false;
         btn.textContent = 'Fetch';
+        _setFetchScoreBtn(false);
         document.getElementById('fetch-stop-btn').style.display = 'none';
         document.getElementById('fetch-finish-btn').style.display = 'none';
         trackRun('fetch', { status: 'error', detail: 'Failed to start' });
@@ -808,6 +930,7 @@ function startFetchPoll() {
                 const btn = document.getElementById('fetch-btn');
                 btn.disabled = false;
                 btn.textContent = 'Fetch';
+                _setFetchScoreBtn(false);
                 document.getElementById('fetch-stop-btn').style.display = 'none';
                 document.getElementById('fetch-finish-btn').style.display = 'none';
 
@@ -829,10 +952,18 @@ function startFetchPoll() {
                     }
                     loadJobs();
                     loadDashboard();
+                    // Chain step LAST: every existing post-fetch hook above
+                    // (banner, tour offer, reloads) has already run, so the
+                    // score run only ever adds to them.
+                    _maybeChainScore(cancelled);
                 } else if (s.phase === 'error') {
                     trackRun('fetch', { status: 'error', detail: 'Job fetch failed' });
                     toast('Job fetch failed', 'error');
+                    _maybeChainScore(true);   // failed fetch → no scoring step
+                } else {
+                    _fetchScoreChain = false;  // idle / unknown terminal state
                 }
+                _renderRunChip();
             }
         } catch (e) {
             // Ignore poll errors
@@ -1074,7 +1205,7 @@ function _startOpsPoll() {
                 const btn = document.getElementById('estimate-salaries-btn');
                 if (btn && btn.disabled) {
                     btn.disabled = false;
-                    btn.textContent = 'Estimate';
+                    btn.textContent = 'Estimate Salaries';
                     document.getElementById('estimate-salaries-stop-btn').style.display = 'none';
                     trackRun('estimate', { status: 'done', pct: 100, result: 'done' });
                 }

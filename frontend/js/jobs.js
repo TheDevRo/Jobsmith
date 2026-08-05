@@ -508,7 +508,10 @@ function updateScoreBtnLabel() {
     if (btn && !btn.disabled) btn.textContent = (cb && cb.checked) ? 'Rescore' : 'Score';
 }
 
-async function scoreAll() {
+// opts.silent — suppress the "Batch scoring started!" toast. Used by the
+// Fetch & Score chain, which has just toasted the fetch result.
+async function scoreAll(opts) {
+    const silent = !!(opts && opts.silent);
     try {
         const sel = document.getElementById('score-limit-select');
         const limitVal = sel ? sel.value : '';
@@ -524,7 +527,7 @@ async function scoreAll() {
         const label = limitVal ? `${verb} (${limitVal})...` : `${verb} all...`;
         btn.textContent = label;
         document.getElementById('score-stop-btn').style.display = '';
-        toast('Batch scoring started!', 'success');
+        if (!silent) toast('Batch scoring started!', 'success');
         trackRun('score', { status: 'active', pct: 0, detail: 'Starting…' });
         startScorePoll();
         _startOpsPoll();

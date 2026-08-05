@@ -427,11 +427,14 @@ GET  /api/operations/status       # Which background ops are running
 Single-page app with hash routing. No build step.
 
 **Tabs:**
-- `#dashboard` — stats widgets, activity log, quick-action buttons
+- `#dashboard` — Activity/home: getting-started checklist, stats, the run
+  console (primary "Fetch & Score" + the individual verbs), needs-attention /
+  digest cards, outcomes, activity feed
 - `#jobs` — filterable job list with search, sort, score badges
 - `#review` — pending review queue with resume/CL editor
 - `#settings` — edits config.yaml via the API
-- `#fit-breakdown` — score distribution charts
+- `#fit-breakdown` — redirect: opens the score-distribution modal over Activity
+  (no longer a page of its own)
 
 **Key patterns:**
 - Polls `/api/notifications?since_id=N` for live updates, with exponential

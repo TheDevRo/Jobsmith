@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=53">
+    <link rel="stylesheet" href="style.css?v=54">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -49,10 +49,16 @@
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <span class="cmdk-pill-kbd">&#8984;K</span>
                 </button>
-                <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="toggleNowRail()" title="A run is in progress — toggle the Now rail">
-                    <span class="run-chip-dot" aria-hidden="true"></span>
-                    <span id="run-status-chip-text"></span>
-                </button>
+                <!-- One "what's happening" surface: the chip is the trigger, the
+                     panel below it is the former Now rail (active + recently
+                     finished runs + today's counts). -->
+                <div class="now-wrapper">
+                    <button class="run-status-chip" id="run-status-chip" style="display:none" onclick="toggleNowRail()" aria-haspopup="dialog" aria-expanded="false" title="Runs — click to see what's happening">
+                        <span class="run-chip-dot" aria-hidden="true"></span>
+                        <span id="run-status-chip-text"></span>
+                    </button>
+                    <div class="now-panel" id="now-panel" role="dialog" aria-label="Now — active runs" hidden></div>
+                </div>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">&#9790;</button>
                 <div class="notification-wrapper">
                     <button class="notification-bell" id="notification-bell" onclick="toggleNotificationCenter()">
@@ -129,7 +135,7 @@
                             <div class="stat-label">Total Applied</div>
                         </div>
                     </div>
-                    <div class="stat-card stat-card-link" onclick="location.hash='fit-breakdown'" title="Fit score: how well a job matches your profile, 0-100, scored by your AI server. Click to view the full breakdown.">
+                    <div class="stat-card stat-card-link" onclick="openFitBreakdown()" title="Fit score: how well a job matches your profile, 0-100, scored by your AI server. Click to view the full breakdown.">
                         <div class="stat-icon stat-icon-orange">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         </div>
@@ -146,11 +152,19 @@
                         <div class="run-console-head">
                             <h2>Run console</h2>
                             <div class="run-verbs" id="run-verbs">
-                                <!-- Fetch (primary, split button with source options) -->
+                                <!-- THE primary action: fetch, then score what came in
+                                     (chained in the frontend by fetchAndScore()). -->
+                                <div class="run-verb" data-verb="fetchscore">
+                                    <div class="run-split">
+                                        <button class="btn btn-primary run-verb-main" id="fetch-score-btn" onclick="fetchAndScore()" title="Fetch new jobs from your selected sources, then score them as soon as the fetch finishes">Fetch &amp; Score</button>
+                                    </div>
+                                </div>
+
+                                <!-- Fetch (secondary, split button with source options) -->
                                 <div class="run-verb" data-verb="fetch">
                                     <div class="run-split">
-                                        <button class="btn btn-primary run-verb-main" id="fetch-btn" onclick="fetchNewJobs()">Fetch</button>
-                                        <button class="btn btn-primary run-verb-caret" id="fetch-caret" aria-haspopup="true" aria-expanded="false" aria-label="Fetch options" onclick="toggleRunPopover('fetch')">&#9662;</button>
+                                        <button class="btn btn-secondary run-verb-main" id="fetch-btn" onclick="fetchNewJobs()">Fetch</button>
+                                        <button class="btn btn-secondary run-verb-caret" id="fetch-caret" aria-haspopup="true" aria-expanded="false" aria-label="Fetch options" onclick="toggleRunPopover('fetch')">&#9662;</button>
                                     </div>
                                     <button class="btn btn-danger btn-sm run-verb-stop" id="fetch-stop-btn" onclick="cancelFetch()" style="display:none">Stop</button>
                                     <button class="btn btn-warning btn-sm run-verb-stop" id="fetch-finish-btn" onclick="finishFetch()" style="display:none" title="Stop fetching new sources but save what we've got so far">Finish &amp; Save</button>
@@ -198,14 +212,13 @@
                                     <button class="btn btn-danger btn-sm run-verb-stop" id="tailor-stop-btn" onclick="cancelTailorBatch()" style="display:none">Stop</button>
                                 </div>
 
-                                <!-- Estimate (split button with limit option) -->
-                                <div class="run-verb" data-verb="estimate">
+                                <!-- Overflow menu (Estimate + Detect Easy Apply live here) -->
+                                <div class="run-verb" data-verb="more">
                                     <div class="run-split">
-                                        <button class="btn btn-ghost run-verb-main" id="estimate-salaries-btn" onclick="estimateSalariesAll()">Estimate</button>
-                                        <button class="btn btn-ghost run-verb-caret" id="estimate-caret" aria-haspopup="true" aria-expanded="false" aria-label="Estimate options" onclick="toggleRunPopover('estimate')">&#9662;</button>
+                                        <button class="btn btn-ghost run-verb-main" id="more-caret" aria-haspopup="true" aria-expanded="false" aria-label="More actions" onclick="toggleRunPopover('more')">More &#9662;</button>
                                     </div>
-                                    <button class="btn btn-danger btn-sm run-verb-stop" id="estimate-salaries-stop-btn" onclick="cancelEstimateSalaries()" style="display:none">Stop</button>
-                                    <div class="run-popover" id="run-popover-estimate" role="dialog" aria-label="Estimate options" hidden>
+                                    <div class="run-popover" id="run-popover-more" role="menu" aria-label="More actions" hidden>
+                                        <button class="run-menu-item" id="estimate-salaries-btn" role="menuitem" onclick="estimateSalariesAll()">Estimate Salaries</button>
                                         <label class="run-popover-row">Limit
                                             <select id="estimate-salaries-limit-select" class="input-sm" title="How many jobs to estimate">
                                                 <option value="">All</option>
@@ -215,15 +228,8 @@
                                                 <option value="200">200</option>
                                             </select>
                                         </label>
-                                    </div>
-                                </div>
-
-                                <!-- Overflow menu -->
-                                <div class="run-verb" data-verb="more">
-                                    <div class="run-split">
-                                        <button class="btn btn-ghost run-verb-main" id="more-caret" aria-haspopup="true" aria-expanded="false" aria-label="More actions" onclick="toggleRunPopover('more')">More &#9662;</button>
-                                    </div>
-                                    <div class="run-popover" id="run-popover-more" role="menu" aria-label="More actions" hidden>
+                                        <button class="btn btn-danger btn-sm run-verb-stop" id="estimate-salaries-stop-btn" onclick="cancelEstimateSalaries()" style="display:none">Stop estimating</button>
+                                        <div class="run-menu-sep"></div>
                                         <button class="run-menu-item" id="detect-btn" role="menuitem" onclick="detectApplyTypes()">Detect Easy Apply</button>
                                         <button class="btn btn-danger btn-sm run-verb-stop" id="detect-stop-btn" onclick="cancelDetectApplyTypes()" style="display:none">Stop detection</button>
                                         <div id="detect-result" class="run-popover-hint" style="display:none"></div>
@@ -253,20 +259,21 @@
                         </div>
                     </div>
 
-                    <!-- Right column: today's answer first, numbers ambient -->
+                    <!-- Right column: what needs a decision first, numbers ambient.
+                         Order (P4d): needs-attention → digest → histogram. -->
                     <div class="foundry-rightcol">
-                        <div class="section-card panel-compact" id="digest-card" style="display:none">
-                            <p class="eyebrow">Ready to send today</p>
-                            <div id="digest-panel"></div>
-                        </div>
-
                         <div class="section-card panel-compact" id="due-card" style="display:none">
                             <p class="eyebrow">Needs attention</p>
                             <div id="due-panel"></div>
                         </div>
 
+                        <div class="section-card panel-compact" id="digest-card" style="display:none">
+                            <p class="eyebrow">Ready to send today</p>
+                            <div id="digest-panel"></div>
+                        </div>
+
                         <div class="section-card panel-compact" id="histogram-card" style="display:none">
-                            <a class="eyebrow histo-title" href="#fit-breakdown" id="histogram-title" title="Open the full fit-score breakdown">Fit score distribution</a>
+                            <a class="eyebrow histo-title" href="#fit-breakdown" id="histogram-title" onclick="event.preventDefault();openFitBreakdown()" title="Open the full fit-score breakdown">Fit score distribution</a>
                             <div class="fit-histo" id="fit-histo" role="img" aria-label="Fit score distribution"></div>
                         </div>
                     </div>
@@ -1112,17 +1119,22 @@
 
             </section>
 
-            <!-- Fit Score Breakdown -->
-            <section id="fit-breakdown" class="tab-content">
-                <div class="fit-breakdown-page">
-                    <div class="fit-breakdown-header">
-                        <button class="btn btn-secondary btn-sm" onclick="location.hash='dashboard'">&larr; Back to Activity</button>
-                        <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
-                            <span class="hint">Auto-refreshes every 5s</span>
-                            <button class="btn btn-secondary btn-sm" onclick="loadFitBreakdown()">&#x21bb; Refresh</button>
-                        </span>
-                    </div>
+        </main>
 
+        <!-- Fit Score Breakdown — a modal over Activity (the old #fit-breakdown
+             hash redirects here). Same ts-modal shell as the AI title suggester. -->
+        <div id="fit-modal" class="ts-modal" style="display:none">
+            <div class="ts-modal-backdrop" onclick="closeFitBreakdown()"></div>
+            <div class="ts-modal-content fit-modal-content">
+                <div class="ts-modal-header">
+                    <span class="ts-modal-title">Fit score breakdown</span>
+                    <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+                        <span class="hint">Auto-refreshes every 5s</span>
+                        <button class="btn btn-secondary btn-sm" onclick="loadFitBreakdown()">&#x21bb; Refresh</button>
+                        <button class="screenshot-modal-close" onclick="closeFitBreakdown()" aria-label="Close">&times;</button>
+                    </span>
+                </div>
+                <div class="ts-modal-body">
                     <div id="fit-breakdown-error"></div>
 
                     <div class="fit-breakdown-grid">
@@ -1149,12 +1161,8 @@
                         </div>
                     </div>
                 </div>
-            </section>
-        </main>
-
-        <!-- Global "Now" rail: active + recently-finished runs, visible on every
-             tab. Hidden entirely when nothing is running. -->
-        <aside class="now-rail" id="now-rail" aria-label="Now — active runs" hidden></aside>
+            </div>
+        </div>
         </div>
     </div>
 
@@ -1342,18 +1350,18 @@
     <!-- The Pipeline stage vocabulary (labels/order/colours) must exist before
          review.js and deck.js render the funnel, the tabs or the board. -->
     <script src="js/pipeline-stages.js?v=1"></script>
-    <script src="js/core.js?v=49"></script>
-    <script src="js/dashboard.js?v=41"></script>
+    <script src="js/core.js?v=50"></script>
+    <script src="js/dashboard.js?v=42"></script>
     <!-- The per-job action registry must define jobActions()/renderJobActions()
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
-    <script src="js/jobs.js?v=50"></script>
+    <script src="js/jobs.js?v=51"></script>
     <script src="js/review.js?v=43"></script>
     <script src="js/settings.js?v=47"></script>
     <script src="js/prompts.js?v=2"></script>
     <script src="js/sessions.js?v=34"></script>
-    <script src="js/jobs-actions.js?v=41"></script>
-    <script src="js/deck.js?v=12"></script>
-    <script src="js/onboarding.js?v=42"></script>
+    <script src="js/jobs-actions.js?v=42"></script>
+    <script src="js/deck.js?v=13"></script>
+    <script src="js/onboarding.js?v=43"></script>
 </body>
 </html>

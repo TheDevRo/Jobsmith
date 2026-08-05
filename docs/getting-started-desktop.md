@@ -67,7 +67,10 @@ parsing do not work until that clears; everything else does.
 ## 3. First fetch
 
 Job sources are all **on by default**, so there is nothing to configure. Click
-**Fetch Jobs** in the Inbox toolbar (or **Fetch** in the Activity run console).
+**Fetch Jobs** in the Inbox toolbar, or **Fetch & Score** in the Activity run
+console — that one button fetches and then scores everything it found. (The
+individual **Fetch** and **Score** buttons are right next to it if you want the
+steps separately.)
 
 These sources work with no API key at all:
 
@@ -77,7 +80,8 @@ These sources work with no API key at all:
 Adzuna and USAJobs need free API keys, added later in **Settings → Job Search**
 if you want them. Skip them for now.
 
-The run chip at the top shows live progress. A first fetch typically returns a
+The run chip at the top shows live progress — click it to see every running
+and recently finished run in one panel. A first fetch typically returns a
 few dozen jobs.
 
 ## 4. Score and shortlist

@@ -545,6 +545,41 @@ function closeScreenshotModal() {
 }
 
 // ---- Fit Score Breakdown ----
+// P4c: this used to be a full-page hash destination (#fit-breakdown). It is now
+// a modal over Activity, opened from the Avg Fit Score stat card, the histogram
+// title, the ⌘K entry, and the old hash (handleHash redirects it here). Same
+// markup and the same 5s auto-refresh, just re-homed.
+let _fitModalInterval = null;
+
+function openFitBreakdown() {
+    const modal = document.getElementById('fit-modal');
+    if (!modal) return;
+    modal.style.display = '';
+    loadFitBreakdown();
+    if (!_fitModalInterval) {
+        _fitModalInterval = setInterval(() => { if (!document.hidden) loadFitBreakdown(); }, 5000);
+    }
+    if (!_fitModalKeyBound) {
+        document.addEventListener('keydown', _fitModalKey);
+        _fitModalKeyBound = true;
+    }
+}
+
+let _fitModalKeyBound = false;
+function _fitModalKey(e) {
+    if (e.key === 'Escape') closeFitBreakdown();
+}
+
+// opts.keepHash — called from the router while navigating; don't touch the hash.
+function closeFitBreakdown(opts) {
+    const modal = document.getElementById('fit-modal');
+    if (modal) modal.style.display = 'none';
+    if (_fitModalInterval) { clearInterval(_fitModalInterval); _fitModalInterval = null; }
+    if (!(opts && opts.keepHash) && location.hash.replace('#', '') === 'fit-breakdown') {
+        location.hash = 'dashboard';
+    }
+}
+
 async function loadFitBreakdown() {
     const errSlot = document.getElementById('fit-breakdown-error');
     try {

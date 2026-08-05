@@ -38,7 +38,7 @@ const dom = new JSDOM(
        <div id="run-log-live"></div>
        <div id="run-log-foot"></div>
      </div>
-     <aside id="now-rail" hidden></aside>
+     <div id="now-panel" hidden></div>
      <div id="histogram-card"></div>
      <a id="histogram-title"></a>
      <div id="fit-histo"></div>
@@ -64,7 +64,9 @@ const TTL_MS = 10 * 60 * 1000; // mirrors NOW_RUN_TTL_MS in dashboard.js
 checks.push(["Fetch verb button present", /id="fetch-btn"[^>]*>Fetch</.test(INDEX_HTML)]);
 checks.push(["Score verb button present", /id="score-btn"[^>]*>Score</.test(INDEX_HTML)]);
 checks.push(["Tailor verb button present", /id="tailor-btn"[^>]*>Tailor</.test(INDEX_HTML)]);
-checks.push(["Estimate verb button present", /id="estimate-salaries-btn"[^>]*>Estimate</.test(INDEX_HTML)]);
+checks.push(["Fetch & Score primary button present", /id="fetch-score-btn"[^>]*>Fetch &amp; Score</.test(INDEX_HTML)]);
+checks.push(["Estimate verb folded under More", /id="estimate-salaries-btn"[^>]*role="menuitem"/.test(INDEX_HTML)]);
+checks.push(["Estimate limit select kept its id", INDEX_HTML.includes('id="estimate-salaries-limit-select"')]);
 checks.push(["More overflow menu present", INDEX_HTML.includes('id="more-caret"')]);
 checks.push(["Fetch options popover present", INDEX_HTML.includes('id="run-popover-fetch"')]);
 checks.push([
@@ -114,14 +116,24 @@ checks.push(["unscored bin uses the muted (non-heat) color", hist.bins[0].color 
 const emptyHist = window.computeFitHistogram({});
 checks.push(["empty payload → total 0, no isMax", emptyHist.total === 0 && emptyHist.bins.every((b) => !b.isMax)]);
 
-// ---- 4. Now-rail run registry: add → complete → expire ----
-const rail = window.document.getElementById("now-rail");
+// ---- 4. Now-panel run registry: add → complete → expire ----
+// P4b: the standalone rail is gone; the same content now renders into the run
+// chip's popover (#now-panel), which opens on demand rather than automatically.
+const rail = window.document.getElementById("now-panel");
 
-// Add: an active run shows on the rail.
+// Add: an active run shows in the panel (and the chip becomes visible).
 window.trackRun("fetch", { status: "active", pct: 10, progressText: "1/10" });
 let runs = window.nowRunsForRender();
 checks.push(["active run is tracked", runs.length === 1 && runs[0].kind === "fetch" && runs[0].status === "active"]);
-checks.push(["rail is shown while a run is active", rail.hidden === false]);
+checks.push(["panel is populated while a run is active", rail.querySelectorAll(".runcard").length === 1]);
+checks.push([
+  "chip is visible while a run is active",
+  window.document.getElementById("run-status-chip").style.display !== "none",
+]);
+window.toggleNowRail();
+checks.push(["chip click opens the Now panel", rail.hidden === false]);
+window.toggleNowRail();
+checks.push(["chip click again closes it", rail.hidden === true]);
 checks.push(["active run renders a live log line with a bar", window.document.querySelectorAll("#run-log-live .rl-bar").length === 1]);
 
 // Complete: a finished run stays visible (within TTL) and keeps its result.
@@ -144,7 +156,19 @@ checks.push([
 window.pruneRuns(t0 + TTL_MS + 1000);
 checks.push(["pruneRuns() drops the expired run", window.nowRunsForRender().length === 0]);
 window.renderNowRail();
-checks.push(["rail hides itself once no runs remain", rail.hidden === true]);
+checks.push(["panel empties itself once no runs remain", rail.hidden === true && rail.innerHTML === ""]);
+checks.push([
+  "chip hides once no runs remain",
+  window.document.getElementById("run-status-chip").style.display === "none",
+]);
+
+// ---- 5. No stale Now-rail markup / preference left behind ----
+checks.push(["#now-rail aside removed from index.html", !INDEX_HTML.includes('id="now-rail"')]);
+const DASH_SRC = fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8");
+checks.push([
+  "jobsmith_nowrail localStorage key no longer read or written (only mentioned in a comment)",
+  !/localStorage\.(get|set|remove)Item\(\s*['"]jobsmith_nowrail/.test(DASH_SRC),
+]);
 
 const fail = report(checks);
 if (fail) {

@@ -710,7 +710,7 @@ const TOUR_STEPS = [
         hash: '#dashboard',
         selector: '.run-console',
         title: 'Run console',
-        body: 'Kick off any workflow from the verb buttons — Fetch, Score, Tailor, Estimate (each caret opens its options), plus More for Detect Easy Apply, Add Job by URL, and refetching descriptions. The live log below tracks every run.',
+        body: 'Fetch & Score is the one-button routine: it pulls new jobs, then scores them the moment the fetch finishes. The individual verbs are all still here — Fetch and Score (each caret opens its options), Tailor, and More for Estimate Salaries, Detect Easy Apply, Add Job by URL and refetching descriptions. The live log below tracks every run, and the chip in the header opens the same view from any tab.',
     },
     {
         hash: '#jobs',

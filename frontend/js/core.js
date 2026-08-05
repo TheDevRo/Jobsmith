@@ -104,7 +104,6 @@ const PAGE_TITLES = {
     jobs: 'Inbox',
     review: 'Pipeline',
     settings: 'Settings',
-    'fit-breakdown': 'Fit Score Breakdown',
 };
 
 // ---- Legacy layout-mode migration (one-shot) ----
@@ -177,15 +176,16 @@ function setupTabs() {
 }
 
 function handleHash() {
-    const hash = location.hash.replace('#', '') || 'jobs';
+    const raw = location.hash.replace('#', '') || 'jobs';
+    // #fit-breakdown is no longer a page — it's a modal over Activity. The hash
+    // is kept as a redirect for muscle memory, old links and the ⌘K entry.
+    const openFit = raw === 'fit-breakdown';
+    const hash = openFit ? 'dashboard' : raw;
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('nav .tab').forEach(el => el.classList.remove('active'));
 
     const section = document.getElementById(hash);
-    // Map sub-pages to their parent nav tab so the sidebar always shows an active item
-    const NAV_PARENT = { 'fit-breakdown': 'dashboard' };
-    const navHash = NAV_PARENT[hash] || hash;
-    const tab = document.querySelector(`nav .tab[data-tab="${navHash}"]`);
+    const tab = document.querySelector(`nav .tab[data-tab="${hash}"]`);
     if (section) section.classList.add('active');
     if (tab) tab.classList.add('active');
 
@@ -209,11 +209,10 @@ function handleHash() {
             else { switchReviewView('shortlisted'); refreshFunnelCounts(); }
             break;
         case 'settings': loadSettings(); break;
-        case 'fit-breakdown':
-            loadFitBreakdown();
-            statsInterval = setInterval(() => { if (!document.hidden) loadFitBreakdown(); }, 5000);
-            break;
     }
+
+    if (openFit && typeof openFitBreakdown === 'function') openFitBreakdown();
+    else if (!openFit && typeof closeFitBreakdown === 'function') closeFitBreakdown({ keepHash: true });
 }
 
 // ---- Live view refresh ----
@@ -237,7 +236,8 @@ async function refreshActiveView() {
     const ae = document.activeElement;
     if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;  // don't yank while typing
 
-    const hash = location.hash.replace('#', '') || 'jobs';
+    let hash = location.hash.replace('#', '') || 'jobs';
+    if (hash === 'fit-breakdown') hash = 'dashboard';  // modal over Activity
     // Capture scroll of the window and of the Inbox list pane (its own scroller)
     // so re-rendering the list doesn't bounce the user to the top.
     const winScroller = document.scrollingElement || document.documentElement;
@@ -263,7 +263,6 @@ async function refreshActiveView() {
                 else if (currentReviewView === 'in-progress') await loadInProgress();
                 else await loadFailedApplications();
                 break;
-            case 'fit-breakdown': await loadFitBreakdown(); break;
             // 'settings' is intentionally omitted — refreshing would reset edits.
         }
     } catch (e) {
