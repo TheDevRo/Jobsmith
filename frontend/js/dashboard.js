@@ -223,8 +223,9 @@ function digestReasons(job, conversionBySource) {
 }
 
 function showJobFromDigest(jobId) {
-    // Deck layout: peek at the job in place instead of navigating away.
-    if (typeof isDeckLayout === 'function' && isDeckLayout() && typeof openJobModal === 'function') {
+    // Inbox in card view: peek at the job in place instead of navigating away
+    // (the list view can select the row, so it gets the navigation instead).
+    if (typeof getInboxView === 'function' && getInboxView() === 'cards' && typeof openJobModal === 'function') {
         openJobModal(jobId);
         return;
     }

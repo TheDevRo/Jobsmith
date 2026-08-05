@@ -1,8 +1,9 @@
 // Phase 3 "Command Deck" regression test: the ⌘K palette registry filters and
 // escapes hostile input, the kanban drag map exposes EXACTLY the five allowed
 // transitions (each hitting the right endpoint + payload), the stage keyboard
-// verdicts PATCH the right status, and the layout toggle flips the body class
-// with 'deck' as the default layout.
+// verdicts PATCH the right status, and the two per-view toggles (Inbox
+// cards⇄list, Pipeline board⇄table) each set a state class on their own
+// section, with the deck rendering as the default on both.
 //
 // Same jsdom-as-one-eval-unit style as test_ledger.js / test_foundry.js: the
 // production scripts are eval'd unmodified as ONE unit so top-level function
@@ -30,8 +31,10 @@ const dom = new JSDOM(
      <div id="toast-container"></div>
      <div id="pipeline-funnel"></div>
      <div id="theme-toggle"></div>
-     <section id="jobs"><div class="jobs-split-pane"></div><div id="inbox-stage" class="inbox-stage"></div></section>
-     <section id="review"><div id="pipeline-board" class="pipeline-board"></div></section>
+     <section id="jobs" class="view-cards"><div class="jobs-split-pane"></div><div id="inbox-stage" class="inbox-stage"></div>
+       <button id="inbox-view-toggle">List view</button></section>
+     <section id="review" class="view-board"><div id="pipeline-board" class="pipeline-board"></div>
+       <button id="pipeline-view-toggle">Table view</button></section>
    </body></html>`,
   { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost:8888/", virtualConsole }
 );
@@ -168,25 +171,83 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["stage T then tailors the top card", calls.some((c) => c.url === "/api/jobs/s1/tailor" && methodOf(c) === "POST")]);
 
   // ===================================================================
-  // 6. Layout toggle applies the body class and defaults to 'deck'
+  // 6. Per-view toggles: each screen owns its own rendering, both defaulting
+  //    to the deck rendering, and each sets a state class on its OWN section
+  //    (there is no app-wide layout mode / body class any more).
   // ===================================================================
-  window.localStorage.removeItem("jobsmith_layout");
-  checks.push(["default layout is deck", window.getLayout() === "deck" && window.isDeckLayout() === true]);
-  checks.push(["explicit classic choice is honored", (window.localStorage.setItem("jobsmith_layout", "classic"), window.getLayout() === "classic")]);
-  window.localStorage.removeItem("jobsmith_layout");
-  window.handleHash = () => {};  // setLayout re-renders via handleHash — no-op it here
-  window.setLayout("deck");
-  checks.push(["setLayout('deck') adds the layout-deck body class", doc.body.classList.contains("layout-deck")]);
-  checks.push(["getLayout reflects the deck choice", window.getLayout() === "deck"]);
-  window.setLayout("classic");
-  checks.push(["setLayout('classic') removes the body class", !doc.body.classList.contains("layout-deck")]);
+  const jobsSection = doc.getElementById("jobs");
+  const reviewSection = doc.getElementById("review");
+  // enterInbox/enterReview run the real loaders; stub the heavy ones out for
+  // this section only (section 8 below drives the REAL loadStage).
+  const _realLoadStage = window.loadStage;
+  const _realSwitchReviewView = window.switchReviewView;
+  window.loadStage = () => Promise.resolve();
+  window.renderBoard = () => {};
+  window.switchReviewView = () => {};
+
+  window.localStorage.removeItem("jobsmith_inbox_view");
+  checks.push(["default Inbox view is cards", window.getInboxView() === "cards"]);
+  checks.push(["explicit Inbox list choice is honored",
+    (window.localStorage.setItem("jobsmith_inbox_view", "list"), window.getInboxView() === "list")]);
+  checks.push(["legacy 'stage' value still reads as cards",
+    (window.localStorage.setItem("jobsmith_inbox_view", "stage"), window.getInboxView() === "cards")]);
+
+  window.setInboxView("cards");
+  checks.push(["setInboxView('cards') marks #jobs.view-cards",
+    jobsSection.classList.contains("view-cards") && !jobsSection.classList.contains("view-list")]);
+  checks.push(["cards view makes the triage stage active", window.isInboxStageActive() === true]);
+  checks.push(["cards toggle offers the list", doc.getElementById("inbox-view-toggle").textContent === "List view"]);
+  window.setInboxView("list");
+  checks.push(["setInboxView('list') marks #jobs.view-list",
+    jobsSection.classList.contains("view-list") && !jobsSection.classList.contains("view-cards")]);
+  checks.push(["list view stands the triage stage down", window.isInboxStageActive() === false]);
+  checks.push(["list toggle offers the cards", doc.getElementById("inbox-view-toggle").textContent === "Card view"]);
+  window.toggleInboxView();
+  checks.push(["toggleInboxView flips list back to cards", window.getInboxView() === "cards"]);
+  checks.push(["no app-wide layout body class is set", !doc.body.classList.contains("layout-deck")]);
+
+  window.localStorage.removeItem("jobsmith_pipeline_view");
+  checks.push(["default Pipeline view is board", window.getPipelineView() === "board"]);
+  checks.push(["explicit Pipeline table choice is honored",
+    (window.localStorage.setItem("jobsmith_pipeline_view", "table"), window.getPipelineView() === "table")]);
+
+  window.setPipelineView("board");
+  checks.push(["setPipelineView('board') marks #review.view-board",
+    reviewSection.classList.contains("view-board") && !reviewSection.classList.contains("view-table")]);
+  checks.push(["board view is the active board mode", window.isBoardModeActive() === true]);
+  checks.push(["board toggle offers the table", doc.getElementById("pipeline-view-toggle").textContent === "Table view"]);
+  window.setPipelineView("table");
+  checks.push(["setPipelineView('table') marks #review.view-table",
+    reviewSection.classList.contains("view-table") && !reviewSection.classList.contains("view-board")]);
+  checks.push(["table view stands the board down", window.isBoardModeActive() === false]);
+  checks.push(["table toggle offers the board", doc.getElementById("pipeline-view-toggle").textContent === "Board view"]);
+  window.togglePipelineView();
+  checks.push(["togglePipelineView flips table back to board", window.getPipelineView() === "board"]);
+
+  // The two toggles are independent — all four cells of the matrix are reachable.
+  window.setInboxView("list"); window.setPipelineView("board");
+  checks.push(["inbox=list + pipeline=board is a reachable cell",
+    jobsSection.classList.contains("view-list") && reviewSection.classList.contains("view-board")]);
+  window.setInboxView("cards"); window.setPipelineView("table");
+  checks.push(["inbox=cards + pipeline=table is a reachable cell",
+    jobsSection.classList.contains("view-cards") && reviewSection.classList.contains("view-table")]);
+
+  // The palette exposes both toggles (the old single layout command is gone).
+  const paletteLabels = window.buildPalette("").map((i) => i.label);
+  checks.push(["palette offers the Inbox view toggle", paletteLabels.includes("Toggle Inbox view (cards / list)")]);
+  checks.push(["palette offers the Pipeline view toggle", paletteLabels.includes("Toggle Pipeline view (board / table)")]);
+  checks.push(["palette no longer offers a global layout toggle",
+    !paletteLabels.some((l) => /Deck \/ Classic/.test(l))]);
+
+  window.loadStage = _realLoadStage;
+  window.switchReviewView = _realSwitchReviewView;
 
   // ===================================================================
   // 7. Job peek modal — clicking a posting pops a modal in place and NEVER
   //    flips the inbox view pref or navigates (the "stuck in classic" bug).
   // ===================================================================
-  window.setLayout("deck");
-  window.localStorage.setItem("jobsmith_inbox_view", "stage");
+  window.setPipelineView("board");
+  window.localStorage.setItem("jobsmith_inbox_view", "cards");
   calls.length = 0;
   const hashBefore = window.location.hash;
   window.api = (url) => {
@@ -232,7 +293,7 @@ async function assertDrop(from, to, id, verify) {
   const liveBody = window.buildJobDetailHtml({ id: "jl", title: "t", source: "s", status: "shortlisted" });
   checks.push(["live job still offers Delete", liveBody.includes("deleteSingleJob") && !liveBody.includes("Erase Permanently")]);
 
-  checks.push(["boardOpenJob leaves the inbox view pref alone", window.localStorage.getItem("jobsmith_inbox_view") === "stage"]);
+  checks.push(["boardOpenJob leaves the inbox view pref alone", window.localStorage.getItem("jobsmith_inbox_view") === "cards"]);
   checks.push(["boardOpenJob does not navigate", window.location.hash === hashBefore]);
   checks.push(["isJobModalOpen reports open", window.isJobModalOpen() === true]);
   window.closeJobModal();

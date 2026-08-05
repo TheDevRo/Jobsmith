@@ -107,35 +107,38 @@ const PAGE_TITLES = {
     'fit-breakdown': 'Fit Score Breakdown',
 };
 
-// ---- Layout preference (Deck vs Classic) ----
-// Deck is the default layout (triage stage, kanban board). 'classic' keeps the
-// list-based Inbox and tabbed Pipeline; switch any time in Settings or via ⌘K.
-function getLayout() {
-    return localStorage.getItem('jobsmith_layout') === 'classic' ? 'classic' : 'deck';
+// ---- Legacy layout-mode migration (one-shot) ----
+// The app-wide Deck/Classic switch (`jobsmith_layout`) is gone: each screen now
+// owns its own rendering choice — Inbox cards ⇄ list (`jobsmith_inbox_view`)
+// and Pipeline board ⇄ table (`jobsmith_pipeline_view`), both defaulting to the
+// deck rendering. Anyone who had pinned the app to Classic gets the equivalent
+// pair of per-view choices exactly once; then the old key is dropped.
+//
+// Runs at load (not on DOMContentLoaded) so the very first enterInbox() /
+// enterReview() already sees the migrated preferences.
+function migrateLegacyLayoutPref() {
+    let legacy = null;
+    try { legacy = localStorage.getItem('jobsmith_layout'); } catch (e) { return; }
+    if (legacy === null) return;
+    try {
+        if (legacy === 'classic') {
+            // Only fill in what the user hasn't already chosen per view.
+            if (localStorage.getItem('jobsmith_inbox_view') === null) {
+                localStorage.setItem('jobsmith_inbox_view', 'list');
+            }
+            if (localStorage.getItem('jobsmith_pipeline_view') === null) {
+                localStorage.setItem('jobsmith_pipeline_view', 'table');
+            }
+        }
+        // 'deck' (and anything unrecognised) keeps the defaults — nothing to write.
+        localStorage.removeItem('jobsmith_layout');
+    } catch (e) { /* storage unavailable — nothing to migrate */ }
 }
-function isDeckLayout() { return getLayout() === 'deck'; }
-function applyLayout() {
-    const deck = isDeckLayout();
-    document.body.classList.toggle('layout-deck', deck);
-    const bDeck = document.getElementById('layout-mode-deck');
-    const bClassic = document.getElementById('layout-mode-classic');
-    if (bDeck) bDeck.classList.toggle('active', deck);
-    if (bClassic) bClassic.classList.toggle('active', !deck);
-}
-function setLayout(v) {
-    localStorage.setItem('jobsmith_layout', v === 'deck' ? 'deck' : 'classic');
-    applyLayout();
-    handleHash();  // re-render the active view under the new layout
-}
-function toggleLayout() {
-    setLayout(isDeckLayout() ? 'classic' : 'deck');
-    toast(isDeckLayout() ? 'Command Deck layout on' : 'Classic layout on', 'info');
-}
+migrateLegacyLayoutPref();
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
     applyAutoApplyVisibility(false);
-    applyLayout();
     applySidebarPref();
     setupTabs();
     handleHash();

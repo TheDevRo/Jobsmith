@@ -4,46 +4,56 @@
 // undoVerdict, switchReviewView, refreshFunnelCounts, fetchNewJobs, loadJobs …)
 // is already a global by the time any deck function runs.
 //
-// Everything here is ADDITIVE and only active in the "deck" layout
-// (getLayout() === 'deck', see core.js). In "classic" layout enterInbox() and
-// enterReview() fall straight through to the Phase 1–2 loaders, so the classic
-// UI stays pixel-identical.
+// There is no app-wide layout mode any more: each screen carries its own
+// rendering choice, both defaulting to the deck rendering —
+//   Inbox    `jobsmith_inbox_view`    = 'cards' (triage stage) | 'list'
+//   Pipeline `jobsmith_pipeline_view` = 'board' (kanban)       | 'table'
+// Each choice is a state class on its own <section> (#jobs.view-cards /
+// .view-list, #review.view-board / .view-table) that the CSS keys off; the
+// other rendering stays fully reachable from the toolbar toggle and "L".
 
 // ==========================================================================
-// Inbox view mode (deck layout only): 'stage' (card deck) | 'list' (Phase-1 UI)
+// Inbox view: 'cards' (card deck) | 'list' (split-pane list)
 // ==========================================================================
 function getInboxView() {
-    return localStorage.getItem('jobsmith_inbox_view') === 'list' ? 'list' : 'stage';
+    // 'stage' is the pre-consolidation spelling of 'cards' — still honored so a
+    // stored preference survives the upgrade.
+    return localStorage.getItem('jobsmith_inbox_view') === 'list' ? 'list' : 'cards';
 }
 
 function setInboxView(mode) {
-    localStorage.setItem('jobsmith_inbox_view', mode === 'list' ? 'list' : 'stage');
+    localStorage.setItem('jobsmith_inbox_view', mode === 'list' ? 'list' : 'cards');
     enterInbox();
 }
 
 function toggleInboxView() {
-    setInboxView(getInboxView() === 'stage' ? 'list' : 'stage');
+    setInboxView(getInboxView() === 'cards' ? 'list' : 'cards');
 }
 
 // True only when the triage stage owns the Inbox — used to gate the stage
-// keyboard handler and to make the classic jobs.js triage handler stand down.
+// keyboard handler and to make the list-mode jobs.js triage handler stand down.
 function isInboxStageActive() {
-    return isDeckLayout() && getInboxView() === 'stage';
+    return getInboxView() === 'cards';
 }
 
-// Toggle the classic split-pane off / the stage on (and vice-versa).
-function _setInboxStageDom(stageOn) {
+// Point the #jobs section at one rendering or the other and label the toggle
+// with the view it switches TO.
+function _setInboxViewDom() {
+    const cards = getInboxView() === 'cards';
     const section = document.getElementById('jobs');
-    if (section) section.classList.toggle('jobs-mode-stage', !!stageOn);
+    if (section) {
+        section.classList.toggle('view-cards', cards);
+        section.classList.toggle('view-list', !cards);
+    }
     const toggle = document.getElementById('inbox-view-toggle');
-    if (toggle) toggle.textContent = getInboxView() === 'stage' ? 'List view' : 'Stage view';
+    if (toggle) toggle.textContent = cards ? 'List view' : 'Card view';
 }
 
 // The one entry point core.js's handleHash()/refreshActiveView() calls for #jobs.
 function enterInbox() {
-    if (!isDeckLayout()) { _setInboxStageDom(false); loadJobs(); return; }
-    if (getInboxView() === 'list') { _setInboxStageDom(false); loadJobs(); }
-    else { _setInboxStageDom(true); loadStage(); }
+    _setInboxViewDom();
+    if (getInboxView() === 'list') loadJobs();
+    else loadStage();
 }
 
 // ==========================================================================
@@ -459,6 +469,17 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Pipeline "L" — the board/table mirror of the Inbox's L, with the same guards.
+document.addEventListener('keydown', (e) => {
+    if ((location.hash.replace('#', '') || 'jobs') !== 'review') return;
+    if (typeof isPaletteOpen === 'function' && isPaletteOpen()) return;
+    if (typeof isJobModalOpen === 'function' && isJobModalOpen()) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePipelineView(); }
+});
+
 // ==========================================================================
 // Kanban Pipeline board.
 // Column keys map to real backend stages; a drag is a status transition that
@@ -526,24 +547,48 @@ function deckTransitionsFrom(from) {
 let _boardDragging = false;
 let _boardDrag = null;  // { id, from }
 
+// ==========================================================================
+// Pipeline view: 'board' (kanban) | 'table' (funnel + five stage tabs)
+// ==========================================================================
+function getPipelineView() {
+    return localStorage.getItem('jobsmith_pipeline_view') === 'table' ? 'table' : 'board';
+}
+
+function setPipelineView(mode) {
+    localStorage.setItem('jobsmith_pipeline_view', mode === 'table' ? 'table' : 'board');
+    enterReview();
+}
+
+function togglePipelineView() {
+    setPipelineView(getPipelineView() === 'board' ? 'table' : 'board');
+}
+
+// Label the Pipeline toggle with the view it switches TO.
+function _setPipelineViewDom() {
+    const toggle = document.getElementById('pipeline-view-toggle');
+    if (toggle) toggle.textContent = getPipelineView() === 'board' ? 'Table view' : 'Board view';
+}
+
+// The board is "active" only when it is both the chosen view AND not covered by
+// the drill-in detail bar.
 function isBoardModeActive() {
-    if (!isDeckLayout()) return false;
     const rev = document.getElementById('review');
-    return !!(rev && rev.classList.contains('review-mode-board') && !rev.classList.contains('review-detail'));
+    return !!(rev && rev.classList.contains('view-board') && !rev.classList.contains('review-detail'));
 }
 
 // Called by core.js's handleHash() for #review.
 function enterReview() {
     const rev = document.getElementById('review');
-    if (!isDeckLayout()) {
-        if (rev) rev.classList.remove('review-mode-board', 'review-detail');
-        switchReviewView('shortlisted');
-        refreshFunnelCounts();
-        return;
+    const board = getPipelineView() === 'board';
+    if (rev) {
+        rev.classList.toggle('view-board', board);
+        rev.classList.toggle('view-table', !board);
+        rev.classList.remove('review-detail');
     }
-    if (rev) { rev.classList.add('review-mode-board'); rev.classList.remove('review-detail'); }
-    refreshFunnelCounts();  // the funnel strip stays above the board
-    renderBoard();
+    _setPipelineViewDom();
+    refreshFunnelCounts();  // the funnel strip sits above BOTH renderings
+    if (board) renderBoard();
+    else switchReviewView('shortlisted');
 }
 
 // core.js live refresh delegates here when the board is showing.
@@ -696,17 +741,17 @@ async function loadColAttention() {
 }
 
 // ---- Card navigation ----
-// Clicking a job anywhere in the deck layout opens the peek modal in place —
-// it must never flip layout/view prefs or navigate away (that was the
-// "stuck in classic" bug: this used to set jobsmith_inbox_view='list' and
-// deep-link into the classic Inbox).
+// Clicking a job on the board opens the peek modal in place — it must never
+// flip view prefs or navigate away (that was the "stuck in classic" bug: this
+// used to set jobsmith_inbox_view='list' and deep-link into the Inbox list).
 function boardOpenJob(id) {
     openJobModal(id);
 }
 
 function boardOpenApp(colKey, appId, jobId) {
     if (jobId) { openJobModal(jobId); return; }
-    // Fallback (no job id on the card): the old classic-list detour.
+    // Fallback (no job id on the card): drill into the stage table behind the
+    // board's back bar.
     const view = { pending: 'pending', applied: 'submitted', 'needs-attention': 'in-progress' }[colKey] || 'pending';
     const rev = document.getElementById('review');
     if (rev) rev.classList.add('review-detail');
@@ -714,7 +759,7 @@ function boardOpenApp(colKey, appId, jobId) {
 }
 
 // "View Application" inside the peek modal (via viewApplicationFor, jobs.js):
-// land on the matching classic Review list behind the board's back bar.
+// land on the matching Pipeline stage table behind the board's back bar.
 function deckShowApplication(appStatus) {
     closeJobModal();
     const view = (appStatus === 'applied') ? 'submitted'
@@ -722,7 +767,7 @@ function deckShowApplication(appStatus) {
         : 'in-progress';
     const go = () => {
         const rev = document.getElementById('review');
-        if (rev) { rev.classList.add('review-mode-board', 'review-detail'); }
+        if (rev && getPipelineView() === 'board') rev.classList.add('view-board', 'review-detail');
         switchReviewView(view);
     };
     if ((location.hash.replace('#', '') || 'dashboard') !== 'review') {
@@ -994,7 +1039,8 @@ function _buildRegistry() {
         { group: 'Actions', label: 'Detect Easy Apply', keywords: 'apply type classify', run: () => _runIf('detectApplyTypes') },
         { group: 'Actions', label: 'Add job by URL', keywords: 'ingest manual link paste', run: paletteAddUrl },
         { group: 'Actions', label: 'Toggle theme', keywords: 'dark light appearance', run: () => _runIf('toggleTheme') },
-        { group: 'Actions', label: 'Toggle layout (Deck / Classic)', keywords: 'command deck classic view', run: () => _runIf('toggleLayout') },
+        { group: 'Actions', label: 'Toggle Inbox view (cards / list)', keywords: 'layout deck stage triage classic', run: () => { location.hash = 'jobs'; setTimeout(() => _runIf('toggleInboxView'), 0); } },
+        { group: 'Actions', label: 'Toggle Pipeline view (board / table)', keywords: 'layout kanban classic tabs review', run: () => { location.hash = 'review'; setTimeout(() => _runIf('togglePipelineView'), 0); } },
         { group: 'Actions', label: 'Toggle Now rail', keywords: 'runs progress sidebar', run: () => _runIf('toggleNowRail') },
 
         // Settings panes

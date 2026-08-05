@@ -70,13 +70,13 @@ async function tailorSelectedJobs() {
 function _refreshAfterJobChange(jobId) {
     if (selectedJobId === jobId) clearDetailPane();
     if (typeof closeJobModal === 'function') closeJobModal();
-    if (typeof isRecycleBinView === 'function' && isRecycleBinView()) {
-        loadJobs();
-    } else if (typeof isInboxStageActive === 'function' && isInboxStageActive()) {
-        loadStage();
-    } else if (typeof isDeckLayout === 'function' && isDeckLayout()
-               && (location.hash.replace('#', '') === 'review')) {
+    const onReview = (location.hash.replace('#', '') === 'review');
+    if (onReview && typeof isBoardModeActive === 'function' && isBoardModeActive()) {
         renderBoard();
+    } else if (typeof isRecycleBinView === 'function' && isRecycleBinView()) {
+        loadJobs();
+    } else if (!onReview && typeof isInboxStageActive === 'function' && isInboxStageActive()) {
+        loadStage();
     } else {
         loadJobs();
     }

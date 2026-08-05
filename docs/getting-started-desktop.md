@@ -86,14 +86,18 @@ few dozen jobs.
 a **fit score** — 0-100, how well the job matches you. Hover any score chip in
 the app for the same one-line explanation.
 
-Then triage in the **Inbox**. The stage view shows one job at a time:
+Then triage in the **Inbox**. The default **card view** shows one job at a time:
 
 - **→** or **S** — shortlist it
 - **←** or **X** — pass
 - **Enter** — open the full posting
 - **U** — undo
 - **T** — shortlist and tailor in one step
-- **L** — switch to the list view
+- **L** — switch between the cards and the list
+
+The **List view** button in the Inbox toolbar (or **L**) swaps the cards for the
+list + detail pane; the same button switches back. It is a per-screen choice
+that Jobsmith remembers — the Pipeline has its own, independent one.
 
 Shortlisting is the signal Jobsmith acts on: shortlisted jobs are the ones that
 get tailored documents.
@@ -159,7 +163,9 @@ stops showing up in your review queue.
 
 That is the full loop: **Fetch → Score → Shortlist → Tailor → Review → Apply
 Assist → Mark Applied**. From here, the Pipeline board (Shortlisted → Tailoring
-→ Ready to Review → Applied) is where you spend most of your time.
+→ Ready to Review → Applied) is where you spend most of your time — drag a card
+between columns to move a job along. Prefer lists? The **Table view** button in
+the Pipeline toolbar (or **L**) swaps the board for the stage tabs, and back.
 
 ## Where to get help
 

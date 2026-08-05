@@ -429,14 +429,15 @@ function renderFitAnalysis(job) {
     `;
 }
 
-// "View Application" from a job detail. Classic layout jumps to the Review
-// tab; the deck layout routes through deckShowApplication (deck.js) so the
-// user lands on the right classic list behind a Back-to-board bar instead of
-// getting silently switched out of deck mode.
+// "View Application" from a job detail. In Pipeline *table* view this simply
+// jumps to the Review tab; in *board* view it routes through
+// deckShowApplication (deck.js) so the user lands on the right stage table
+// behind a Back-to-board bar instead of a silently swapped-out board.
 function viewApplicationFor(jobId) {
     const job = window._currentJobs && window._currentJobs[jobId];
     const status = job && (job.app_status || (job.application && job.application.status));
-    if (typeof isDeckLayout === 'function' && isDeckLayout() && typeof deckShowApplication === 'function') {
+    if (typeof getPipelineView === 'function' && getPipelineView() === 'board'
+        && typeof deckShowApplication === 'function') {
         deckShowApplication(status);
         return;
     }
@@ -715,6 +716,10 @@ document.addEventListener('keydown', (e) => {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     switch (e.key) {
+        // L is the symmetric partner of the stage's L: it switches back to cards.
+        case 'l': case 'L':
+            if (typeof setInboxView === 'function') { e.preventDefault(); setInboxView('cards'); }
+            break;
         case 'ArrowDown': case 'j': e.preventDefault(); navigateInbox(1); break;
         case 'ArrowUp': case 'k': e.preventDefault(); navigateInbox(-1); break;
         case 'ArrowRight': case 's': case 'S':
