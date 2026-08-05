@@ -221,6 +221,9 @@ async def _bg_tailor_job(job_id: str):
             except Exception:
                 logger.exception("Cover letter DOCX generation failed for job %s", job_id)
 
+        # A re-tailor replaces the previous un-reviewed draft instead of adding
+        # a second one to the review queue. Other statuses are left untouched.
+        await db.delete_pending_applications_for_job(job_id)
         await db.create_application(
             job_id=job_id,
             resume_content=resume_text,
@@ -331,6 +334,8 @@ async def _bg_tailor_batch(min_score: float):
                         resume_path = resume_generator.generate_resume(resume_text, profile, job, cfg)
                         cl_path = resume_generator.generate_cover_letter(cl_text, profile, job, cfg)
 
+                        # Same supersede rule as the single-job path.
+                        await db.delete_pending_applications_for_job(job_id)
                         await db.create_application(
                             job_id=job_id,
                             resume_content=resume_text,

@@ -520,6 +520,67 @@ async function assertDrop(from, to, id, verify) {
     doc.getElementById("pipeline-funnel").innerHTML.includes(">7<")]);
   checks.push(["a tab-named count normalises to its stage key", window.pipelineCount("applied") === 7]);
 
+  // ===================================================================
+  // 11. One drag = ONE request, however many times the board re-rendered.
+  //     renderBoard() replaces host.innerHTML but the delegated listeners
+  //     live on the host itself, so wiring them per render stacked a set
+  //     per render — the 8s live refresh turned one drop into N POSTs
+  //     (11 duplicate tailor runs, and 11 pending drafts, observed live).
+  // ===================================================================
+  window.setPipelineView("board");
+  await window.renderBoard();
+  await window.renderBoard();   // the live refresh re-renders the SAME host
+  await window.renderBoard();
+  await new Promise((r) => setTimeout(r, 0));
+
+  const boardHost = doc.getElementById("pipeline-board");
+  checks.push(["board DnD wiring is marked on the host so it happens once",
+    boardHost.dataset.dndWired === "1"]);
+
+  // Drop a Shortlisted card onto Tailoring — the transition that POSTs /tailor.
+  // A successful drop re-renders the board, detaching these nodes, so every
+  // step re-queries rather than holding a reference across a render.
+  const tailorPosts = () => calls.filter((c) => c.url === "/api/jobs/job-1/tailor");
+  const dropCol = () => doc.querySelector('.kcol[data-col="tailoring"]');
+  const putCard = (id, cls = "kcard") => {
+    const host = doc.getElementById("kcards-shortlisted");
+    host.innerHTML = `<div class="${cls}" draggable="true" data-id="${id}" data-from="shortlisted"></div>`;
+    return host.querySelector(".kcard");
+  };
+  const fire = (el, type) =>
+    el.dispatchEvent(new window.Event(type, { bubbles: true, cancelable: true }));
+
+  calls.length = 0;
+  const dragCard = putCard("job-1");
+  fire(dragCard, "dragstart");
+  checks.push(["dragstart marks the card", dragCard.classList.contains("dragging")]);
+  fire(dropCol(), "drop");
+  await new Promise((r) => setTimeout(r, 0));
+  checks.push(["three renders, one drop → exactly ONE tailor POST", tailorPosts().length === 1]);
+
+  // Defence in depth: the drop handler claims the drag, so a stray second drop
+  // (or a duplicate listener surviving a future refactor) no-ops.
+  fire(dropCol(), "drop");
+  await new Promise((r) => setTimeout(r, 0));
+  checks.push(["a second drop without a new drag sends nothing", tailorPosts().length === 1]);
+
+  // dragend still clears the visual state even though drop nulled the drag.
+  putCard("job-2", "kcard dragging");
+  boardHost.classList.add("drag-from-shortlisted");
+  dropCol().classList.add("drop-active");
+  fire(boardHost, "dragend");
+  checks.push(["dragend clears the drag classes",
+    !boardHost.querySelector(".dragging") && !boardHost.querySelector(".drop-active")
+      && !boardHost.classList.contains("drag-from-shortlisted")]);
+
+  // Re-wiring explicitly is a no-op too (renderBoard isn't the only caller).
+  calls.length = 0;
+  window._wireBoardDnD(boardHost);
+  fire(putCard("job-1"), "dragstart");
+  fire(dropCol(), "drop");
+  await new Promise((r) => setTimeout(r, 0));
+  checks.push(["an explicit re-wire adds no second listener", tailorPosts().length === 1]);
+
   const fail = report(checks);
   if (fail) {
     console.error(`\ntest_deck: ${fail} check(s) failed`);

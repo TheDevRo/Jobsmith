@@ -117,7 +117,24 @@ async def tailor_job(job_id: str):
     job = await db.get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    asyncio.create_task(bg._bg_tailor_job(job_id))
+    # Per-job mutex. A duplicate trigger (double-click, or the stacked-listener
+    # board bug that fired 11 POSTs from one drag) must not spawn a second
+    # worker — each one costs a full score + resume + cover-letter generation
+    # and left a duplicate pending_review draft behind.
+    #
+    # This stays a success (202), not a 409: the UI toasts failures, and a duplicate trigger
+    # is a no-op from the user's point of view, not an error worth shouting
+    # about. The task registry is the real guard — a job merely *sitting* in
+    # status 'tailoring' with no registered task (stale after a crash) is
+    # allowed through so it can never wedge permanently.
+    key = f"tailor_job:{job_id}"
+    if state.task_running(key):
+        return {"message": "Tailoring already in progress"}
+    task = asyncio.create_task(bg._bg_tailor_job(job_id))
+    state.running_tasks[key] = task
+    # Unlike the fixed-name batch slots, these keys are per job — drop each one
+    # when its worker ends so the registry can't grow without bound.
+    task.add_done_callback(lambda _t, k=key: state.running_tasks.pop(k, None))
     return {"message": "Tailoring started"}
 
 

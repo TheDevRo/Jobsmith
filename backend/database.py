@@ -172,6 +172,44 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
                     applied, len(SCHEMA_MIGRATIONS))
 
 
+async def _dedupe_pending_applications(db) -> int:
+    """Collapse duplicate 'pending_review' drafts to the newest one per job.
+
+    A one-time repair that is safe to run on every startup: on a healthy
+    database it matches nothing and deletes nothing. Only 'pending_review' rows
+    are considered — application history ('applied', 'manual', 'failed', …) and
+    'paused' runs are never touched, even for a job that also has duplicates.
+
+    Newest wins: created_at DESC, with id DESC as a deterministic tiebreak for
+    rows written inside the same clock tick. Returns the rows removed.
+    """
+    cursor = await db.execute(
+        """
+        DELETE FROM applications
+        WHERE status = 'pending_review'
+          AND id NOT IN (
+              SELECT (
+                  SELECT b.id FROM applications b
+                  WHERE b.job_id = a.job_id AND b.status = 'pending_review'
+                  ORDER BY b.created_at DESC, b.id DESC
+                  LIMIT 1
+              )
+              FROM applications a
+              WHERE a.status = 'pending_review'
+              GROUP BY a.job_id
+          )
+        """
+    )
+    removed = cursor.rowcount or 0
+    await db.commit()
+    if removed:
+        logger.warning(
+            "Removed %d duplicate pending_review application(s); kept the newest draft per job",
+            removed,
+        )
+    return removed
+
+
 async def init_db() -> None:
     """Create all tables if they do not exist."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -291,6 +329,11 @@ async def init_db() -> None:
             """
         )
         await db.commit()
+
+        # Clear duplicate drafts left by the stacked-drop bug (see
+        # _wireBoardDnD in deck.js): one drag could fire the tailor endpoint a
+        # dozen times, each run INSERTing another pending_review row.
+        await _dedupe_pending_applications(db)
 
         logger.info("Database initialized at %s", DB_PATH)
     finally:
@@ -1246,6 +1289,32 @@ async def create_application(
         await db.commit()
         logger.info("Created application %s for job %s", app_id, job_id)
         return app_id
+    finally:
+        await db.close()
+
+
+async def delete_pending_applications_for_job(job_id: str) -> int:
+    """Drop any un-reviewed draft for `job_id`. Returns the row count removed.
+
+    Re-tailoring a job REPLACES its draft rather than stacking another one, so
+    the review queue can never show two competing drafts for the same job.
+
+    Deliberately narrow: only status='pending_review'. Every other status is
+    history or user state that must survive — 'applied'/'manual'/'failed' are a
+    record of what happened, and 'paused' rows still appear in the pending
+    review queue (see get_pending_applications) as a run the user paused.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM applications WHERE job_id = ? AND status = 'pending_review'",
+            (job_id,),
+        )
+        removed = cursor.rowcount or 0
+        await db.commit()
+        if removed:
+            logger.info("Superseded %d pending draft(s) for job %s", removed, job_id)
+        return removed
     finally:
         await db.close()
 

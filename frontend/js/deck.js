@@ -1022,7 +1022,16 @@ async function runDeckDrop(from, to, id) {
 }
 
 // ---- HTML5 drag & drop (event delegation on the board) ----
+// renderBoard() replaces host.innerHTML on EVERY render (including the 8s live
+// refresh), which wipes the children but NOT the host's own listeners. Wiring
+// unconditionally therefore stacked one delegated set per render, so a single
+// physical drop ran N handlers → N runDeckDrop() calls → N POSTs (an 11×
+// duplicate tailor was observed in the wild). dataset lives on the host, so it
+// survives innerHTML and makes this idempotent.
 function _wireBoardDnD(host) {
+    if (host.dataset.dndWired) return;
+    host.dataset.dndWired = '1';
+
     host.addEventListener('dragstart', (e) => {
         const card = e.target.closest && e.target.closest('.kcard');
         if (!card) return;
@@ -1058,7 +1067,12 @@ function _wireBoardDnD(host) {
         const t = findDeckTransition(_boardDrag.from, target.to);
         if (!t) return;
         e.preventDefault();
+        // Claim the drag BEFORE running the transition: if a duplicate listener
+        // ever survives (older tab, future refactor), the second invocation sees
+        // a null _boardDrag and no-ops instead of firing a second POST. dragend
+        // still clears the state classes — it doesn't read _boardDrag.
         const { id, from } = _boardDrag;
+        _boardDrag = null;
         target.el.classList.remove('drop-active');
         runDeckDrop(from, target.to, id);
     });
