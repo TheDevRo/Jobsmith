@@ -446,7 +446,7 @@ class GenericAdapter:
                 if ctrl.page.url == url_before:
                     try:
                         await ctrl.page.wait_for_url(
-                            lambda u: u != url_before, timeout=3_000
+                            lambda u, _before=url_before: u != _before, timeout=3_000
                         )
                     except Exception:
                         pass  # URL didn't change — may be SPA with in-page step advance
@@ -871,7 +871,6 @@ async def _resolve_login_fields(
 
 
 def _screenshot_path(job_id: str) -> str:
-    from pathlib import Path
     base = project_root() / "failed_screenshots"
     base.mkdir(exist_ok=True)
     return str(base / f"{job_id}_generic.png")

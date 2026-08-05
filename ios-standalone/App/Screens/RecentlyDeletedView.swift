@@ -59,7 +59,7 @@ struct RecentlyDeletedView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("These postings may reappear in future searches. This can't be undone.")
+            Text("These postings become discoverable again — they may reappear in future searches, and they're erased on your synced devices too. This can't be undone.")
         }
     }
 }

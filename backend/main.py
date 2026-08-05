@@ -13,22 +13,21 @@ import asyncio
 import logging
 import os
 import shutil
-import socket
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import app_state as state
-from .app_state import load_config, save_config  # re-exported for callers/tests
 from . import database as db
+from . import db_backup
 from . import ai_engine
 from . import auto_apply
 from . import extension_api
@@ -120,7 +119,11 @@ async def _bg_ghost_sweep() -> None:
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup.
+    # Snapshot the database BEFORE init_db so a migration that goes wrong on a
+    # version upgrade can always be rolled back to this morning's state.
+    # Best-effort: never blocks boot (see backend/db_backup.py for restore steps).
+    await db_backup.maybe_backup_daily()
     await db.init_db()
     state.RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 

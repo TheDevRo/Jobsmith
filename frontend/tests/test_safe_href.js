@@ -160,6 +160,37 @@ checks.push([
   !doc.querySelector("#job-detail-pane .detail-title"),
 ]);
 
+// ---- safeId() unit behavior ----
+// Ids get dropped into inline handlers like onclick="fn('${id}')". escapeHtml
+// is NOT enough there (entity decoding precedes JS parsing), so ids go through
+// safeId, which whitelists [A-Za-z0-9._-] — lossless for the server's UUIDs.
+const safeId = window.safeId;
+checks.push(["uuid passes through unchanged",
+  safeId("3f2504e0-4f89-41d3-9a0c-0305e82c3301") === "3f2504e0-4f89-41d3-9a0c-0305e82c3301"]);
+checks.push(["source-prefixed id passes through", safeId("linkedin_12345") === "linkedin_12345"]);
+checks.push(["single quote is stripped", !safeId("x');alert(1)//").includes("'")]);
+checks.push(["breakout payload loses its parens/quotes",
+  safeId("');alert(1)//") === "alert1"]);
+checks.push(["null/undefined become empty", safeId(null) === "" && safeId(undefined) === ""]);
+checks.push(["angle brackets stripped", safeId("<img src=x>") === "imgsrcx"]);
+
+// The real render path: a job whose id tries to break out of the inline
+// onclick handler must not inject any executable markup or a stray attribute.
+const idBreakoutJob = {
+  id: "');alert(document.domain)//",
+  title: "Nice Role", company: "Acme", location: "Remote",
+  source: "linkedin", status: "discovered", url: "https://example.com/j/1",
+  apply_type: "easy_apply", description: "hi",
+};
+window.renderJobs([idBreakoutJob], 1);
+const breakoutCard = doc.querySelector(".job-card");
+checks.push(["malicious id injects no inline script markup",
+  !!breakoutCard && !/alert\(document\.domain\)/.test(breakoutCard.outerHTML)]);
+checks.push(["no card carries an onclick that isn't a bare handler call",
+  Array.from(doc.querySelectorAll("[onclick]")).every((el) =>
+    /^[a-zA-Z]+\('?[A-Za-z0-9._-]*'?\)?/.test(el.getAttribute("onclick")) ||
+    el.getAttribute("onclick").startsWith("event.stopPropagation"))]);
+
 const fail = report(checks);
 if (fail) {
   console.error(`\nsafeHref: ${fail} check(s) failed`);

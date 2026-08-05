@@ -165,7 +165,7 @@ class TestGenericPreApply:
             "backend.auto_apply.adapters.generic._detect_generic_redirect",
             new=AsyncMock(return_value=""),
         ):
-            result = await adapter.apply(
+            await adapter.apply(
                 ctrl, profile, job, _make_llm(), ApplyMode.AUTOFILL, _make_log()
             )
 

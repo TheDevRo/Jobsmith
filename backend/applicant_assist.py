@@ -391,7 +391,7 @@ async def launch_assist_isolated(
         # because Playwright Python's timeout=0 is 0ms (not "no timeout"), which would
         # cause wait_for_event to exit immediately before the user has done anything.
         try:
-            while browser.is_connected():
+            while browser.is_connected():  # noqa: ASYNC110 — no disconnect event usable here (see comment above)
                 await asyncio.sleep(0.5)
         except Exception:
             pass

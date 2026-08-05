@@ -102,7 +102,7 @@ function renderDigestPanel(data) {
     panel.innerHTML = jobs.map(job => {
         const reasons = digestReasons(job, data.conversion_by_source || {});
         return `
-            <div class="outcome-bar-row" style="cursor:pointer" onclick="showJobFromDigest('${job.id}')">
+            <div class="outcome-bar-row" style="cursor:pointer" onclick="showJobFromDigest('${safeId(job.id)}')">
                 <span class="outcome-bar-label">
                     ${escapeHtml(job.title)} · ${escapeHtml(job.company || '')}
                     <span style="color:var(--text-muted)">${reasons}</span>

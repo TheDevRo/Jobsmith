@@ -14,14 +14,13 @@ tests mirror SETTINGS_SYNC_PLAN.md Phase 1.5:
   * unknown entities are skipped on import (backward-compat guard).
 """
 import copy
-import sqlite3
 
 import pytest
 
 from backend import database as dbmod
 from backend.sync import SyncEngine
 from backend.sync import settings_registry as sr
-from backend.sync.engine import SETTING_ENTITY, iso_ms, _now
+from backend.sync.engine import SETTING_ENTITY
 
 
 async def _init_db(path, monkeypatch):
@@ -305,7 +304,7 @@ async def test_prompts_expand_to_one_record_per_id(tmp_path, monkeypatch):
     a = await _engine(tmp_path / "a.db", "A1B2", boxA, monkeypatch)
     b = await _engine(tmp_path / "b.db", "C3D4", boxB, monkeypatch)
 
-    exp = await a.export_changes(folder)
+    await a.export_changes(folder)
     # two prompt records, one per id
     import json
     recs = [json.loads(l) for l in (folder / "changes" / "A1B2.jsonl").read_text().splitlines()]
@@ -432,7 +431,7 @@ async def test_profile_gate_off_stops_sync_without_tombstoning(tmp_path, monkeyp
     assert boxB.cfg["profile"]["full_name"] == "Local"  # untouched
 
     # And B, with profile OFF, exports no profile record and no tombstone for it.
-    exp = await b.export_changes(folder)
+    await b.export_changes(folder)
     import json
     recs = [json.loads(l) for l in (folder / "changes" / "C3D4.jsonl").read_text().splitlines()] \
         if (folder / "changes" / "C3D4.jsonl").exists() else []

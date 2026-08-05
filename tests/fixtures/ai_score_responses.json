@@ -1,0 +1,108 @@
+{
+  "_comment": "Shared conformance fixtures for the LLM score-response parser. Consumed by tests/test_crosslang_ai.py (Python, everywhere) and — once tools/ai-crosslang exists — by the Swift ScoreResponseParser on macOS. 'expect' is null when the chain should find nothing. reasoning/report are omitted from 'expect' when only the score is contractual for that case.",
+  "cases": [
+    {
+      "name": "clean_json",
+      "response": "{\"score\": 85, \"reasoning\": \"Strong overlap in required skills.\"}",
+      "expect": {"score": 85.0, "reasoning": "Strong overlap in required skills.", "report": null}
+    },
+    {
+      "name": "json_with_match_report",
+      "response": "{\"score\": 72, \"reasoning\": \"ok\", \"matched_skills\": [\"python\", \"  fastapi  \", \"\"], \"missing_skills\": [\"kubernetes\"], \"keywords\": [\"backend\"], \"title_alignment\": \"partial\"}",
+      "expect": {
+        "score": 72.0,
+        "reasoning": "ok",
+        "report": {
+          "matched_skills": ["python", "fastapi"],
+          "missing_skills": ["kubernetes"],
+          "matched_soft_skills": [],
+          "missing_soft_skills": [],
+          "keywords": ["backend"],
+          "title_alignment": "partial"
+        }
+      }
+    },
+    {
+      "name": "invalid_title_alignment_nulled",
+      "response": "{\"score\": 60, \"reasoning\": \"meh\", \"matched_skills\": [\"sql\"], \"title_alignment\": \"AMAZING\"}",
+      "expect": {
+        "score": 60.0,
+        "reasoning": "meh",
+        "report": {
+          "matched_skills": ["sql"],
+          "missing_skills": [],
+          "matched_soft_skills": [],
+          "missing_soft_skills": [],
+          "keywords": [],
+          "title_alignment": null
+        }
+      }
+    },
+    {
+      "name": "report_with_only_soft_skills_is_dropped",
+      "response": "{\"score\": 55, \"reasoning\": \"soft only\", \"matched_soft_skills\": [\"communication\"]}",
+      "expect": {"score": 55.0, "reasoning": "soft only", "report": null}
+    },
+    {
+      "name": "skill_caps_and_truncation",
+      "response": "{\"score\": 90, \"reasoning\": \"caps\", \"matched_skills\": [\"s1\",\"s2\",\"s3\",\"s4\",\"s5\",\"s6\",\"s7\",\"s8\",\"s9\",\"s10\",\"s11\",\"s12\",\"s13\",\"s14\"], \"keywords\": [\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
+      "expect": {
+        "score": 90.0,
+        "reasoning": "caps",
+        "report": {
+          "matched_skills": ["s1","s2","s3","s4","s5","s6","s7","s8","s9","s10","s11","s12"],
+          "missing_skills": [],
+          "matched_soft_skills": [],
+          "missing_soft_skills": [],
+          "keywords": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "title_alignment": null
+        }
+      }
+    },
+    {
+      "name": "score_as_string_coerces",
+      "response": "{\"score\": \"88\", \"reasoning\": \"stringly typed\"}",
+      "expect": {"score": 88.0, "reasoning": "stringly typed", "report": null}
+    },
+    {
+      "name": "json_in_code_fence_via_blob",
+      "response": "Sure! Here's my assessment:\n```json\n{\"score\": 47, \"reasoning\": \"fenced\"}\n```\nLet me know if you need more.",
+      "expect": {"score": 47.0, "reasoning": "fenced", "report": null}
+    },
+    {
+      "name": "json_wrapped_in_prose",
+      "response": "Based on my analysis {\"score\": 66, \"reasoning\": \"prose wrapped\"} is my verdict.",
+      "expect": {"score": 66.0, "reasoning": "prose wrapped", "report": null}
+    },
+    {
+      "name": "broken_json_score_regex_fallback",
+      "response": "{\"score\": 39, \"reasoning\": \"unterminated",
+      "expect": {"score": 39.0, "reasoning": "{\"score\": 39, \"reasoning\": \"unterminated", "report": null}
+    },
+    {
+      "name": "bare_number_scan",
+      "response": "I would rate this position 63 for this candidate.",
+      "expect": {"score": 63.0, "report": null}
+    },
+    {
+      "name": "number_scan_prefers_first_in_range",
+      "response": "Out of 100, maybe 20.",
+      "expect": {"score": 100.0, "report": null}
+    },
+    {
+      "name": "missing_score_key_falls_through",
+      "response": "{\"rating\": 77, \"reasoning\": \"wrong key\"}",
+      "expect": {"score": 77.0, "report": null}
+    },
+    {
+      "name": "nothing_parseable",
+      "response": "I cannot evaluate this posting.",
+      "expect": null
+    },
+    {
+      "name": "empty_response",
+      "response": "   ",
+      "expect": null
+    }
+  ]
+}

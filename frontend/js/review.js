@@ -112,9 +112,9 @@ function renderShortlisted(data) {
                 <div class="job-card-right">
                     ${renderHeatChip(job.fit_score)}
                     <div class="scout-actions">
-                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${job.id}')">Tailor</button>
-                        <button class="btn btn-secondary btn-xs" onclick="scoreJob('${job.id}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
-                        <button class="btn btn-ghost btn-xs" onclick="passShortlisted('${job.id}')">Pass</button>
+                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${safeId(job.id)}')">Tailor</button>
+                        <button class="btn btn-secondary btn-xs" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
+                        <button class="btn btn-ghost btn-xs" onclick="passShortlisted('${safeId(job.id)}')">Pass</button>
                     </div>
                 </div>
             </div>

@@ -3,7 +3,6 @@ Tests for backend/resume_parser.py — text extraction and the strictly-
 extractive LLM mapping. All offline; the LLM client is mocked.
 """
 
-import io
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch

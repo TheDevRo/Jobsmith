@@ -347,18 +347,18 @@ def snapshot_to_text(snapshot: dict) -> str:
                 opt_str = ", ".join(opts[:6])
                 if len(opts) > 6:
                     opt_str += f"... ({len(opts)} total)"
-                desc += f"Dropdown"
+                desc += "Dropdown"
                 if label:
                     desc += f" '{label}'"
                 desc += f": options=[{opt_str}]"
             elif tag == "textarea":
-                desc += f"Text area"
+                desc += "Text area"
                 if label:
                     desc += f" '{label}'"
                 elif placeholder:
                     desc += f" (placeholder: '{placeholder}')"
             elif field_type == "file":
-                desc += f"File upload"
+                desc += "File upload"
                 if label:
                     desc += f" '{label}'"
                 accept = inp.get("accept", "")
@@ -370,7 +370,7 @@ def snapshot_to_text(snapshot: dict) -> str:
                 if label:
                     desc += f" '{label}'"
             else:
-                desc += f"Input"
+                desc += "Input"
                 if field_type and field_type not in ("text",):
                     desc += f" (type={field_type})"
                 if label:

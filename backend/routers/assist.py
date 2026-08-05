@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from .. import app_state as state
 from .. import applicant_assist
 from .. import database as db
-from .. import extension_api
 
 logger = logging.getLogger(__name__)
 

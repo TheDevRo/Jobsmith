@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from backend.page_extractor import extract_page_state, snapshot_summary
+from backend.page_extractor import extract_page_state
 from backend.ai_navigator import (
     classify_page,
     map_form_fields,

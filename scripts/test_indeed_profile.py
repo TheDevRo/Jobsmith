@@ -7,7 +7,6 @@ Does NOT import anything from backend/.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------

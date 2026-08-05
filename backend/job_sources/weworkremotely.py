@@ -6,7 +6,6 @@ Covers all major job categories, not just devops/sysadmin.
 
 import asyncio
 import logging
-import re
 
 import aiohttp
 import feedparser

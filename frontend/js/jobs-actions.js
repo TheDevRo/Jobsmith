@@ -64,7 +64,7 @@ async function tailorSelectedJobs() {
 }
 
 async function deleteSingleJob(jobId) {
-    if (!(await appConfirm('Delete this job posting?'))) return;
+    if (!(await appConfirm('Delete this job posting? It moves to Recently Deleted and won’t come back in future searches.'))) return;
     try {
         await api(`/api/jobs/${jobId}`, { method: 'DELETE' });
         toast('Job deleted', 'info');
@@ -91,7 +91,7 @@ async function deleteSelectedJobs() {
         toast('No jobs selected', 'info');
         return;
     }
-    if (!(await appConfirm(`Delete ${ids.length} selected job${ids.length > 1 ? 's' : ''}?`))) return;
+    if (!(await appConfirm(`Delete ${ids.length} selected job${ids.length > 1 ? 's' : ''}? They move to Recently Deleted and won’t come back in future searches.`))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',
@@ -113,7 +113,7 @@ async function deleteFilteredJobs() {
         return;
     }
     const filterDesc = [source, status].filter(Boolean).join(' / ');
-    if (!(await appConfirm(`Delete ALL jobs matching filter: ${filterDesc}? This cannot be undone.`))) return;
+    if (!(await appConfirm(`Delete ALL jobs matching filter: ${filterDesc}? They move to Recently Deleted and won’t come back in future searches.`))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',
@@ -128,8 +128,8 @@ async function deleteFilteredJobs() {
 }
 
 async function deleteAllJobs() {
-    if (!(await appConfirm('Delete ALL job postings? This cannot be undone.'))) return;
-    if (!(await appConfirm('Are you sure? This will permanently delete all jobs and pending applications. Applied entries in the Submitted tab will be preserved.'))) return;
+    if (!(await appConfirm('Delete ALL job postings? They move to Recently Deleted and won’t come back in future searches.'))) return;
+    if (!(await appConfirm('Are you sure? This deletes all jobs and pending applications. Applied entries in the Submitted tab will be preserved, and everything stays recoverable in Recently Deleted.'))) return;
     try {
         const data = await api('/api/jobs/delete', {
             method: 'POST',
@@ -141,6 +141,74 @@ async function deleteAllJobs() {
         loadDashboard();
     } catch (e) {
         toast('Failed to delete jobs', 'error');
+    }
+}
+
+// ---- Recently Deleted (recycle bin) ----
+// A soft-deleted job keeps its row, so it stays out of future searches. The
+// actions below are the ONLY local paths that erase that tracking: an erased
+// posting can be re-discovered, and the erase syncs to peers as a tombstone.
+
+async function restoreJob(jobId) {
+    try {
+        await api(`/api/jobs/${jobId}/restore`, { method: 'POST' });
+        toast('Restored to Inbox', 'success');
+        if (selectedJobId === jobId) clearDetailPane();
+        loadJobs();
+    } catch (e) {
+        toast('Failed to restore job', 'error');
+    }
+}
+
+async function restoreSelectedJobs() {
+    const ids = getSelectedJobIds();
+    if (ids.length === 0) {
+        toast('No jobs selected', 'info');
+        return;
+    }
+    let restored = 0;
+    for (const id of ids) {
+        try {
+            await api(`/api/jobs/${id}/restore`, { method: 'POST' });
+            restored++;
+        } catch (e) { /* counted below */ }
+    }
+    const failed = ids.length - restored;
+    toast(`Restored ${restored} job${restored !== 1 ? 's' : ''} to Inbox` + (failed ? `, ${failed} failed` : ''),
+          failed ? 'error' : 'success');
+    clearDetailPane();
+    loadJobs();
+}
+
+async function eraseSelectedJobs() {
+    const ids = getSelectedJobIds();
+    if (ids.length === 0) {
+        toast('No jobs selected', 'info');
+        return;
+    }
+    if (!(await appConfirm(`Permanently erase ${ids.length} deleted posting${ids.length > 1 ? 's' : ''}? They can come back in future searches, and they’ll be erased on your synced devices too.`))) return;
+    try {
+        const data = await api('/api/jobs/purge-deleted', {
+            method: 'POST',
+            body: JSON.stringify({ job_ids: ids }),
+        });
+        toast(data.message, 'success');
+        clearDetailPane();
+        loadJobs();
+    } catch (e) {
+        toast('Failed to erase jobs', 'error');
+    }
+}
+
+async function emptyRecycleBin() {
+    if (!(await appConfirm('Permanently erase everything in Recently Deleted? These postings can come back in future searches, and they’ll be erased on your synced devices too.'))) return;
+    try {
+        const data = await api('/api/jobs/purge-deleted', { method: 'POST' });
+        toast(data.message, 'success');
+        clearDetailPane();
+        loadJobs();
+    } catch (e) {
+        toast('Failed to empty Recently Deleted', 'error');
     }
 }
 
@@ -157,6 +225,17 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+// SEC: ids get interpolated into inline handlers like onclick="fn('${id}')".
+// escapeHtml is NOT enough there: the HTML parser decodes entities BEFORE the
+// JS string is parsed, so an escaped ' still breaks out of the JS string. Ids
+// are server-generated UUIDs, so a strict whitelist is both lossless for real
+// data and a hard guarantee against breakout regardless of context — anything
+// outside [A-Za-z0-9._-] (quotes, backslashes, parens, angle brackets) is
+// dropped. Use for any id landing in an attribute or inline handler.
+function safeId(id) {
+    return String(id == null ? '' : id).replace(/[^A-Za-z0-9._-]/g, '');
 }
 
 // SEC-03: escapeHtml neutralizes <>&"' but NOT the URL scheme. Job URLs are
@@ -222,7 +301,7 @@ function renderSalarySection(job) {
             <div class="detail-section">
                 <h4>Salary</h4>
                 <span style="font-size:13px;color:var(--text-muted)">Not disclosed.
-                    <button class="btn btn-ghost btn-xs" style="margin-left:6px" onclick="reestimateSalary('${job.id}')">Estimate from market</button>
+                    <button class="btn btn-ghost btn-xs" style="margin-left:6px" onclick="reestimateSalary('${safeId(job.id)}')">Estimate from market</button>
                 </span>
             </div>`;
     }
@@ -259,11 +338,11 @@ function renderSalarySection(job) {
             <div class="estimated-salary-block">
                 <h4>Estimated Salary <span class="badge-estimate" title="Real data from ${escapeHtml(sourceLabel)} — never confused with disclosed compensation. The local AI only canonicalizes the role; salary numbers come from the external source.">AI · ${escapeHtml(sourceLabel)}</span></h4>
                 <div class="estimated-salary-value">${formatSalaryRange(job.estimated_salary_min, job.estimated_salary_max, job.estimated_salary_period || 'annual')} · p25–p75</div>
-                <div class="estimated-salary-meta">${escapeHtml(sourceLabel)}${conf}${sample} · <a href="javascript:void(0)" onclick="reestimateSalary('${job.id}')">re-estimate</a></div>
+                <div class="estimated-salary-meta">${escapeHtml(sourceLabel)}${conf}${sample} · <a href="javascript:void(0)" onclick="reestimateSalary('${safeId(job.id)}')">re-estimate</a></div>
             </div>
         </div>` : `
         <div class="detail-section">
-            <button class="btn btn-ghost btn-xs" onclick="reestimateSalary('${job.id}')">Estimate market salary</button>
+            <button class="btn btn-ghost btn-xs" onclick="reestimateSalary('${safeId(job.id)}')">Estimate market salary</button>
         </div>`;
 
     return realBlock + estBlock;

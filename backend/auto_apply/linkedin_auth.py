@@ -15,7 +15,6 @@ can't open the profile (validity checks, Browser-Use).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from ..paths import project_root
 
 logger = logging.getLogger(__name__)

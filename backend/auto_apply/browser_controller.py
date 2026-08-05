@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import time
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 

@@ -28,7 +28,7 @@ attrs==26.1.0
 beautifulsoup4==4.15.0
 certifi==2026.6.17
 charset-normalizer==3.4.9
-click==8.3.1
+click==8.3.3
 distro==1.9.0
 fastapi==0.139.0
 feedparser==6.0.12
@@ -42,14 +42,14 @@ jiter==0.16.0
 lxml==6.1.1
 multidict==6.7.1
 openai==2.16.0
-pillow==12.2.0
+pillow==12.3.0
 playwright==1.58.0
 playwright-stealth==2.0.3
 propcache==0.5.2
 pydantic==2.12.5
 pydantic_core==2.41.5
 pyee==13.0.1
-pypdf==6.10.2
+pypdf==6.14.2
 python-docx==1.2.0
 python-dotenv==1.2.2
 python-multipart==0.0.32

@@ -60,6 +60,62 @@ class TestDashboardAuthGate:
         assert resp.json()["status"] == "ok"
 
 
+class TestCsrfGate:
+    """SEC — a page the user is merely visiting must not drive state-changing
+    endpoints through the browser's ambient loopback trust (CSRF)."""
+
+    @pytest.fixture
+    def loopback(self, monkeypatch, client):
+        # Force the trusted-loopback path so we isolate the CSRF check from the
+        # token gate: without CSRF protection these POSTs would all succeed.
+        monkeypatch.setattr(_auth.state, "is_loopback_request", lambda request: True)
+        return client
+
+    def test_cross_site_post_is_blocked_even_on_loopback(self, loopback):
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Sec-Fetch-Site": "cross-site"})
+        assert resp.status_code == 403
+
+    def test_cross_origin_post_without_sec_fetch_is_blocked(self, loopback):
+        # Older browsers omit Sec-Fetch-Site but still send Origin on POST.
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Origin": "http://evil.example"})
+        assert resp.status_code == 403
+
+    def test_null_origin_is_blocked(self, loopback):
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Origin": "null"})
+        assert resp.status_code == 403
+
+    def test_same_origin_post_is_allowed(self, loopback):
+        # Browser same-origin request: Sec-Fetch-Site says so.
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Sec-Fetch-Site": "same-origin"})
+        assert resp.status_code != 403
+
+    def test_same_origin_via_matching_origin_header_is_allowed(self, loopback):
+        # Origin host:port matches the Host we were dialled on -> same-site.
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Origin": "http://testserver",
+                                      "Host": "testserver"})
+        assert resp.status_code != 403
+
+    def test_extension_origin_is_allowed(self, loopback):
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Origin": "chrome-extension://abcdef"})
+        assert resp.status_code != 403
+
+    def test_non_browser_caller_without_origin_is_allowed(self, loopback):
+        # curl / the desktop sidecar / the iOS app send no Origin/Sec-Fetch-Site.
+        resp = loopback.post("/api/jobs/delete-tracked")
+        assert resp.status_code != 403
+
+    def test_cross_site_get_is_not_blocked_by_the_csrf_gate(self, loopback):
+        # Reads are safe; the CSRF gate only guards state-changing methods.
+        resp = loopback.get("/api/config", headers={"Sec-Fetch-Site": "cross-site"})
+        assert resp.status_code == 200
+
+
 class TestCookieExchange:
     """A browser off-machine (e.g. every Docker user) must be able to log in."""
 

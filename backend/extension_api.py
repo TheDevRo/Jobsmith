@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException

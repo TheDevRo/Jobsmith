@@ -809,3 +809,135 @@ def test_append_log_flushes_full_lines_before_returning(tmp_path):
     # Appending again extends the file rather than truncating it.
     engine._append_log(folder, [dict(records[0], id="3")])
     assert [json.loads(l)["id"] for l in log.read_text().splitlines()] == ["1", "2", "3"]
+
+
+# ---------------------------------------------------------------------------
+# Recently Deleted (recycle bin) + delete-all-tracked: the hard-delete tier.
+# Soft delete keeps the row (tracking survives, posting can't come back);
+# these are the only local paths that erase tracking, and each must emit real
+# `job` tombstones so peers hard-delete too.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_restore_returns_job_to_inbox(tmp_path, monkeypatch):
+    """Restore from Recently Deleted flips status back to 'discovered' — and
+    only works on jobs that are actually in the bin."""
+    path_a = tmp_path / "a.db"
+    await _init_db(path_a, monkeypatch)
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+
+    await dbmod.upsert_job({"source": "greenhouse", "external_id": "r1", "title": "Dev",
+                            "company": "Acme", "url": "https://x/r1", "description": "d"})
+    jid = _rows(path_a, "SELECT id FROM jobs WHERE external_id='r1'")[0]["id"]
+
+    assert await dbmod.restore_job(jid) is False  # not deleted yet
+    await dbmod.delete_jobs([jid])
+    listing = await dbmod.get_jobs()
+    assert all(j["id"] != jid for j in listing["jobs"])
+
+    # It shows in the Recently Deleted listing, and restore brings it back.
+    binned = await dbmod.get_jobs(status="deleted")
+    assert any(j["id"] == jid for j in binned["jobs"])
+    assert await dbmod.restore_job(jid) is True
+    assert _rows(path_a, "SELECT status FROM jobs WHERE id=?", (jid,))[0]["status"] == "discovered"
+    listing = await dbmod.get_jobs()
+    assert any(j["id"] == jid for j in listing["jobs"])
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_emits_job_tombstone_and_frees_rediscovery(tmp_path, monkeypatch):
+    """Emptying the recycle bin hard-deletes the rows: the next export diff
+    emits `job` tombstones, the peer hard-deletes its copy (applications too),
+    and a re-fetch of the same (source, external_id) inserts it fresh."""
+    path_a = tmp_path / "a.db"
+    path_b = tmp_path / "b.db"
+    folder = tmp_path / "sync"
+    clock = Clock()
+
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    await _init_db(path_b, monkeypatch)
+
+    a = SyncEngine(path_a, "A1B2", now_fn=clock)
+    b = SyncEngine(path_b, "C3D4", now_fn=clock)
+    await a.export_changes(folder)
+    await b.import_changes(folder)
+    assert _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'")
+
+    # Soft-delete, then empty the bin on A.
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.delete_jobs(["job-a"])
+    assert await dbmod.purge_deleted_jobs() == 1
+    assert not _rows(path_a, "SELECT id FROM jobs WHERE id='job-a'")
+    assert not _rows(path_a, "SELECT id FROM applications WHERE job_id='job-a'")
+
+    # The vanished rows export as tombstones and hard-delete on B.
+    exp = await a.export_changes(folder)
+    assert exp.tombstones >= 1
+    await b.import_changes(folder)
+    assert not _rows(path_b, "SELECT id FROM jobs WHERE external_id='111'")
+    assert not _rows(path_b, "SELECT id FROM applications WHERE id='app-1'")
+
+    # Discoverable again: the same posting inserts fresh on A.
+    assert await dbmod.upsert_job(
+        {"source": "greenhouse", "external_id": "111", "title": "Engineer",
+         "company": "Acme", "url": "https://x/111", "description": "Build things"}
+    ) is not None
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='111'")[0]["status"] == "discovered"
+
+
+@pytest.mark.asyncio
+async def test_purge_selected_leaves_other_binned_jobs(tmp_path, monkeypatch):
+    """Selective erase (case-by-case bulk): only the chosen ids leave the bin;
+    the rest keep resisting re-discovery. Live jobs are never purged."""
+    path_a = tmp_path / "a.db"
+    await _init_db(path_a, monkeypatch)
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+
+    ids = {}
+    for ext in ("p1", "p2", "p3"):
+        await dbmod.upsert_job({"source": "greenhouse", "external_id": ext, "title": ext,
+                                "company": "Acme", "url": f"https://x/{ext}", "description": "d"})
+        ids[ext] = _rows(path_a, "SELECT id FROM jobs WHERE external_id=?", (ext,))[0]["id"]
+    await dbmod.delete_jobs([ids["p1"], ids["p2"]])  # p3 stays live
+
+    # Asking to purge a deleted job AND a live one only removes the deleted one.
+    assert await dbmod.purge_deleted_jobs([ids["p1"], ids["p3"]]) == 1
+    assert not _rows(path_a, "SELECT id FROM jobs WHERE external_id='p1'")
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='p2'")[0]["status"] == "deleted"
+    assert _rows(path_a, "SELECT status FROM jobs WHERE external_id='p3'")[0]["status"] == "discovered"
+    assert await dbmod.purge_deleted_jobs([]) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_all_tracked_postings_keeps_answers(tmp_path, monkeypatch):
+    """The full wipe clears jobs/applications/events/activity but keeps the
+    answer bank (qa_cache syncs as `answer` — wiping it would tombstone saved
+    answers on every peer). Every posting becomes re-discoverable."""
+    path_a = tmp_path / "a.db"
+    folder = tmp_path / "sync"
+    await _init_db(path_a, monkeypatch)
+    _seed_device_a(path_a)
+    monkeypatch.setattr(dbmod, "DB_PATH", path_a)
+    await dbmod.log_activity("test", "seed a log row")
+
+    a = SyncEngine(path_a, "A1B2", now_fn=Clock())
+    await a.export_changes(folder)
+
+    assert await dbmod.delete_all_tracked_postings() == 1
+    for table in ("jobs", "applications", "application_events", "activity_log"):
+        assert not _rows(path_a, f"SELECT * FROM {table}"), table
+    assert _rows(path_a, "SELECT * FROM qa_cache")  # answers survive
+
+    # The wipe reaches peers as tombstones — but never for the answer entity.
+    exp = await a.export_changes(folder)
+    assert exp.tombstones >= 2  # job-a + app-1 at minimum
+    lines = [json.loads(l) for l in
+             (folder / "changes" / "A1B2.jsonl").read_text().splitlines()]
+    assert not any(r["entity"] == "answer" and r.get("deleted") for r in lines)
+
+    # And the posting is discoverable again.
+    assert await dbmod.upsert_job(
+        {"source": "greenhouse", "external_id": "111", "title": "Engineer",
+         "company": "Acme", "url": "https://x/111", "description": "Build things"}
+    ) is not None

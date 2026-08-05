@@ -7,7 +7,6 @@ one apply may run at a time; a duplicate POST must be rejected with 409 rather
 than spawning a second task that stomps the live one.
 """
 
-import asyncio
 
 import pytest
 from fastapi import FastAPI

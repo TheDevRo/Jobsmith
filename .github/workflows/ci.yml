@@ -13,6 +13,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Correctness-only rule set — see ruff.toml. This gate exists to catch
+      # undefined names, unused symbols, loop-variable capture, and async
+      # busy-waits before tests run; it deliberately does no formatting.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check --output-format=github
+
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
@@ -26,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio pytest-cov
       - name: Install optional extras
         # browser-use is feature-flagged out of requirements.txt and the Docker
         # image, but tests/auto_apply/test_browser_use_agent.py patches its Agent
@@ -42,7 +56,28 @@ jobs:
         # tests/ only: the repo root contains standalone scripts (e.g.
         # scripts/test_indeed_session.py) that sys.exit() at import time and
         # would break collection.
-        run: pytest tests/ -q -m "not integration"
+        #
+        # Coverage is report-only (no threshold gate): the numbers guide where
+        # to add tests next, they don't block merges. The summary lands in the
+        # job's step output; the full line-by-line report is in the artifact.
+        run: >
+          pytest tests/ -q -m "not integration"
+          --cov=backend --cov-report=term --cov-report=xml
+      - name: Coverage summary
+        if: always()
+        run: |
+          pip install coverage
+          echo "## Backend coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          coverage report --skip-covered --sort=cover | tail -40 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage.xml
+          retention-days: 14
 
   web:
     name: Extension + frontend (node)
@@ -92,10 +127,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Cross-language sync convergence
+      - name: Cross-language convergence (sync + AI parsing)
+        # test_crosslang_ai.py additionally compiles the real ScoreResponseParser
+        # sources and requires the Swift parse chain to match the Python one on
+        # the shared fixtures — the guard against iOS/desktop scoring drift.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
           cp config.example.yaml config.yaml
-          pytest tests/test_sync_crosslang.py -q
+          pytest tests/test_sync_crosslang.py tests/test_crosslang_ai.py -q

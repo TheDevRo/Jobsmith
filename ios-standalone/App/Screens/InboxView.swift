@@ -134,7 +134,7 @@ struct InboxView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Clears every untriaged posting. Your Pipeline — shortlisted, applied, and beyond — is not affected. You can Undo right after.")
+                Text("Clears every untriaged posting into Recently Deleted — they won't come back in future searches. Your Pipeline — shortlisted, applied, and beyond — is not affected. You can Undo right after.")
             }
             .confirmationDialog("\(unscoredCount) unscored job\(unscoredCount == 1 ? "" : "s")",
                                 isPresented: $showScoreAllConfirm, titleVisibility: .visible) {

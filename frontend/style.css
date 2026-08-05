@@ -1274,6 +1274,22 @@ body.layout-deck main:has(> #review.tab-content.active) {
 .pill-discovered { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
 .pill-shortlisted { background: rgba(240, 134, 58, 0.2); color: var(--accent-ember); }
 .pill-passed { background: rgba(107, 114, 128, 0.16); color: var(--text-muted); }
+.pill-deleted { background: rgba(231, 76, 60, 0.14); color: var(--text-muted); }
+
+/* Recycle-bin banner (Recently Deleted filter active) */
+.recycle-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-red);
+    border-radius: 6px;
+    background: var(--bg-card);
+}
+.recycle-banner-text { font-size: 12px; color: var(--text-secondary); }
 
 /* Inbox scout action buttons (Shortlist / Pass) */
 .scout-actions { display: inline-flex; gap: 6px; }

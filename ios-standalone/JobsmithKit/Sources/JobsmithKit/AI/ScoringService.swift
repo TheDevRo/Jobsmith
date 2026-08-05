@@ -53,8 +53,6 @@ public enum ScoringError: Error, LocalizedError {
 /// Python original it never invents a `0` — an unreachable engine or an
 /// unsalvageable response throws `ScoringError`.
 public enum ScoringService {
-    static let titleAlignments: Set<String> = ["strong", "partial", "weak"]
-
     public static func score(job: Job, profile: Profile, config: AppConfig,
                              engine: AIEngine) async throws -> FitResult {
         let prompt = PromptRegistry.render("score_job_fit", [
@@ -104,7 +102,7 @@ public enum ScoringService {
                    let score = LenientJSON.doubleValue(data["score"]) {
                     return FitResult(score: score,
                                      reasoning: data["reasoning"] as? String ?? "",
-                                     matchReportJSON: sanitizedMatchReportJSON(data))
+                                     matchReportJSON: ScoreResponseParser.sanitizedMatchReportJSON(data))
                 }
             } catch let retryError where TransientNetwork.isTransient(retryError) {
                 throw ScoringError.interrupted(String(describing: retryError))
@@ -115,75 +113,25 @@ public enum ScoringService {
             throw ScoringError.engineUnavailable(String(describing: error))
         }
 
-        // Try parsing as JSON first
-        if let data = LenientJSON.decodeObject(text),
-           let score = LenientJSON.doubleValue(data["score"]) {
-            return FitResult(score: score,
-                             reasoning: data["reasoning"] as? String ?? "",
-                             matchReportJSON: sanitizedMatchReportJSON(data))
-        }
-        // Salvage attempt — models often wrap JSON in prose or code fences
-        if let groups = Rx.first("\\{.*\\}", in: text, options: [.dotMatchesLineSeparators]),
-           let raw = groups[0],
-           let data = LenientJSON.decodeObject(raw),
-           let score = LenientJSON.doubleValue(data["score"]) {
-            return FitResult(score: score,
-                             reasoning: data["reasoning"] as? String ?? "",
-                             matchReportJSON: sanitizedMatchReportJSON(data))
-        }
-        // Regex fallback 1 — look for a number after "score"
-        if let groups = Rx.first("\"score\"\\s*:\\s*(\\d+)", in: text),
-           let digits = groups[1], let score = Double(digits) {
-            let reasoning = Rx.first("\"reasoning\"\\s*:\\s*\"([^\"]+)\"", in: text)?[1] ?? text
-            return FitResult(score: score, reasoning: reasoning)
-        }
-        // Regex fallback 2 — scan for any integer 0-100 in the text
-        if let score = LenientJSON.firstNumber(in: text) {
-            return FitResult(score: score,
-                             reasoning: "(Score parsed from raw response) \(String(text.prefix(300)))")
+        // Full fallback chain lives in ScoreResponseParser — shared with the
+        // desktop via the cross-language conformance fixtures. Do not inline
+        // parsing steps here; add them to the parser (and to ai_engine.py).
+        if let parsed = ScoreResponseParser.parse(text) {
+            return FitResult(score: parsed.score,
+                             reasoning: parsed.reasoning,
+                             matchReportJSON: parsed.matchReportJSON)
         }
         throw ScoringError.unparseableResponse(String(text.prefix(200)))
     }
 
-    /// Coerce the LLM's structured match output into a clean report; nil when
-    /// nothing usable survives (callers treat that as score/reasoning only).
+    /// Kept as thin aliases — the implementations moved to ScoreResponseParser
+    /// so the cross-language host tool can compile them without this file's
+    /// Job/Profile/AIEngine dependencies.
     static func sanitizeMatchReport(_ data: [String: Any]) -> [String: Any]? {
-        func strList(_ key: String, _ cap: Int) -> [String] {
-            guard let raw = data[key] as? [Any] else { return [] }
-            var out: [String] = []
-            for item in raw {
-                if let s = item as? String {
-                    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty { out.append(String(trimmed.prefix(80))) }
-                }
-                if out.count >= cap { break }
-            }
-            return out
-        }
-
-        var report: [String: Any] = [
-            "matched_skills": strList("matched_skills", 12),
-            "missing_skills": strList("missing_skills", 12),
-            "matched_soft_skills": strList("matched_soft_skills", 8),
-            "missing_soft_skills": strList("missing_soft_skills", 8),
-            "keywords": strList("keywords", 15),
-        ]
-        if let alignment = data["title_alignment"] as? String, titleAlignments.contains(alignment) {
-            report["title_alignment"] = alignment
-        } else {
-            report["title_alignment"] = NSNull()
-        }
-
-        let usable = ["matched_skills", "missing_skills", "keywords"]
-            .contains { !(report[$0] as? [String] ?? []).isEmpty }
-        return usable ? report : nil
+        ScoreResponseParser.sanitizeMatchReport(data)
     }
 
     static func sanitizedMatchReportJSON(_ data: [String: Any]) -> String? {
-        guard let report = sanitizeMatchReport(data),
-              let json = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else {
-            return nil
-        }
-        return String(data: json, encoding: .utf8)
+        ScoreResponseParser.sanitizedMatchReportJSON(data)
     }
 }

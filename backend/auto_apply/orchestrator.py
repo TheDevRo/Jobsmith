@@ -318,6 +318,16 @@ async def run_apply(
             except asyncio.CancelledError:
                 raise  # let force_stop() propagate normally
             except Exception as _exc:
+                # force_stop() interrupts an in-flight adapter by closing the
+                # browser out from under it, which surfaces here as a Playwright
+                # TargetClosed/connection error — NOT as CancelledError. Without
+                # this check a user-initiated Stop is recorded as a failed apply
+                # (wrong) and then falls through to the assist handoff (worse:
+                # it tries to inject a sidebar into the browser the user just
+                # asked us to close).
+                if _force_stop_event.is_set():
+                    logger.info("Orchestrator: adapter interrupted by force stop")
+                    return _cancelled_result(job_req, "stopped")
                 _adapter_exc = _exc
                 logger.exception("Orchestrator: adapter error: %s", _exc)
                 result = ApplyResult(
@@ -355,7 +365,7 @@ async def run_apply(
             # When auto-apply fails, inject the sidebar into the existing browser
             # window and wait for the user to close it (manual takeover mode).
             # Skipped in tests to avoid hanging on browser close.
-            if not result.success and not _IS_TEST:
+            if not result.success and not _IS_TEST and not _force_stop_event.is_set():
                 try:
                     from .. import applicant_assist as _aa
                     backend_url = f"http://localhost:{config.get('server', {}).get('port', 8888)}"
@@ -386,6 +396,9 @@ async def run_apply(
                     if browser is not None:
                         while True:
                             try:
+                                if _force_stop_event.is_set():
+                                    log.info("assist_handoff", message="Force stop — ending manual takeover wait")
+                                    break
                                 if not browser.is_connected():
                                     break
                                 elapsed = time.time() - _assist_start
@@ -405,6 +418,9 @@ async def run_apply(
                     elif ctrl._ctx is not None:
                         while True:
                             try:
+                                if _force_stop_event.is_set():
+                                    log.info("assist_handoff", message="Force stop — ending manual takeover wait")
+                                    break
                                 if not ctrl._ctx.pages:
                                     break
                                 elapsed = time.time() - _assist_start

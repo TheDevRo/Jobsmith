@@ -655,6 +655,20 @@ async function saveCustomAnswerEntry(key, label, keywords) {
     }
 }
 
+// ---- Data management ----
+async function deleteAllTrackedPostings() {
+    if (!(await appConfirm('Delete all tracked postings? Removes every job in your Inbox, Pipeline, and Recently Deleted, plus pending applications. Your profile, settings, and saved answers are kept. This can’t be undone.'))) return;
+    if (!(await appConfirm('Are you sure? Every posting becomes discoverable again in future searches, and the deletion carries to your synced devices.'))) return;
+    try {
+        const data = await api('/api/jobs/delete-tracked', { method: 'POST' });
+        toast(data.message, 'success');
+        if (typeof clearDetailPane === 'function') clearDetailPane();
+        loadDashboard();
+    } catch (e) {
+        toast('Failed to delete tracked postings', 'error');
+    }
+}
+
 async function deleteCustomAnswer(key) {
     if (!(await appConfirm(`Delete custom answer "${key}"?`))) return;
     try {

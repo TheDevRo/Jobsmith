@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from ...paths import project_root as _project_root
 
 logger = logging.getLogger(__name__)

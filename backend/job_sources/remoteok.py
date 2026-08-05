@@ -6,7 +6,6 @@ headers and handles their common anti-bot responses (403, HTML instead of JSON).
 """
 
 import logging
-import re
 
 import aiohttp
 

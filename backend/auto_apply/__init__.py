@@ -38,10 +38,10 @@ from .orchestrator import (
     is_paused,
     force_stop,                              # async coroutine — closes browser
     _force_stop_event   as _async_force_stop, # asyncio.Event — checked by wait_if_paused()
-    get_apply_progress,
+    get_apply_progress,                      # noqa: F401 — re-exported facade API
     hydrate_rate_limits,                     # rebuild daily caps from DB at startup
 )
-from . import orchestrator
+from . import orchestrator  # noqa: F401 — re-exported for tests/routers to monkeypatch
 
 # ---------------------------------------------------------------------------
 # LinkedIn session helpers

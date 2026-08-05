@@ -1,0 +1,29 @@
+# Ruff lint config — checked in CI (see .github/workflows/ci.yml "lint" job).
+# Scope: correctness rules only. No formatting, no style churn — the goal is
+# catching real bug classes (undefined names, unused/shadowed symbols, missing
+# awaits show up as F841/B023-style findings, loop-variable capture, etc.),
+# not reflowing code.
+
+target-version = "py311"
+
+# Lint the server, tests, and build helpers. The frontend is JS; ios-standalone
+# is Swift; node_modules/.venv are excluded by default.
+include = ["backend/**/*.py", "tests/**/*.py", "scripts/**/*.py", "packaging/**/*.py"]
+
+[lint]
+select = [
+    "E9",     # syntax errors / io errors — always real
+    "F",      # pyflakes: undefined names, unused imports/variables, redefinitions
+    "B",      # bugbear: mutable defaults, loop-variable capture, useless raises
+    "ASYNC1", # async: busy-waits and sync calls that block the event loop
+]
+ignore = [
+    "B904",     # raise-without-from inside except — 20+ existing sites; enable later
+    "B008",     # function-call-in-default-argument — FastAPI's File()/Form()/Depends() idiom
+    "ASYNC109", # timeout parameter pattern — not in use, but avoid surprises
+]
+
+[lint.per-file-ignores]
+# Tests intentionally assert on blanket Exception in a couple of places (the
+# code under test re-raises heterogeneous errors); fine in test code.
+"tests/**" = ["B017"]

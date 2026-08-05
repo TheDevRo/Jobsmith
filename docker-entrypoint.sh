@@ -75,18 +75,46 @@ if [ "$BROWSER_HEADLESS" = "false" ]; then
 
     Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp &
 
-    # Give the display a moment before clients attach.
-    sleep 1
-    fluxbox >/dev/null 2>&1 &
-
-    if [ -n "$VNC_PASSWORD" ]; then
-        x11vnc -display :99 -forever -shared -bg -passwd "$VNC_PASSWORD" -o /tmp/x11vnc.log
-    else
-        # Loopback-only publish: no password, matching the desktop-app UX.
-        x11vnc -display :99 -forever -shared -bg -nopw -o /tmp/x11vnc.log
+    # Wait until the display actually accepts clients instead of a blind
+    # sleep — on a slow container fluxbox/x11vnc would otherwise race Xvfb
+    # and die with "cannot open display" while the entrypoint sails on.
+    XVFB_READY=0
+    for _ in $(seq 1 50); do
+        if [ -S /tmp/.X11-unix/X99 ]; then XVFB_READY=1; break; fi
+        sleep 0.2
+    done
+    if [ "$XVFB_READY" = "0" ]; then
+        echo "[entrypoint] WARNING: Xvfb did not create display :99 within 10s —"
+        echo "[entrypoint] headed browsing and noVNC will not work this run."
     fi
 
-    websockify --web /usr/share/novnc 6080 localhost:5900 >/tmp/websockify.log 2>&1 &
+    fluxbox >/dev/null 2>&1 &
+
+    # x11vnc and websockify are supervised: each runs in a restart loop so a
+    # crash (x11vnc is known to fall over on long-lived containers) means a
+    # 2-second gap in http://localhost:6080/vnc.html, not a permanently blank
+    # screen with nothing in `docker logs`. Restarts are logged to stdout;
+    # the processes' own output goes to /tmp/*.log inside the container.
+    if [ -n "$VNC_PASSWORD" ]; then
+        ( set +e; while :; do
+            x11vnc -display :99 -forever -shared -nobg -passwd "$VNC_PASSWORD" >>/tmp/x11vnc.log 2>&1
+            echo "[entrypoint] x11vnc exited (status $?) — restarting in 2s (log: /tmp/x11vnc.log)"
+            sleep 2
+        done ) &
+    else
+        # Loopback-only publish: no password, matching the desktop-app UX.
+        ( set +e; while :; do
+            x11vnc -display :99 -forever -shared -nobg -nopw >>/tmp/x11vnc.log 2>&1
+            echo "[entrypoint] x11vnc exited (status $?) — restarting in 2s (log: /tmp/x11vnc.log)"
+            sleep 2
+        done ) &
+    fi
+
+    ( set +e; while :; do
+        websockify --web /usr/share/novnc 6080 localhost:5900 >>/tmp/websockify.log 2>&1
+        echo "[entrypoint] websockify exited (status $?) — restarting in 2s (log: /tmp/websockify.log)"
+        sleep 2
+    done ) &
 fi
 
 # ── Server launch ─────────────────────────────────────────────────────────────

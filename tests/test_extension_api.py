@@ -3,7 +3,6 @@ Tests for backend/extension_api.py — token auth, profile endpoint, scan endpoi
 All offline: LLM and DB are mocked.
 """
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest

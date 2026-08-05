@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=48">
+    <link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -325,6 +325,7 @@
                                 <option value="applied">Applied</option>
                                 <option value="manual">Manual Apply</option>
                                 <option value="rejected">Rejected</option>
+                                <option value="deleted">Recently Deleted</option>
                             </select>
                         </div>
                         <div class="filter-row">
@@ -364,11 +365,21 @@
                     <div class="toolbar-right" id="select-actions" style="display:none">
                         <label class="select-all-toggle"><input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs(this.checked)"> All on Page</label>
                         <span id="selected-count" class="selected-count">0 selected</span>
-                        <button class="btn btn-primary btn-sm" onclick="tailorSelectedJobs()">Tailor Selected</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteSelectedJobs()">Delete Selected</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteFilteredJobs()">Delete Matching</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteAllJobs()">Delete All</button>
+                        <button class="btn btn-primary btn-sm" id="btn-tailor-selected" onclick="tailorSelectedJobs()">Tailor Selected</button>
+                        <button class="btn btn-danger btn-sm" id="btn-delete-selected" onclick="deleteSelectedJobs()">Delete Selected</button>
+                        <button class="btn btn-danger btn-sm" id="btn-delete-matching" onclick="deleteFilteredJobs()">Delete Matching</button>
+                        <button class="btn btn-danger btn-sm" id="btn-delete-all" onclick="deleteAllJobs()">Delete All</button>
+                        <button class="btn btn-secondary btn-sm" id="btn-restore-selected" style="display:none" onclick="restoreSelectedJobs()">Restore Selected</button>
+                        <button class="btn btn-danger btn-sm" id="btn-erase-selected" style="display:none" onclick="eraseSelectedJobs()">Erase Selected Forever</button>
                     </div>
+                </div>
+
+                <!-- Recycle-bin banner: only visible when the Recently Deleted filter is active -->
+                <div id="recycle-banner" class="recycle-banner" style="display:none">
+                    <span class="recycle-banner-text">These postings are hidden and won't return in future searches.
+                        Erasing them here forgets them completely — they can be re-discovered by later
+                        searches, and they're erased on your synced devices too.</span>
+                    <button class="btn btn-danger btn-sm" onclick="emptyRecycleBin()">Empty Recycle Bin</button>
                 </div>
 
                 <div class="jobs-split-pane">
@@ -653,6 +664,14 @@
                                 <input type="text" id="cfg-recruitee" placeholder="e.g. vandebron, tylko">
                                 <span class="hint">Subdomains from {slug}.recruitee.com</span>
                             </div>
+                        </div>
+                        <div class="section-card">
+                            <h2>Data Management</h2>
+                            <p class="section-hint">Start the job list over: clears your Inbox, Pipeline, and Recently
+                                Deleted. Every posting — including ones you deleted — becomes discoverable again in
+                                future searches, and the deletion carries to your synced devices. Your profile,
+                                settings, and answer bank are kept.</p>
+                            <button class="btn btn-danger btn-sm" onclick="deleteAllTrackedPostings()">Delete all tracked postings</button>
                         </div>
                     </div>
                 </div>
@@ -1360,12 +1379,12 @@
 
     <script src="js/core.js?v=45"></script>
     <script src="js/dashboard.js?v=39"></script>
-    <script src="js/jobs.js?v=45"></script>
+    <script src="js/jobs.js?v=46"></script>
     <script src="js/review.js?v=40"></script>
-    <script src="js/settings.js?v=44"></script>
+    <script src="js/settings.js?v=45"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
-    <script src="js/jobs-actions.js?v=38"></script>
+    <script src="js/jobs-actions.js?v=39"></script>
     <script src="js/deck.js?v=7"></script>
     <script src="js/onboarding.js?v=38"></script>
 </body>

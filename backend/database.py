@@ -10,7 +10,6 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
 import aiosqlite
@@ -477,6 +476,12 @@ async def get_jobs(
             elif status == "discovered":
                 # Only truly new jobs — no application exists
                 conditions.append("j.status = 'discovered' AND a.id IS NULL")
+            elif status == "deleted":
+                # Recently Deleted listing. Match on the job's own status, not
+                # COALESCE(a.status, j.status): a deleted job that still has an
+                # application row would otherwise surface its app status and
+                # vanish from the recycle bin.
+                conditions.append("j.status = 'deleted'")
             else:
                 conditions.append("COALESCE(a.status, j.status) = ?")
                 params.append(status)
@@ -710,6 +715,86 @@ async def delete_jobs_filtered(
         cursor = await db.execute(f"UPDATE jobs SET status = 'deleted' {where}", params)
         await db.commit()
         return cursor.rowcount
+    finally:
+        await db.close()
+
+
+async def restore_job(job_id: str) -> bool:
+    """Restore a soft-deleted job back to the Inbox (status='discovered').
+    Mirrors iOS restore-from-Recently-Deleted. Returns True if the job was
+    deleted and is now restored."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE jobs SET status = 'discovered' WHERE id = ? AND status = 'deleted'",
+            (job_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def purge_deleted_jobs(job_ids: list[str] | None = None) -> int:
+    """Empty the recycle bin: hard-delete soft-deleted jobs (all of them, or
+    just `job_ids` if given) along with their application rows and events.
+
+    This is the one local path that erases a posting's tracking: once the row
+    is gone, a re-fetch of the same (source, external_id) inserts it fresh —
+    the posting is discoverable again. The sync exporter sees the vanished
+    rows on its next snapshot diff and emits `job` tombstones, so peers
+    hard-delete them too. Mirrors iOS JobStore.purgeDeleted.
+
+    Returns the number of jobs removed.
+    """
+    db = await _get_db()
+    try:
+        scope = "SELECT id FROM jobs WHERE status = 'deleted'"
+        params: list = []
+        if job_ids is not None:
+            if not job_ids:
+                return 0
+            placeholders = ",".join("?" for _ in job_ids)
+            scope += f" AND id IN ({placeholders})"
+            params = list(job_ids)
+        cursor = await db.execute(f"SELECT COUNT(*) AS n FROM ({scope})", params)
+        count = (await cursor.fetchone())["n"]
+        # application_events has no ON DELETE CASCADE — clear children first.
+        await db.execute(
+            f"""DELETE FROM application_events WHERE application_id IN (
+                    SELECT id FROM applications WHERE job_id IN ({scope}))""",
+            params,
+        )
+        await db.execute(
+            f"DELETE FROM applications WHERE job_id IN ({scope})", params
+        )
+        await db.execute(f"DELETE FROM jobs WHERE id IN ({scope})", params)
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+async def delete_all_tracked_postings() -> int:
+    """Clear every tracked posting: hard-delete all jobs, applications, events,
+    the activity log, and the salary-lookup cache — but keep the profile,
+    settings, answers (qa_cache syncs as the `answer` entity; wiping it would
+    tombstone saved answers on every peer), work requests, and ATS accounts.
+    "Start the job list over" without a full reset; every posting becomes
+    re-discoverable, and the sync exporter emits tombstones for all of them on
+    its next diff. Mirrors iOS AppModel.deleteAllTrackedPostings.
+
+    Returns the number of jobs removed.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT COUNT(*) AS n FROM jobs")
+        count = (await cursor.fetchone())["n"]
+        for table in ("application_events", "applications", "jobs",
+                      "activity_log", "salary_lookup_cache"):
+            await db.execute(f"DELETE FROM {table}")
+        await db.commit()
+        return count
     finally:
         await db.close()
 

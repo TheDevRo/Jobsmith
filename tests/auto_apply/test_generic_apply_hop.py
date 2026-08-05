@@ -300,7 +300,7 @@ class TestMultiHopApplyLoop:
             "backend.auto_apply.adapters.generic._detect_generic_redirect",
             new=AsyncMock(return_value=""),
         ):
-            result = await GenericAdapter().apply(
+            await GenericAdapter().apply(
                 ctrl, _DUMMY_PROFILE, _DUMMY_JOB, _make_llm([]), ApplyMode.AUTOFILL, _make_log()
             )
 

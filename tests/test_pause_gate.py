@@ -73,7 +73,6 @@ async def test_returns_immediately_when_not_paused():
 async def test_blocks_then_unblocks_on_resume():
     """wait_if_paused() should block while paused, then return when resumed."""
     _orc.set_paused(True)
-    resumed_at: list[float] = []
 
     async def _resume_after(delay: float) -> None:
         await asyncio.sleep(delay)

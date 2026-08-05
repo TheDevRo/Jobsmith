@@ -439,6 +439,16 @@ Try a different browser type in Settings (Firefox/Chromium/WebKit). If issues pe
 **Database reset**
 Delete `data/jobsmith.db` and restart the server — tables are recreated automatically.
 
+**Restore the database from a backup**
+The server snapshots the database once per day at startup into `data/backups/` (last 7 days kept). To roll back — e.g. after a bad upgrade or an accidental bulk delete — stop the server, then:
+
+```bash
+cp data/backups/jobsmith-YYYYMMDD.db data/jobsmith.db
+rm -f data/jobsmith.db-wal data/jobsmith.db-shm
+```
+
+and start the server again. Schema migrations re-apply forward automatically.
+
 **Debugging a specific apply URL**
 Run `.venv/bin/python scripts/dev/debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
 

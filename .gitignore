@@ -73,3 +73,24 @@ AUTO_APPLY_RELIABILITY_REPORT.md
 GLM *.md
 backend/sync/REDESIGN.md
 .aider*
+
+# Test & tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Env file variants (.env.example stays tracked)
+.env.*
+!.env.example
+
+# Databases & logs — runtime artifacts, never source
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Scratch area used in place of deletion (files staged for manual removal)
+/_to_delete/

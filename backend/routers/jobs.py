@@ -216,6 +216,43 @@ async def delete_single_job(job_id: str):
     return {"deleted": 1, "message": "Job deleted"}
 
 
+@router.post("/api/jobs/{job_id}/restore")
+async def restore_job(job_id: str):
+    """Restore a soft-deleted job from Recently Deleted back to the Inbox."""
+    restored = await db.restore_job(job_id)
+    if not restored:
+        raise HTTPException(404, "Job not found in Recently Deleted")
+    await db.log_activity("restore", f"Restored job {job_id} from Recently Deleted")
+    return {"restored": 1, "message": "Job restored to Inbox"}
+
+
+class PurgeDeletedRequest(BaseModel):
+    job_ids: list[str] | None = None   # None = empty the whole recycle bin
+
+
+@router.post("/api/jobs/purge-deleted")
+async def purge_deleted_jobs(body: Optional[PurgeDeletedRequest] = None):
+    """Permanently erase soft-deleted jobs (the recycle bin). Erased postings
+    become discoverable again in future searches, and the deletion propagates
+    to synced devices as tombstones."""
+    job_ids = body.job_ids if body else None
+    count = await db.purge_deleted_jobs(job_ids)
+    await db.log_activity(
+        "delete", f"Erased {count} deleted posting{'s' if count != 1 else ''}"
+    )
+    return {"purged": count, "message": f"Erased {count} deleted postings"}
+
+
+@router.post("/api/jobs/delete-tracked")
+async def delete_tracked_postings():
+    """Delete every tracked posting: jobs, applications, activity, and fetch/AI
+    caches. Keeps profile, settings, and the answer bank. All postings become
+    re-discoverable in future searches."""
+    count = await db.delete_all_tracked_postings()
+    await db.log_activity("delete", f"Deleted all {count} tracked postings")
+    return {"deleted": count, "message": f"Deleted all {count} tracked postings"}
+
+
 class FetchJobsRequest(BaseModel):
     sources: list[str] | None = None  # None = all sources
 

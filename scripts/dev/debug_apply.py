@@ -169,7 +169,7 @@ async def run_debug(url: str, mode: str, headless: bool) -> None:
             )
 
         # ── Fill fields in autofill mode ───────────────────────────────────
-        print(f"\n[*] Filling fields in AUTOFILL mode (no submit) ...")
+        print("\n[*] Filling fields in AUTOFILL mode (no submit) ...")
         if chosen:
             result = await chosen.apply(ctrl, profile, job, llm, apply_mode, log)
         else:
@@ -190,7 +190,7 @@ async def run_debug(url: str, mode: str, headless: bool) -> None:
             msg   = entry.get("message", "")
             print(f"    [{level:8s}] {msg}")
 
-        print(f"\n[+] Debug run complete. Browser stays open for 10s ...")
+        print("\n[+] Debug run complete. Browser stays open for 10s ...")
         await asyncio.sleep(10)
 
 

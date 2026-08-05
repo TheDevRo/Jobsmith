@@ -655,6 +655,15 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// ATS form, not the hidden posting behind it).
     private(set) var activeWebView: WKWebView
 
+    /// Isolated JS world for our snapshot/fill/Workday-auth scripts. These run
+    /// on arbitrary (attacker-controllable) ATS pages and handle the user's full
+    /// profile — and, in the Workday path, a plaintext password. Running them in
+    /// `.page` would let the page's own scripts pre-hook `window.__jobsmith*` or
+    /// trap globals to capture that payload. A named world shares the DOM but has
+    /// its own JS globals, invisible to page script — the same isolation the
+    /// browser extension relies on (see extension/src/common/fill.js).
+    private static let scriptWorld = WKContentWorld.world(name: "jobsmith")
+
     /// Child web views spawned by `window.open`. Capped so a misbehaving opener
     /// can't spawn unbounded web views.
     private var childWebViews: [WKWebView] = []
@@ -1259,7 +1268,8 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
                 fields.append(f)
             }
         }
-        let result = try await activeWebView.evaluateJavaScript(ApplyScripts.snapshot)
+        let result = try await activeWebView.evaluateJavaScript(
+            ApplyScripts.snapshot, in: nil, contentWorld: Self.scriptWorld)
         let dict = result as? [String: Any] ?? [:]
         merge(dict["fields"] as? [[String: Any]] ?? [], frameIndex: 0)
         snapshotFrames = [nil]
@@ -1268,7 +1278,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             guard !seenFrameURLs.contains(entry.url) else { continue }
             // A stale frame (navigated away, removed) just throws — skip it.
             guard let raw = try? await activeWebView.evaluateJavaScript(
-                    ApplyScripts.snapshot, in: entry.frame, contentWorld: .page),
+                    ApplyScripts.snapshot, in: entry.frame, contentWorld: Self.scriptWorld),
                   let d = raw as? [String: Any],
                   let fs = d["fields"] as? [[String: Any]], !fs.isEmpty else { continue }
             seenFrameURLs.insert(entry.url)
@@ -1310,7 +1320,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
 
     private func fill(items: [[String: Any]], in frame: WKFrameInfo?) async throws -> [[String: Any]] {
         _ = try await activeWebView.evaluateJavaScript(
-            ApplyScripts.fill, in: frame, contentWorld: .page)
+            ApplyScripts.fill, in: frame, contentWorld: Self.scriptWorld)
         let out = try await activeWebView.callAsyncJavaScript(
             """
             for (const it of (items || [])) {
@@ -1325,7 +1335,7 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
             """,
             arguments: ["items": items],
             in: frame,
-            contentWorld: .page)
+            contentWorld: Self.scriptWorld)
         let dict = out as? [String: Any] ?? [:]
         return dict["results"] as? [[String: Any]] ?? []
     }
@@ -1333,11 +1343,12 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// Register workday_auth.js and read the on-page auth state
     /// ("create" | "signin" | "none") plus the tenant host.
     func workdayAuthState() async throws -> (state: String, tenantHost: String) {
-        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.workdayAuth)
+        _ = try await activeWebView.evaluateJavaScript(
+            ApplyScripts.workdayAuth, in: nil, contentWorld: Self.scriptWorld)
         let out = try await activeWebView.callAsyncJavaScript(
             "return window.__jobsmithWorkdayAuthState();",
             arguments: [:],
-            contentWorld: .page)
+            contentWorld: Self.scriptWorld)
         let dict = out as? [String: Any] ?? [:]
         return (dict["state"] as? String ?? "none",
                 (dict["tenantHost"] as? String ?? "").lowercased())
@@ -1347,11 +1358,12 @@ final class ApplyWebController: NSObject, ObservableObject, WKUIDelegate, WKNavi
     /// argument (never interpolated into the script string), the same way
     /// document bytes are passed to fill.js.
     func workdayAuth(email: String, password: String) async throws -> [String: Any] {
-        _ = try await activeWebView.evaluateJavaScript(ApplyScripts.workdayAuth)
+        _ = try await activeWebView.evaluateJavaScript(
+            ApplyScripts.workdayAuth, in: nil, contentWorld: Self.scriptWorld)
         let out = try await activeWebView.callAsyncJavaScript(
             "return await window.__jobsmithWorkdayAuth(email, password);",
             arguments: ["email": email, "password": password],
-            contentWorld: .page)
+            contentWorld: Self.scriptWorld)
         return out as? [String: Any] ?? [:]
     }
 }

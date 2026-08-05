@@ -16,7 +16,6 @@ import urllib.parse
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import aiohttp
 

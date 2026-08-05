@@ -34,11 +34,9 @@ Running
 from __future__ import annotations
 
 import sys
-import json
 import asyncio
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1013,7 +1011,6 @@ class TestModeEnforcement:
                         self._callback(MagicMock(), f"step {i} output", i)
                 return _make_agent_result()
 
-        agent_result = _make_agent_result()
         with (
             patch("backend.browser_use_agent._get_browser_use_llm", return_value=MagicMock()),
             patch("backend.browser_use_agent._get_browser_session", return_value=_make_mock_browser_session()),
@@ -1023,7 +1020,7 @@ class TestModeEnforcement:
             patch("backend.browser_use_agent.Agent", side_effect=PauseAwareAgentMock),
         ):
             try:
-                result = await asyncio.wait_for(
+                await asyncio.wait_for(
                     self.bua.run_browser_use_apply(
                         job=_SAMPLE_JOB,
                         application=_SAMPLE_APPLICATION,

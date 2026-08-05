@@ -427,6 +427,52 @@ def _sanitize_match_report(data: dict) -> Optional[dict]:
     return report
 
 
+def parse_score_response(
+    text: str,
+) -> Optional[tuple[float, str, Optional[dict], str]]:
+    """Parse an LLM scoring response into (score, reasoning, match_report).
+
+    Pure function — the full fallback chain, extracted so it can be conformance-
+    tested against the iOS Swift port (ScoreResponseParser.swift) with shared
+    fixtures in tests/test_crosslang_ai.py. If you change ANY step here, change
+    the Swift side identically and add a fixture capturing the new behaviour.
+
+    Chain: strict JSON → first {...} blob → "score": N regex → any 0-100 scan.
+    The 4th tuple element names which step succeeded ("json", "blob",
+    "score_regex", "number_scan") — diagnostics only, not part of the
+    cross-language contract. Returns None when nothing parseable is found.
+    """
+    text = text.strip()
+    # Try parsing as JSON first
+    try:
+        data = json.loads(text)
+        return (float(data["score"]), data.get("reasoning", ""),
+                _sanitize_match_report(data), "json")
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        pass
+    # Salvage attempt — models often wrap JSON in prose or code fences
+    obj_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if obj_match:
+        try:
+            data = json.loads(obj_match.group(0))
+            return (float(data["score"]), data.get("reasoning", ""),
+                    _sanitize_match_report(data), "blob")
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            pass
+    # Regex fallback 1 — look for a number after "score"
+    score_match = re.search(r'"score"\s*:\s*(\d+)', text)
+    if score_match:
+        reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', text)
+        reasoning = reasoning_match.group(1) if reasoning_match else text
+        return float(score_match.group(1)), reasoning, None, "score_regex"
+    # Regex fallback 2 — scan for any integer 0-100 in the text
+    any_number = re.search(r'\b([0-9]{1,2}|100)\b', text)
+    if any_number:
+        return (float(any_number.group(1)),
+                f"(Score parsed from raw response) {text[:300]}", None, "number_scan")
+    return None
+
+
 async def score_job_fit(
     job: dict, profile: dict, config: dict
 ) -> tuple[float, str, Optional[dict]]:
@@ -459,53 +505,21 @@ async def score_job_fit(
         text = response.choices[0].message.content.strip()
         logger.debug("Score response: %s", text)
 
-        # Try parsing as JSON first
-        try:
-            data = json.loads(text)
-            return (
-                float(data["score"]),
-                data.get("reasoning", ""),
-                _sanitize_match_report(data),
-            )
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            # Salvage attempt — models often wrap JSON in prose or code fences
-            obj_match = re.search(r"\{.*\}", text, re.DOTALL)
-            if obj_match:
-                try:
-                    data = json.loads(obj_match.group(0))
-                    return (
-                        float(data["score"]),
-                        data.get("reasoning", ""),
-                        _sanitize_match_report(data),
-                    )
-                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                    pass
-            # Regex fallback 1 — look for a number after "score"
-            score_match = re.search(r'"score"\s*:\s*(\d+)', text)
-            reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', text)
-            if score_match:
+        parsed = parse_score_response(text)
+        if parsed is not None:
+            score, reasoning, report, method = parsed
+            if method != "json":
                 logger.warning(
-                    "score_job_fit: JSON parse failed, used regex fallback. "
-                    "Response snippet: %s", text[:200]
+                    "score_job_fit: strict JSON parse failed, used %s fallback. "
+                    "Response snippet: %s", method, text[:200],
                 )
-                score = float(score_match.group(1))
-                reasoning = reasoning_match.group(1) if reasoning_match else text
-                return score, reasoning, None
-            # Regex fallback 2 — scan for any integer 0-100 in the text
-            any_number = re.search(r'\b([0-9]{1,2}|100)\b', text)
-            if any_number:
-                score = float(any_number.group(1))
-                logger.warning(
-                    "score_job_fit: JSON + regex both failed, used number-scan "
-                    "fallback (score=%s). Response snippet: %s", score, text[:200]
-                )
-                return score, f"(Score parsed from raw response) {text[:300]}", None
-            logger.error(
-                "score_job_fit: Could not parse score from AI response: %s", text[:200]
-            )
-            raise ScoringUnavailable(
-                f"Could not parse a score from the LLM response. Raw: {text[:200]}"
-            )
+            return score, reasoning, report
+        logger.error(
+            "score_job_fit: Could not parse score from AI response: %s", text[:200]
+        )
+        raise ScoringUnavailable(
+            f"Could not parse a score from the LLM response. Raw: {text[:200]}"
+        )
 
     except ScoringUnavailable:
         raise

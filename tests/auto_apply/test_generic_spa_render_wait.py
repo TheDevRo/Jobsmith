@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -159,7 +159,7 @@ class TestSpaRenderWait:
                 new_callable=AsyncMock, return_value=None,
             ):
                 log = _make_log()
-                result = await GenericAdapter().apply(
+                await GenericAdapter().apply(
                     ctrl, _DUMMY_PROFILE, _DUMMY_JOB, _make_llm(), ApplyMode.AUTOFILL, log
                 )
 
@@ -284,7 +284,7 @@ class TestSpaRenderWait:
                     side_effect=_next_btn_side_effect,
                 ):
                     log = _make_log()
-                    result = await GenericAdapter().apply(
+                    await GenericAdapter().apply(
                         ctrl, _DUMMY_PROFILE, _DUMMY_JOB,
                         _make_llm(), ApplyMode.AUTOFILL, log
                     )

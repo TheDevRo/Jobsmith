@@ -28,6 +28,7 @@ const _SOURCE_LABELS = {
 const _STATUS_FILTER_LABELS = {
     discovered: 'Discovered', tailoring: 'Tailoring', review: 'In Review',
     applied: 'Applied', manual: 'Manual Apply', rejected: 'Rejected',
+    deleted: 'Recently Deleted',
 };
 const _SORT_LABELS = {
     'date_discovered-desc': 'Newest ↓', 'date_discovered-asc': 'Oldest ↑',
@@ -152,6 +153,11 @@ async function loadJobs() {
     // Reflect the active filters as chips on every load (single source of truth).
     renderFilterChips();
 
+    // The Recently Deleted filter turns the list into the recycle bin: the
+    // banner explains erase semantics, and the bulk actions swap from
+    // soft-delete to restore/erase.
+    updateRecycleBinChrome(status === 'deleted');
+
     try {
         const data = await api(`/api/jobs${params}`);
         renderJobs(data.jobs, data.total);
@@ -159,6 +165,25 @@ async function loadJobs() {
         renderError('jobs-list', 'Failed to load jobs.', loadJobs);
         document.getElementById('jobs-pagination').innerHTML = '';
     }
+}
+
+function isRecycleBinView() {
+    return document.getElementById('filter-status').value === 'deleted';
+}
+
+function updateRecycleBinChrome(active) {
+    const banner = document.getElementById('recycle-banner');
+    if (banner) banner.style.display = active ? '' : 'none';
+    const show = (id, on) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = on ? '' : 'none';
+    };
+    show('btn-tailor-selected', !active);
+    show('btn-delete-selected', !active);
+    show('btn-delete-matching', !active);
+    show('btn-delete-all', !active);
+    show('btn-restore-selected', active);
+    show('btn-erase-selected', active);
 }
 
 function qualityBadge(job) {
@@ -197,7 +222,9 @@ function renderQualitySection(job) {
 function renderJobs(jobs, total) {
     const container = document.getElementById('jobs-list');
     if (jobs.length === 0) {
-        container.innerHTML = '<p class="placeholder">Nothing to scout right now. <a href="#dashboard" style="color:var(--accent)">Fetch new jobs</a> from Activity, or adjust your filters.</p>';
+        container.innerHTML = isRecycleBinView()
+            ? '<p class="placeholder">Recently Deleted is empty.</p>'
+            : '<p class="placeholder">Nothing to scout right now. <a href="#dashboard" style="color:var(--accent)">Fetch new jobs</a> from Activity, or adjust your filters.</p>';
         document.getElementById('jobs-pagination').innerHTML = '';
         clearDetailPane();
         return;
@@ -222,15 +249,17 @@ function renderJobs(jobs, total) {
     }
 
     container.innerHTML = jobs.map(job => {
-        const status = job.app_status || job.status;
-        const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
+        // A deleted job may still carry an application row; in the recycle bin
+        // its own 'deleted' status wins over the application's.
+        const status = job.status === 'deleted' ? 'deleted' : (job.app_status || job.status);
+        const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused', deleted: 'Deleted'}[status] || status;
         const isSelected = job.id === selectedJobId;
 
         return `
-            <div class="job-card ${isSelected ? 'selected' : ''}" onclick="selectJob('${job.id}')" onkeydown="jobCardKeydown(event, '${job.id}')" data-job-id="${job.id}" role="button" tabindex="0" aria-selected="${isSelected ? 'true' : 'false'}" aria-label="${escapeHtml(`${job.title || 'Untitled'} at ${job.company || 'Unknown'}`)}">
+            <div class="job-card ${isSelected ? 'selected' : ''}" onclick="selectJob('${safeId(job.id)}')" onkeydown="jobCardKeydown(event, '${safeId(job.id)}')" data-job-id="${safeId(job.id)}" role="button" tabindex="0" aria-selected="${isSelected ? 'true' : 'false'}" aria-label="${escapeHtml(`${job.title || 'Untitled'} at ${job.company || 'Unknown'}`)}">
                 <div class="job-card-header">
                     <div class="job-card-select" onclick="event.stopPropagation()">
-                        <input type="checkbox" class="job-checkbox" value="${job.id}" onchange="updateSelectedCount()">
+                        <input type="checkbox" class="job-checkbox" value="${safeId(job.id)}" onchange="updateSelectedCount()">
                     </div>
                     <div class="job-card-info">
                         <div class="job-card-title">${escapeHtml(job.title)}</div>
@@ -249,10 +278,11 @@ function renderJobs(jobs, total) {
                         <span class="pill pill-${status}">${statusLabel}</span>
                         ${status === 'discovered' ? `
                         <div class="row-verdicts" onclick="event.stopPropagation()">
-                            <button type="button" class="rverdict no" onclick="passJob('${job.id}')" aria-label="Pass" title="Pass  (X or ←)">${VERDICT_X_SVG}</button>
-                            <button type="button" class="rverdict yes" onclick="shortlistJob('${job.id}')" aria-label="Shortlist" title="Shortlist  (S or →)">${VERDICT_CHECK_SVG}</button>
+                            <button type="button" class="rverdict no" onclick="passJob('${safeId(job.id)}')" aria-label="Pass" title="Pass  (X or ←)">${VERDICT_X_SVG}</button>
+                            <button type="button" class="rverdict yes" onclick="shortlistJob('${safeId(job.id)}')" aria-label="Shortlist" title="Shortlist  (S or →)">${VERDICT_CHECK_SVG}</button>
                         </div>` : ''}
-                        ${job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${job.id}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
+                        ${status === 'deleted' ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();restoreJob('${safeId(job.id)}')" title="Restore this posting to the Inbox">Restore</button>` : ''}
+                        ${status !== 'deleted' && job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${safeId(job.id)}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
                     </div>
                 </div>
             </div>
@@ -356,17 +386,17 @@ function buildJobDetailHtml(job, opts) {
         </div>
 
         <div class="detail-actions">
-            <button class="btn btn-secondary btn-sm" onclick="scoreJob('${job.id}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
-            <button class="btn btn-primary btn-sm" onclick="tailorJob('${job.id}')">Tailor Resume</button>
-            ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${job.id}')">Apply Assist</button>` : ''}
+            <button class="btn btn-secondary btn-sm" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
+            <button class="btn btn-primary btn-sm" onclick="tailorJob('${safeId(job.id)}')">Tailor Resume</button>
+            ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${safeId(job.id)}')">Apply Assist</button>` : ''}
             ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="viewApplicationFor('${escapeHtml(String(job.id))}')">View Application</button>` : ''}
             ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
-            ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${job.id}')">Mark Applied</button>` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${job.id}')">Embellishments</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteSingleJob('${job.id}')">Delete</button>
+            ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${safeId(job.id)}')">Mark Applied</button>` : ''}
+            <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${safeId(job.id)}')">Embellishments</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSingleJob('${safeId(job.id)}')">Delete</button>
         </div>
 
-        <div id="emb-panel-${job.id}" class="detail-emb-panel" style="display:none"></div>
+        <div id="emb-panel-${safeId(job.id)}" class="detail-emb-panel" style="display:none"></div>
 
         ${job.autofill_result ? `
         <div class="detail-section">

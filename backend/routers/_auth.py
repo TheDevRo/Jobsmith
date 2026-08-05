@@ -28,6 +28,7 @@ default — that default is the entire point of this module.
 import logging
 import os
 import secrets
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -45,6 +46,52 @@ COOKIE_NAME = "jobsmith_token"
 #   /api/health/live — container HEALTHCHECK + desktop readiness probe, which
 #                      must answer before any session exists (no secrets in it)
 _EXEMPT_PREFIXES = ("/api/auth/", "/api/health/live")
+
+# Methods that don't change server state. Everything else is subject to the
+# cross-site check below.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+# Browser extension pages are a legitimate cross-scheme caller (their Origin is
+# chrome-extension:// etc.); they authenticate to /api/ext/* separately and are
+# allowed to reach the dashboard API too.
+_EXTENSION_SCHEMES = ("chrome-extension", "moz-extension", "safari-web-extension")
+
+
+def _request_is_cross_site(request: Request) -> bool:
+    """True only when browser-supplied metadata proves this is a cross-site request.
+
+    Loopback trust (see request_is_authorized) means a state-changing request
+    needs no token when it comes from this machine — which is exactly what lets
+    a malicious web page the user is visiting drive our API via the browser's
+    ambient loopback access (CSRF). CORS stops the page reading our *responses*
+    but not the browser *sending* a "simple" cross-origin POST.
+
+    We close that by rejecting state-changing requests whose origin metadata
+    says cross-site. This returns False for genuine same-origin browser requests
+    AND for non-browser callers (the desktop sidecar, the iOS app, curl, the
+    test client) which send neither header — CSRF is a browser-only attack, so
+    a caller with no Origin/Sec-Fetch-Site was never riding ambient authority.
+    """
+    # Modern browsers stamp every request with Sec-Fetch-Site; trust it first.
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site:
+        return sec_fetch_site not in ("same-origin", "same-site", "none")
+
+    # Fallback for browsers that omit Sec-Fetch-Site: compare Origin to the host
+    # we were actually dialled on (handles the LAN/Docker case, where the host
+    # isn't 127.0.0.1) and allow extension origins.
+    origin = request.headers.get("origin")
+    if not origin:
+        return False  # non-browser caller (no ambient authority to abuse)
+    if origin == "null":
+        return True  # sandboxed/opaque origin — treat as cross-site
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return True
+    if parsed.scheme in _EXTENSION_SCHEMES:
+        return False
+    return parsed.netloc != request.headers.get("host", "")
 
 
 def auth_disabled() -> bool:
@@ -79,16 +126,24 @@ async def require_local_or_token(
     """FastAPI dependency guarding every dashboard router."""
     if request.url.path.startswith(_EXEMPT_PREFIXES):
         return
-    if request_is_authorized(request, x_jobsmith_token):
-        return
-    raise HTTPException(
-        status_code=401,
-        detail=(
-            "Jobsmith requires a token for requests from off this machine. "
-            "Paste the token from data/.extension_token into the dashboard, "
-            "or send it as an X-Jobsmith-Token header."
-        ),
-    )
+    if not request_is_authorized(request, x_jobsmith_token):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Jobsmith requires a token for requests from off this machine. "
+                "Paste the token from data/.extension_token into the dashboard, "
+                "or send it as an X-Jobsmith-Token header."
+            ),
+        )
+    # Authorized — but a state-changing request must not be a cross-site one,
+    # or a page the user is merely visiting could drive our API through the
+    # browser's ambient loopback/cookie access (CSRF). Applies even to loopback
+    # callers, since loopback trust is precisely what CSRF abuses.
+    if request.method not in _SAFE_METHODS and _request_is_cross_site(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Cross-site request blocked.",
+        )
 
 
 # ---------------------------------------------------------------------------

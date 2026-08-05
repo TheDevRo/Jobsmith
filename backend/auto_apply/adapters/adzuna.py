@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..models import ApplyMode, ApplyResult, ApplyStatus
+from ..models import ApplyMode, ApplyResult
 from ..utils.browser_helpers import wait_if_paused
 
 if TYPE_CHECKING:

@@ -1,0 +1,49 @@
+name: Dependency audit
+
+# Weekly vulnerability sweep across the pip and npm trees, plus on demand.
+# Deliberately NOT part of the per-push CI gate: a new advisory in a transitive
+# dep shouldn't block an unrelated PR, but it should show up loudly here (the
+# workflow fails, GitHub emails the repo owner). Dependabot (.github/dependabot.yml)
+# opens the fix PRs; this is the detector for anything it misses.
+#
+# Cargo and SwiftPM deps are compiled into release artifacts rather than served,
+# and have no equivalent lightweight auditor wired here yet — dependabot still
+# covers their advisories.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1" # Mondays 09:17 UTC
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    name: pip-audit (backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit requirements
+        # Audits the declared requirement files without installing the app.
+        # --strict: unresolvable/yanked packages are findings, not warnings.
+        # requirements.lock is audited separately from the floors: the lock is
+        # what the Docker image actually installs, so a vulnerable pin there is
+        # a shipped vulnerability even when the floor would allow a fixed version.
+        run: |
+          pip install pip-audit
+          pip-audit --strict -r requirements.txt -r requirements-optional.txt
+          pip-audit --strict -r requirements.lock
+
+  npm-audit:
+    name: npm audit (extension + frontend tooling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Audit lockfile
+        # High+ only: the node deps are dev/test tooling (nothing ships to
+        # users from node_modules), so moderate advisories are noise here.
+        run: npm audit --audit-level=high

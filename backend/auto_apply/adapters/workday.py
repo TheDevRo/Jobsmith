@@ -390,7 +390,6 @@ async def _handle_workday_auth(ctrl, log, profile) -> bool:
 
 
 async def _apply_fv(ctrl, fv) -> bool:
-    from ..models import FieldValue
     if fv.action == "fill":
         return await ctrl.fill_field(fv.field_id, fv.value)
     elif fv.action == "select":

@@ -142,14 +142,14 @@ final class ConfigStoreTests: XCTestCase {
 
         config.profile.fullName = "Jane Doe"
         config.profile.skills = ["Swift", "Python"]
-        config.ai.baseURL = "http://192.168.1.7:1234/v1"
+        config.ai.baseURL = "http://192.0.2.7:1234/v1"
         config.honesty.level = .tailored
         try await store.save(config)
 
         let fresh = ConfigStore(fileURL: dir.appendingPathComponent("config.json"))
         let loaded = await fresh.load()
         XCTAssertEqual(loaded.profile.fullName, "Jane Doe")
-        XCTAssertEqual(loaded.ai.baseURL, "http://192.168.1.7:1234/v1")
+        XCTAssertEqual(loaded.ai.baseURL, "http://192.0.2.7:1234/v1")
         XCTAssertEqual(loaded.honesty.level, .tailored)
     }
 
