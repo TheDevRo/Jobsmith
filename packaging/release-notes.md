@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.7 -->
+<!-- notes-updated-for: 0.2.8 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -14,44 +14,47 @@ Docker image — all built from the same tag.
 
 ## What's new in __VERSION__
 
-**A redesigned desktop experience.** The desktop app and Docker dashboard get a
-standalone UI of their own — inspired by the iOS app, built for a keyboard and
-a big screen. Functionally everything is unchanged: same backend, same data,
-same sync.
+**Zero-setup AI on Apple Silicon.** On macOS 26+ with Apple Intelligence
+enabled, Jobsmith can now run scoring and other short AI tasks on Apple's
+built-in on-device model — free, private, offline, and no server to install.
+The setup wizard offers it automatically when no AI server answers, and
+Settings → AI lets you choose it per model tier. Resume and cover-letter
+generation stays on your configured endpoint (LM Studio, Ollama, or a hosted
+provider) — the on-device model is too small to write good documents, and
+Jobsmith won't pretend otherwise.
 
-- **Inbox is now a triage stage.** New jobs arrive as one big card — fit ring,
-  salary, "why it fits", description — with an Up Next rail beside it. Pass /
-  Open / Shortlist with the buttons or entirely from the keyboard (`←` pass,
-  `→` shortlist, `Enter` open, `T` shortlist + tailor now, `U` undo). Prefer
-  the old list? Press `L` or use the toggle.
-- **Pipeline is a kanban board.** Shortlisted → Tailoring → Ready to review →
-  Applied → Needs attention, with drag-and-drop between stages (each drop maps
-  to the exact action the buttons already performed) and a drop-to-pass zone.
-- **Click any posting to peek.** Anywhere outside the classic layout, clicking
-  a job pops its full detail out in place — score, fit analysis, description,
-  and every action — without navigating away. `Esc` closes.
-- **⌘K command palette** — jump anywhere, kick off fetch/score/tailor runs, or
-  search your jobs from one keystroke.
-- **A calmer shell** — collapsible icon-rail sidebar, a run console with live
-  logs in place of the old action-card grid, a dashboard digest column, and a
-  global "Now" rail showing what's running.
-- **Prefer the old UI?** Settings → Layout → Classic brings the previous
-  dashboard back, pixel-identical.
-- **Fixed along the way** — HTML5 drag-and-drop now works inside the macOS
-  shell, and the pipeline funnel no longer over-asks the API and errors on
-  large pipelines.
+**Easier to start.** A package of first-run improvements for new users:
 
-**Also in this release.**
+- The app now tells you when the **AI server is unreachable** (or the
+  configured model isn't loaded) with a banner and a fix-it button — no more
+  silent "Scored 0 jobs (40 failed)".
+- A **getting-started checklist** on the home screen tracks AI, profile, first
+  fetch, first shortlist, and extension pairing until all are done.
+- Empty states name the actual blocker, the Inbox **Fetch button actually
+  fetches**, the product tour waits until you have jobs to look at, and a
+  dozen bits of jargon got plain-language tooltips.
 
-- **Workday one-tap auth.** Sign in to a Workday tenant once and Apply Assist
-  reuses that session for every posting on it, instead of asking again per job.
-- **Automatic database snapshots.** Jobsmith now writes a dated copy of your
-  database on startup, so a bad run is recoverable.
-- **Apply Assist reliability** — iframe-hosted forms, custom selects, and
-  honeypot fields are handled properly, engine failures surface instead of
-  failing silently, and an in-flight autofill can be canceled.
-- **Better AI scoring** — score responses now parse identically on desktop and
-  iOS, so the two stop disagreeing about the same job.
+**One mental model per screen.** The Deck/Classic split is gone in favor of
+per-view toggles — Inbox flips between cards ⇄ list, Pipeline between board ⇄
+table, and your old preference migrates automatically. The pipeline funnel is
+now a clickable stage filter, Settings went from nine tabs to five (with a
+Basic mode that shows only the essentials), and Activity became a proper Home
+with a single **Fetch & Score** action for the everyday loop. Every rendering
+and capability survives — only the parallel structures went away.
+
+**Recycle bin.** Passed and deleted jobs land in a recycle bin with undo,
+restore, and permanent-erase, instead of vanishing.
+
+**Fixed.**
+
+- **Firefox extension "NetworkError" on fresh installs** — the panel now
+  routes backend calls through the extension's background process, so it works
+  immediately without manually granting host permissions. The Mozilla-signed
+  XPI ships inside the app.
+- **Duplicate tailoring runs** — dragging a card to Tailoring after the board
+  had been open a while could fire the run many times over and pile up
+  duplicate "Ready to Review" drafts. Fixed at every layer, and the app cleans
+  up existing duplicates on first launch.
 
 ## macOS app (Apple Silicon)
 
@@ -80,10 +83,12 @@ but it now downloads **in the background** — the dashboard opens immediately a
 Jobsmith shows the install status (with a retry) until it's ready. App data
 (config, database, browsers) lives in `~/Library/Application Support/Jobsmith`.
 
-**Prerequisite:** AI features need an OpenAI-compatible server —
+**AI prerequisite:** on macOS 26+ with Apple Intelligence enabled, scoring
+works out of the box on the built-in on-device model. For document generation
+(and for older Macs), point Jobsmith at an OpenAI-compatible server —
 [LM Studio](https://lmstudio.ai) on `http://localhost:1234` by default, or
 Ollama / a hosted provider with an API key (configurable in Settings). The app
-starts and browses jobs fine without one.
+starts and browses jobs fine without any of it.
 
 If port 8888 is busy (e.g. a Docker Jobsmith is running), the app picks
 another port automatically.
@@ -95,11 +100,13 @@ Download `jobsmith-extension-chrome-v__EXT_VERSION__.zip` or
 
 - **Chrome**: unzip, open `chrome://extensions`, enable Developer mode, click
   **Load unpacked**, select the unzipped folder.
-- **Firefox**: open `about:debugging` → This Firefox → **Load Temporary
-  Add-on** and pick the zip (re-load after browser restarts).
+- **Firefox**: the easy path is the Mozilla-signed XPI served by the app
+  itself — Settings → Apply Assist → install the extension. (The zip here is
+  for development: `about:debugging` → This Firefox → **Load Temporary
+  Add-on**, re-loaded after browser restarts.)
 
-Then paste the extension token shown in Jobsmith's Settings page into the
-extension popup.
+The token pairs automatically the first time you launch Apply Assist; paste it
+from Jobsmith's Settings into the extension popup only if pairing fails.
 
 ## Docker (macOS Intel / Windows / Linux)
 
