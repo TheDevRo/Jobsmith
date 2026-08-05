@@ -29,6 +29,7 @@ from . import app_state as state
 from . import database as db
 from . import db_backup
 from . import ai_engine
+from . import apple_bridge
 from . import auto_apply
 from . import extension_api
 from . import routers
@@ -189,6 +190,12 @@ async def lifespan(app: FastAPI):
     for task in list(state.running_tasks.values()):
         if task and not task.done():
             task.cancel()
+    # The Apple Intelligence sidecar is our child process; without this it
+    # outlives the backend and keeps a loopback port bound.
+    try:
+        await apple_bridge.shutdown()
+    except Exception:  # shutdown must not raise
+        logger.exception("Apple Intelligence bridge shutdown failed")
 
 
 app = FastAPI(title="Jobsmith", version=APP_VERSION, lifespan=lifespan)

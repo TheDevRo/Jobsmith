@@ -2572,6 +2572,10 @@ main:has(> #review.tab-content.active.view-board) {
 
 .ai-tier .form-group { margin-bottom: 0; }
 
+/* Apple Intelligence opt-ins — one row per tier, above the model pickers. */
+.ai-ondevice-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 4px 0; cursor: pointer; }
+.ai-ondevice-opt input { margin: 0; }
+
 /* ==========================================================================
    Toast Notifications
    ========================================================================== */

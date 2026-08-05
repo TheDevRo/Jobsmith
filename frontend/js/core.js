@@ -449,10 +449,17 @@ async function checkAIStatus() {
 
         if (!s.ok) {
             const where = s.base_url ? ` at ${s.base_url}` : '';
+            // When Apple Intelligence is the only configured provider the
+            // backend reports its reason as the error — naming a server URL
+            // there would send the user chasing the wrong problem.
+            const od = s.on_device || {};
+            const odBlocked = od.supported && !od.available && s.error && s.error === od.reason;
             showBanner('ai-offline', {
                 tone: 'warn',
                 dismissible: true,
-                message: `AI server not reachable${where} — scoring, tailoring, and résumé parsing won't work.`,
+                message: odBlocked
+                    ? `Apple Intelligence isn't available — ${s.error}. Scoring, tailoring, and résumé parsing won't work.`
+                    : `AI server not reachable${where} — scoring, tailoring, and résumé parsing won't work.`,
                 actions: [
                     { label: 'Open AI Settings', onClick: () => goAISettings() },
                     { label: 'Retry', onClick: () => checkAIStatus() },

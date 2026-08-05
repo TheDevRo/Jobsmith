@@ -20,6 +20,7 @@ from openai import (
     RateLimitError,
 )
 
+from . import apple_bridge
 from . import prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -85,22 +86,59 @@ def _tier_chain(tier: str) -> tuple[str, ...]:
 
 _client_cache: dict[tuple[str, str], AsyncOpenAI] = {}
 
+# Which bridge incarnation the cached on-device clients belong to. The sidecar
+# gets a fresh port on every (re)start, so a client cached against the old port
+# would keep POSTing into a closed socket — see _sync_bridge_generation.
+_bridge_gen_seen: int = 0
 
-def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
-    """Return a cached AsyncOpenAI client pointed at LM Studio.
 
-    Supports tiered model config (ai.models.utility / fast / strong).
-    Each tier can override base_url and api_key, otherwise inherits from
-    the top-level ai section. Falls back to legacy single-model config.
+# The OpenAI SDK insists on a non-empty api_key; the bridge ignores it. It
+# doubles as the cache-key marker for on-device clients.
+_ON_DEVICE_KEY = "apple-on-device"
 
-    Clients are cached per (base_url, api_key) for the lifetime of the
-    process. Constructing a fresh AsyncOpenAI per call leaks the underlying
-    httpx connection pool + SSL context until the process hits Errno 24
-    ("Too many open files") — and on macOS the per-process FD ceiling is
-    only 256, so a batch of a few hundred scoring calls is enough to crash
-    the server.
+
+def _sync_bridge_generation() -> None:
+    """Evict on-device clients left over from a previous bridge process.
+
+    The bridge is spawned with --port 0, so a restart almost always lands on a
+    different port and the (base_url, api_key) cache key changes on its own —
+    but "almost always" is not "always": the OS is free to hand back the port
+    the dead process just released, and then the stale client (whose httpx pool
+    holds dead connections to a socket now owned by a *different* process)
+    would be reused. Keying the eviction on the bridge's generation counter
+    covers both cases.
+    """
+    global _bridge_gen_seen
+    gen = apple_bridge.bridge_generation()
+    if gen == _bridge_gen_seen:
+        return
+    _bridge_gen_seen = gen
+    for key in [k for k in _client_cache if k[1] == _ON_DEVICE_KEY]:
+        _client_cache.pop(key, None)
+
+
+def _resolve_endpoint(config: dict, tier: str) -> tuple[str, str]:
+    """Return (base_url, api_key) for a tier.
+
+    Tiers whose model is the on-device sentinel are pinned to the local bridge;
+    everything else uses the tier's own base_url/api_key override, falling back
+    to the top-level ai section.
     """
     ai_cfg = config.get("ai", {})
+
+    if _model(config, tier) == apple_bridge.SENTINEL_MODEL:
+        base = apple_bridge.bridge_base_url()
+        if not base:
+            # Strict routing: never quietly reroute an on-device tier to the
+            # configured endpoint (iOS EngineRouter rule — the user asked for
+            # private, local inference and must not silently get a network
+            # call instead). Callers surface this as an AI error.
+            raise apple_bridge.BridgeUnavailable(
+                "Apple Intelligence is selected for this task but the on-device "
+                "helper is not running"
+            )
+        return base, _ON_DEVICE_KEY
+
     default_url = ai_cfg.get("base_url", "http://localhost:1234/v1")
     # Blank key (e.g. cleared in Settings) falls back to the LM Studio
     # placeholder — the OpenAI SDK requires a non-empty string.
@@ -115,6 +153,29 @@ def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
             base_url = tier_cfg.get("base_url") or default_url
             api_key = tier_cfg.get("api_key") or default_key
             break
+    return base_url, api_key
+
+
+def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
+    """Return a cached AsyncOpenAI client pointed at LM Studio.
+
+    Supports tiered model config (ai.models.utility / fast / strong).
+    Each tier can override base_url and api_key, otherwise inherits from
+    the top-level ai section. Falls back to legacy single-model config.
+
+    Clients are cached per (base_url, api_key) for the lifetime of the
+    process. Constructing a fresh AsyncOpenAI per call leaks the underlying
+    httpx connection pool + SSL context until the process hits Errno 24
+    ("Too many open files") — and on macOS the per-process FD ceiling is
+    only 256, so a batch of a few hundred scoring calls is enough to crash
+    the server.
+
+    Sync, so it cannot spawn the on-device bridge; use `get_client` (async)
+    from request paths — this one raises BridgeUnavailable if a sentinel tier
+    is asked for before the bridge is up.
+    """
+    _sync_bridge_generation()
+    base_url, api_key = _resolve_endpoint(config, tier)
 
     key = (base_url, api_key)
     client = _client_cache.get(key)
@@ -122,6 +183,18 @@ def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
         client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=90.0)
         _client_cache[key] = client
     return client
+
+
+async def get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
+    """Async entry point for _get_client: starts the on-device bridge first.
+
+    Spawning the sidecar is async and _get_client is not, so the start happens
+    here, at the call boundary — every AI code path is already a coroutine, so
+    nothing has to hop threads or reach for a private event loop.
+    """
+    if _model(config, tier) == apple_bridge.SENTINEL_MODEL:
+        await apple_bridge.ensure_started()
+    return _get_client(config, tier)
 
 
 def clear_clients() -> None:
@@ -340,7 +413,7 @@ async def _select_resume_experiences(
 
     selected_unpinned: list = []
     try:
-        client = _get_client(config, "utility")
+        client = await get_client(config, "utility")
         response = await client.chat.completions.create(
             model=_model(config, "utility"),
             messages=[{"role": "user", "content": prompt}],
@@ -484,7 +557,7 @@ async def score_job_fit(
     """
     ai_cfg = config.get("ai", {})
     tier = ai_cfg.get("scoring_tier", "strong")
-    client = _get_client(config, tier)
+    client = await get_client(config, tier)
 
     prompt = prompt_registry.render_prompt(
         config, "score_job_fit",
@@ -540,7 +613,7 @@ async def suggest_job_titles(profile: dict, answers: dict, config: dict) -> list
     the model output was unusable).
     """
     ai_cfg = config.get("ai", {})
-    client = _get_client(config, "strong")
+    client = await get_client(config, "strong")
 
     answer_lines = "\n".join(
         f"- {k.replace('_', ' ').capitalize()}: {str(v).strip()}"
@@ -605,7 +678,7 @@ async def suggest_companies(
     must validate each against the live ATS board probes before showing it.
     """
     ai_cfg = config.get("ai", {})
-    client = _get_client(config, "strong")
+    client = await get_client(config, "strong")
 
     keywords = ", ".join(search_cfg.get("keywords", [])) or "(none set)"
     liked = ", ".join(liked_companies[:15]) or "(no history yet)"
@@ -705,7 +778,7 @@ async def generate_tailored_resume(
     match_report (optional) is the structured skill/keyword gap breakdown from
     score_job_fit — when present, its keywords are targeted explicitly.
     """
-    client = _get_client(config)
+    client = await get_client(config)
     ai_cfg = config.get("ai", {})
 
     max_entries = config.get("application_honesty", {}).get("max_resume_experience_entries")
@@ -770,7 +843,7 @@ async def generate_cover_letter(
     cover_letter_tone (from config.application_honesty.cover_letter_tone):
       professional | conversational | enthusiastic  (default: professional)
     """
-    client = _get_client(config)
+    client = await get_client(config)
     ai_cfg = config.get("ai", {})
     tone = config.get("application_honesty", {}).get("cover_letter_tone", "professional")
 
@@ -820,7 +893,7 @@ async def revise_tailored_resume(
     (honest | tailored | embellished | fabricated). Output format must remain
     parser-compatible (same headers/prefixes as generate_tailored_resume).
     """
-    client = _get_client(config, tier)
+    client = await get_client(config, tier)
     ai_cfg = config.get("ai", {})
 
     max_entries = config.get("application_honesty", {}).get("max_resume_experience_entries")
@@ -868,7 +941,7 @@ async def revise_cover_letter(
 
     honesty_level controls how much latitude the AI has when applying edits.
     """
-    client = _get_client(config, tier)
+    client = await get_client(config, tier)
     ai_cfg = config.get("ai", {})
     tone = config.get("application_honesty", {}).get("cover_letter_tone", "professional")
 
@@ -918,7 +991,7 @@ async def generate_embellishment_log(
     On any failure the log is still returned with empty change lists so the caller
     always gets a valid record.
     """
-    client = _get_client(config)
+    client = await get_client(config)
     ai_cfg = config.get("ai", {})
 
     prompt = prompt_registry.render_prompt(
@@ -995,7 +1068,7 @@ async def generate_custom_answers(
     job: dict, profile: dict, questions: list[str], config: dict
 ) -> dict:
     """Generate answers to custom application questions (Greenhouse/Lever forms)."""
-    client = _get_client(config)
+    client = await get_client(config)
     ai_cfg = config.get("ai", {})
 
     questions_text = "\n".join(f"- {q}" for q in questions)
@@ -1068,8 +1141,11 @@ async def batch_process_jobs(
 
 async def test_connection(config: dict) -> dict:
     """Test connectivity to LM Studio. Returns status dict."""
-    client = _get_client(config)
     try:
+        # Inside the try: a strong tier set to Apple Intelligence can fail here
+        # (bridge missing / Apple Intelligence off) and that is a connection
+        # result to report, not a 500.
+        client = await get_client(config)
         models = await client.models.list()
         model_ids = [m.id for m in models.data]
         return {"connected": True, "models": model_ids}

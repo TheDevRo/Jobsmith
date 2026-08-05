@@ -8,7 +8,9 @@
 const OB_STEPS = 5;
 // rerun: wizard opened with an already-populated profile — finish goes
 // through the Review-changes diff panel instead of overwriting config.
-let _obState = { step: 0, parsed: null, open: false, rerun: false, diff: [] };
+// onDevice: the user picked Apple Intelligence on the AI step, which also
+// moves fit-scoring onto the fast tier when the payload is built.
+let _obState = { step: 0, parsed: null, open: false, rerun: false, diff: [], onDevice: false };
 
 document.addEventListener('DOMContentLoaded', () => { obCheckStatus(); });
 
@@ -70,6 +72,7 @@ function obOpen({ aiStatus } = {}) {
     _obState.step = 0;
     _obState.parsed = null;
     _obState.open = true;
+    _obState.onDevice = false;
     document.getElementById('onboarding-overlay').style.display = 'flex';
     obGoto(0);
     obLoadPrefill().then(() => {
@@ -201,24 +204,61 @@ async function obTestAI(silent) {
     try { await api('/api/config', { method: 'POST', body: JSON.stringify({ ai: { base_url: url, api_key: apiKey } }) }); } catch (e) {}
     try {
         const s = await api('/api/ai/status');
-        obApplyAIStatus({ ok: s.ok, models: s.models || [], error: s.error });
+        obApplyAIStatus({ ok: s.ok, models: s.models || [], error: s.error, on_device: s.on_device });
     } catch (e) {
         statusEl.className = 'ob-status err';
         statusEl.textContent = 'Connection failed';
     }
 }
 
+// The on-device sentinel — the same id the backend routes on (apple_bridge).
+const OB_ON_DEVICE_MODEL = 'apple-on-device';
+
 function obApplyAIStatus(s) {
     const statusEl = document.getElementById('ob-ai-status');
-    if (s.ok) {
+    const endpointModels = (s.models || []).filter(m => m !== OB_ON_DEVICE_MODEL);
+    if (s.ok && endpointModels.length) {
         statusEl.className = 'ob-status ok';
-        const n = (s.models || []).length;
+        const n = endpointModels.length;
         statusEl.textContent = 'Connected — ' + n + ' model' + (n === 1 ? '' : 's') + ' available';
-        obPopulateModels(s.models || []);
+        obPopulateModels(endpointModels);
     } else {
         statusEl.className = 'ob-status err';
         statusEl.textContent = s.error ? 'Not connected: ' + s.error : 'Not connected';
         obPopulateModels([]);
+    }
+    // Zero-setup escape hatch: no endpoint answered, but this Mac's built-in
+    // model can take the short-context work today.
+    const offer = document.getElementById('ob-ai-ondevice');
+    if (offer) {
+        const show = !endpointModels.length && !!(s.on_device && s.on_device.available)
+            && !_obState.onDevice;
+        offer.style.display = show ? '' : 'none';
+    }
+}
+
+// Wires the two short-context tiers to Apple Intelligence and points scoring at
+// one of them. `strong` (résumés, cover letters) is deliberately left on the
+// endpoint config — a ~3B on-device model writes documents employers read.
+function obUseAppleIntelligence() {
+    _obState.onDevice = true;
+    ['fast', 'utility'].forEach(tier => {
+        const sel = document.getElementById('ob-ai-model-' + tier);
+        if (!sel) return;
+        if (![...sel.options].some(o => o.value === OB_ON_DEVICE_MODEL)) {
+            const opt = document.createElement('option');
+            opt.value = OB_ON_DEVICE_MODEL;
+            opt.textContent = 'Apple Intelligence (on-device)';
+            sel.appendChild(opt);
+        }
+        sel.value = OB_ON_DEVICE_MODEL;
+    });
+    const offer = document.getElementById('ob-ai-ondevice');
+    if (offer) offer.style.display = 'none';
+    const statusEl = document.getElementById('ob-ai-status');
+    if (statusEl) {
+        statusEl.className = 'ob-status ok';
+        statusEl.textContent = 'Using Apple Intelligence on this Mac for scoring and short tasks';
     }
 }
 
@@ -513,6 +553,9 @@ function obBuildPayload() {
         ai: {
             base_url: document.getElementById('ob-ai-url').value.trim(),
             api_key: document.getElementById('ob-ai-api-key').value.trim(),
+            // On-device: fit-scoring moves to the fast tier, which is the one
+            // now running on Apple Intelligence (default is 'strong').
+            ...(_obState.onDevice ? { scoring_tier: 'fast' } : {}),
             models: {
                 strong: { model: document.getElementById('ob-ai-model-strong').value },
                 fast: { model: document.getElementById('ob-ai-model-fast').value },
@@ -593,6 +636,10 @@ const OB_DIFF_FIELDS = [
           return out;
       },
       fmt: v => ['strong', 'fast', 'utility'].map(t => `${t}: ${(v || {})[t]?.model || '—'}`).join(', ') },
+    // Only present in the payload when the wizard moved scoring on-device, so
+    // an absent value is "no change" rather than a reset to the default.
+    { label: 'AI scoring tier', path: ['ai', 'scoring_tier'],
+      eq: (cur, nxt) => !nxt || (cur || 'strong') === nxt },
     { label: 'Adzuna App ID', path: ['api_keys', 'adzuna_app_id'] },
     { label: 'Adzuna App Key', path: ['api_keys', 'adzuna_app_key'], secret: true },
     { label: 'BLS API key', path: ['salary_estimator', 'bls', 'api_key'], secret: true },

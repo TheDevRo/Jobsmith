@@ -93,6 +93,19 @@ ai:
   temperature: 0.7
   max_tokens: 16384
   context_window: 16384
+  # Apple Intelligence (macOS 26+ on Apple Silicon, desktop app only):
+  # set any tier's `model` to the sentinel `apple-on-device` and that tier
+  # runs on the Mac's built-in model instead of the server above — free,
+  # offline, and nothing leaves the machine. Routing is strict: an
+  # on-device tier NEVER falls back to base_url, so if Apple Intelligence
+  # is turned off those calls fail loudly rather than quietly going out to
+  # the network. It is a small model — great for scoring and short helper
+  # calls, weaker for résumés and cover letters, and very long job
+  # postings can exceed its context window and get skipped. Typical setup:
+  #   fast:    {model: apple-on-device}
+  #   utility: {model: apple-on-device}
+  #   strong:  {model: <your real model>}    # documents stay on the server
+  #   scoring_tier: fast
   models:
     # Content tier — tailored resumes, cover letters, job-fit scoring,
     # and AI Edit (Strong mode). Use your highest-quality model.

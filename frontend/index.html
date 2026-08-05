@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=54">
+    <link rel="stylesheet" href="style.css?v=55">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -756,6 +756,18 @@
                                 <input type="password" id="cfg-ai-api-key" placeholder="Optional — not needed for LM Studio" autocomplete="off">
                                 <span class="hint">Any OpenAI-compatible server works (LM Studio, Ollama, OpenRouter, OpenAI…). Set a key for hosted providers; LM Studio ignores it.</span>
                             </div>
+                            <!-- Apple Intelligence: revealed by loadSettings() only when
+                                 /api/ai/status reports on_device.supported. -->
+                            <div id="ai-ondevice-block" style="display:none;margin:12px 0 4px">
+                                <p class="ai-tier-hint" id="ai-ondevice-note">
+                                    <strong>Apple Intelligence (on-device)</strong> runs on this Mac — free, offline, and nothing leaves the machine.
+                                    It is a small model: great for scoring and short tasks, weaker at long documents, and its context limit means very long job postings get skipped.
+                                </p>
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-ondevice-strong" onchange="applyOnDeviceTier('strong')"> Use Apple Intelligence for <strong>Content</strong></label>
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-ondevice-fast" onchange="applyOnDeviceTier('fast')"> Use Apple Intelligence for <strong>Navigator</strong></label>
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-ondevice-utility" onchange="applyOnDeviceTier('utility')"> Use Apple Intelligence for <strong>Utility</strong></label>
+                                <p class="ai-tier-hint" id="ai-ondevice-warn" style="display:none;color:var(--accent-red);margin-top:6px"></p>
+                            </div>
                             <div class="ai-tier-group">
                                 <div class="ai-tier">
                                     <div class="ai-tier-header">
@@ -1214,6 +1226,12 @@
                         <div class="form-group"><label>Navigator model <span class="hint">(fast)</span></label><select id="ob-ai-model-fast"><option value="">—</option></select></div>
                         <div class="form-group"><label>Utility model</label><select id="ob-ai-model-utility"><option value="">—</option></select></div>
                     </div>
+                    <!-- Shown by obApplyAIStatus() only when no endpoint answered and
+                         this Mac's built-in model can. -->
+                    <div id="ob-ai-ondevice" style="display:none;margin-top:14px">
+                        <p class="ob-hint" style="margin-bottom:8px">No server answered &mdash; but this Mac has <strong>Apple Intelligence</strong>. Jobsmith can use it for job-fit scoring and short tasks with no setup at all. It is a small model, so r&eacute;sum&eacute;s and cover letters still want a real endpoint (LM Studio is the easy local option) &mdash; you can add one later in Settings.</p>
+                        <button class="btn btn-primary btn-sm" id="ob-ai-ondevice-btn" onclick="obUseAppleIntelligence()">Use built-in Apple Intelligence</button>
+                    </div>
                     <p class="ob-hint">No server yet? You can continue and configure AI later in Settings &rarr; Integrations.</p>
                 </div>
 
@@ -1350,18 +1368,18 @@
     <!-- The Pipeline stage vocabulary (labels/order/colours) must exist before
          review.js and deck.js render the funnel, the tabs or the board. -->
     <script src="js/pipeline-stages.js?v=1"></script>
-    <script src="js/core.js?v=50"></script>
+    <script src="js/core.js?v=51"></script>
     <script src="js/dashboard.js?v=42"></script>
     <!-- The per-job action registry must define jobActions()/renderJobActions()
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
     <script src="js/jobs.js?v=51"></script>
     <script src="js/review.js?v=43"></script>
-    <script src="js/settings.js?v=47"></script>
+    <script src="js/settings.js?v=48"></script>
     <script src="js/prompts.js?v=2"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=42"></script>
     <script src="js/deck.js?v=14"></script>
-    <script src="js/onboarding.js?v=43"></script>
+    <script src="js/onboarding.js?v=44"></script>
 </body>
 </html>

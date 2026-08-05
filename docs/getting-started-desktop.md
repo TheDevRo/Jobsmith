@@ -43,6 +43,9 @@ Then the **setup wizard** opens. Five steps:
    options are [LM Studio](https://lmstudio.ai) (recommended, fully private) and
    Ollama; hosted providers such as OpenRouter or OpenAI work with an API key.
    Start your AI server *before* this step so the model list is populated.
+   On a Mac running macOS 26+ on Apple Silicon with Apple Intelligence on, this
+   step also offers **Use built-in Apple Intelligence** when no server answers —
+   see below.
 2. **Résumé** — upload or paste your existing resume. The AI parses it into
    structured fields.
 3. **Profile** — check what was parsed and fill in the rest (contact details,
@@ -63,6 +66,23 @@ run again on a configured install.
 If your AI server is not reachable, the dashboard shows a warning banner with
 an **Open AI Settings** and a **Retry** button. Scoring, tailoring, and resume
 parsing do not work until that clears; everything else does.
+
+### No AI server? Apple Intelligence
+
+On **macOS 26 or newer, Apple Silicon, with Apple Intelligence turned on**, the
+wizard offers **Use built-in Apple Intelligence** when no server answers. Taking
+it puts the Navigator and Utility tiers on the Mac's own model and points job-fit
+scoring at them — free, offline, private, and no download. The Content tier
+(résumés and cover letters) stays on whatever server you configure, because the
+built-in model is small: fine for scoring and short tasks, noticeably weaker at
+long documents, and very long job postings can exceed its context window and be
+skipped.
+
+You can change this any time in **Settings → AI**, where each tier has its own
+*Use Apple Intelligence (on-device)* checkbox. The checkboxes only appear on a
+machine that can actually run it. If Apple Intelligence is later turned off in
+System Settings, on-device tiers fail with that reason rather than silently
+sending the work to your server.
 
 ## 3. First fetch
 

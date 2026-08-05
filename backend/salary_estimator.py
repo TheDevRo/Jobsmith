@@ -265,7 +265,7 @@ async def classify_job_role(title: str, description: str, config: dict) -> dict:
         "soc_title": None,
     }
     try:
-        client = ai_engine._get_client(config, "utility")
+        client = await ai_engine.get_client(config, "utility")
         response = await client.chat.completions.create(
             model=ai_engine._model(config, "utility"),
             messages=[{"role": "user", "content": prompt}],

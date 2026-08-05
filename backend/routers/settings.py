@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
+from .. import apple_bridge
 from .. import resume_generator
 from .. import resume_parser
 from .. import linkedin_profile_import
@@ -150,13 +151,30 @@ async def get_activity(limit: int = Query(20, ge=1, le=100)):
     return await db.get_activity(limit=limit)
 
 
+async def _on_device_status(cfg: dict) -> dict:
+    """`{supported, available, reason}` for the Apple Intelligence bridge.
+
+    Kept off the hot path: a config with no on-device tier on a machine that
+    can't run one (every Linux/Windows/Intel install) answers from two cheap
+    in-process checks and never touches the sidecar.
+    """
+    uses = apple_bridge.uses_sentinel(cfg)
+    if not uses and not apple_bridge.platform_supported():
+        return {"supported": False, "available": False,
+                "reason": apple_bridge.REASON_UNSUPPORTED}
+    try:
+        return await asyncio.wait_for(apple_bridge.bridge_status(), timeout=8)
+    except Exception as exc:  # noqa: BLE001 — status must never 500
+        return {"supported": False, "available": False, "reason": str(exc)}
+
+
 @router.get("/api/ai/status")
 async def ai_status():
     """Test AI connection and return status."""
     cfg = state.load_config()
     try:
         status = await asyncio.wait_for(ai_engine.test_connection(cfg), timeout=8)
-        return {
+        payload = {
             "ok": status.get("connected", False),
             "base_url": cfg.get("ai", {}).get("base_url", ""),
             "model": cfg.get("ai", {}).get("model", ""),
@@ -164,9 +182,28 @@ async def ai_status():
             "error": status.get("error"),
         }
     except asyncio.TimeoutError:
-        return {"ok": False, "error": "Connection timed out (>8s)"}
+        payload = {"ok": False, "error": "Connection timed out (>8s)"}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        payload = {"ok": False, "error": str(exc)}
+
+    on_device = await _on_device_status(cfg)
+    payload["on_device"] = on_device
+    if on_device.get("available"):
+        models = list(payload.get("models") or [])
+        if apple_bridge.SENTINEL_MODEL not in models:
+            models.append(apple_bridge.SENTINEL_MODEL)
+        payload["models"] = models
+        # On-device answering is a working AI provider, so an unreachable
+        # endpoint no longer means "no AI at all" when nothing else is set up.
+        if not payload.get("ok") and apple_bridge.only_provider(cfg):
+            payload["ok"] = True
+            payload["error"] = None
+    elif apple_bridge.only_provider(cfg):
+        # Apple Intelligence is the only configured provider and it can't
+        # serve — say why, in the words the user can act on.
+        payload["ok"] = False
+        payload["error"] = on_device.get("reason") or apple_bridge.REASON_UNSUPPORTED
+    return payload
 
 
 @router.get("/api/config")

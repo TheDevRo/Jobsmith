@@ -38,6 +38,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **Single-URL ingestion** — Paste any job URL to add it directly; per-source parsers for known boards plus a generic fallback
 - **AI-powered tailoring** — Your AI server scores job fit and generates tailored resumes and cover letters
 - **Bring your own AI** — Any OpenAI-compatible endpoint works: LM Studio or Ollama for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
+- **Apple Intelligence (on-device)** — On macOS 26+ Apple Silicon, run scoring and short helper tasks on the Mac's built-in model with zero setup; document generation stays on your endpoint
 - **Honesty levels** — Choose how much latitude the AI takes per job: `honest` / `tailored` / `embellished` / `fabricated`
 - **AI Edit** — Iteratively revise generated resumes and cover letters with natural-language instructions; per-edit honesty + model tier overrides
 - **Resume style presets** — `executive`, `ledger`, `banner`, `compact`, `swiss` (all ATS-friendly), each with a selectable accent color
@@ -161,6 +162,24 @@ your models from the dropdowns.
 The app boots fine with no AI server configured; only the AI features — scoring,
 tailoring, AI Edit — stay dormant until you point it at one, and the dashboard
 shows a banner telling you so.
+
+### Apple Intelligence (no server at all)
+
+On **macOS 26+ with Apple Silicon and Apple Intelligence enabled**, the desktop
+app can run the short-context work on the Mac's built-in model — no download, no
+server, nothing leaving the machine. In **Settings → AI**, tick *Use Apple
+Intelligence (on-device)* for any tier (the first-run wizard offers it too when
+no server answers), which sets that tier's model to `apple-on-device`.
+
+Be honest with yourself about what it is: a small model. It is good at job-fit
+scoring, classification, and short helper calls, weaker at writing résumés and
+cover letters, and its small context window means very long postings can be
+skipped. The recommended split is Navigator + Utility on-device with scoring
+pointed at them, and Content (documents) on a real endpoint.
+
+Routing is strict — a tier set to `apple-on-device` never silently falls back to
+your server, so if Apple Intelligence is turned off those calls fail with a
+message saying exactly that instead of quietly sending private work elsewhere.
 
 ## Advanced / headless install
 

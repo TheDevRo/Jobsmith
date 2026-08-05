@@ -71,6 +71,9 @@ async function loadSettings() {
         const savedStrong = cfg.ai?.models?.strong?.model || cfg.ai?.model || '';
         const savedUtility = cfg.ai?.models?.utility?.model || '';
         await loadAiModels({ preselect: { fast: savedFast, strong: savedStrong, utility: savedUtility } });
+        // Apple Intelligence opt-ins mirror "this tier's model is the sentinel".
+        applyOnDeviceTiers({ strong: savedStrong, fast: savedFast, utility: savedUtility });
+        refreshOnDeviceUI();
         const scoringTierSel = document.getElementById('cfg-scoring-tier');
         if (scoringTierSel) scoringTierSel.value = cfg.ai?.scoring_tier || 'strong';
 
@@ -779,9 +782,9 @@ async function saveSettings() {
             api_key: document.getElementById('cfg-ai-api-key').value.trim(),
             scoring_tier: document.getElementById('cfg-scoring-tier').value || 'strong',
             models: {
-                fast: { model: document.getElementById('cfg-ai-model-fast').value || '' },
-                strong: { model: document.getElementById('cfg-ai-model-strong').value || '' },
-                utility: { model: document.getElementById('cfg-ai-model-utility').value || '' },
+                fast: { model: onDeviceTierModel('fast') },
+                strong: { model: onDeviceTierModel('strong') },
+                utility: { model: onDeviceTierModel('utility') },
             },
         },
         api_keys: {
@@ -1191,6 +1194,58 @@ async function loadEmbTab(jobId, containerId) {
         el.dataset.loaded = '1';
     } catch (e) {
         el.innerHTML = '<p style="font-size:13px;color:var(--accent-red)">Failed to load embellishment log.</p>';
+    }
+}
+
+// ---- Apple Intelligence (on-device) ----
+// The backend routes a tier to the built-in Mac model purely by its model id:
+// this sentinel. The checkboxes are therefore just a friendlier way to type it
+// into the tier's model field, and the picker is disabled while it's set.
+const AI_ON_DEVICE_MODEL = 'apple-on-device';
+
+function applyOnDeviceTier(tier) {
+    const cb = document.getElementById('cfg-ai-ondevice-' + tier);
+    const sel = document.getElementById('cfg-ai-model-' + tier);
+    if (!cb || !sel) return;
+    sel.disabled = !!cb.checked;
+}
+
+function applyOnDeviceTiers(saved) {
+    ['strong', 'fast', 'utility'].forEach(tier => {
+        const cb = document.getElementById('cfg-ai-ondevice-' + tier);
+        if (!cb) return;
+        cb.checked = (saved[tier] || '') === AI_ON_DEVICE_MODEL;
+        applyOnDeviceTier(tier);
+    });
+}
+
+// What to save for a tier: the sentinel when its box is ticked, otherwise the
+// picker (which is disabled, not cleared, so unticking restores the choice).
+function onDeviceTierModel(tier) {
+    const cb = document.getElementById('cfg-ai-ondevice-' + tier);
+    if (cb && cb.checked) return AI_ON_DEVICE_MODEL;
+    const sel = document.getElementById('cfg-ai-model-' + tier);
+    return (sel && sel.value) || '';
+}
+
+// Only Macs that can actually run it ever see the controls — on every other
+// machine the whole block stays out of the settings page.
+async function refreshOnDeviceUI(status) {
+    const block = document.getElementById('ai-ondevice-block');
+    if (!block) return;
+    let s = status || window._aiStatus;
+    if (!s) {
+        try { s = await api('/api/ai/status'); } catch (e) { s = null; }
+    }
+    const od = (s && s.on_device) || {};
+    block.style.display = od.supported ? '' : 'none';
+    const warn = document.getElementById('ai-ondevice-warn');
+    if (warn) {
+        const show = !!(od.supported && !od.available);
+        warn.style.display = show ? '' : 'none';
+        warn.textContent = show
+            ? (od.reason || 'Apple Intelligence is not available right now.')
+            : '';
     }
 }
 

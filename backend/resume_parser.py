@@ -205,7 +205,7 @@ async def parse_resume(text: str, config: dict, prompt_key: str = "resume_parse"
         )
 
     ai_cfg = config.get("ai", {})
-    client = ai_engine._get_client(config, "strong")
+    client = await ai_engine.get_client(config, "strong")
     prompt = prompt_registry.render_prompt(config, prompt_key, resume=text)
 
     try:
