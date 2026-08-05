@@ -67,7 +67,7 @@ const { window } = dom;
 const doc = window.document;
 
 // One eval unit, order matches index.html (core → jobs → review → jobs-actions).
-const SCRIPTS = ["core.js", "jobs.js", "review.js", "jobs-actions.js"];
+const SCRIPTS = ["core.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );

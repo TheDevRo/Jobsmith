@@ -38,9 +38,9 @@ const dom = new JSDOM(
 const { window } = dom;
 const doc = window.document;
 
-// One eval unit, order matches index.html (core → dashboard → jobs → review →
-// jobs-actions → deck).
-const SCRIPTS = ["core.js", "dashboard.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
+// One eval unit, order matches index.html (core → dashboard → job-actions →
+// jobs → review → jobs-actions → deck).
+const SCRIPTS = ["core.js", "dashboard.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );
@@ -208,11 +208,16 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["modal renders the shared detail body", !!(overlay && overlay.querySelector(".detail-title"))]);
   checks.push(["modal escapes the job title", !(overlay && overlay.querySelector(".detail-title b"))]);
   checks.push(["nested application surfaces View Application", !!(overlay && overlay.innerHTML.includes("View Application"))]);
-  // The modal always offers Apply Assist, even when apply_type isn't
-  // 'external' (j7 has none) — parity with the pipeline's review cards.
-  checks.push(["modal always offers Apply Assist", !!(overlay && overlay.innerHTML.includes("Apply Assist"))]);
-  checks.push(["classic pane still gates Apply Assist on apply_type", !window.buildJobDetailHtml({ id: "j7", title: "t", source: "s" }).includes("Apply Assist")
-      && window.buildJobDetailHtml({ id: "j7", title: "t", source: "s", apply_type: "external" }).includes("Apply Assist")]);
+  // Phase 0 unified the Apply Assist rule (job-actions.js): offered whenever
+  // the posting has a URL, in every context — the modal no longer has its own
+  // "always" override and the classic pane no longer gates on apply_type.
+  // j7 has a url, so the modal still offers it.
+  checks.push(["modal offers Apply Assist for a job with a URL", !!(overlay && overlay.innerHTML.includes("Apply Assist"))]);
+  checks.push(["classic pane offers Apply Assist for the same job regardless of apply_type",
+    window.buildJobDetailHtml({ id: "j7", title: "t", source: "s", url: "https://x.test/7" }).includes("Apply Assist")
+      && window.buildJobDetailHtml({ id: "j7", title: "t", source: "s", url: "https://x.test/7", apply_type: "external" }).includes("Apply Assist")]);
+  checks.push(["no URL → no Apply Assist anywhere",
+    !window.buildJobDetailHtml({ id: "j7", title: "t", source: "s" }).includes("Apply Assist")]);
   // A soft-deleted posting can't be deleted again (the API updates zero rows),
   // so the detail body swaps Delete for Restore + Erase Permanently. Its own
   // 'deleted' status must also win over any application status it still carries.

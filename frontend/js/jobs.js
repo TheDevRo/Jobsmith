@@ -282,9 +282,7 @@ function renderJobs(jobs, total) {
                             <button type="button" class="rverdict no" onclick="passJob('${safeId(job.id)}')" aria-label="Pass" title="Pass  (X or ←)">${VERDICT_X_SVG}</button>
                             <button type="button" class="rverdict yes" onclick="shortlistJob('${safeId(job.id)}')" aria-label="Shortlist" title="Shortlist  (S or →)">${VERDICT_CHECK_SVG}</button>
                         </div>` : ''}
-                        ${status === 'deleted' ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();restoreJob('${safeId(job.id)}')" title="Restore this posting to the Inbox">Restore</button>
-                        <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase</button>` : ''}
-                        ${status !== 'deleted' && job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${safeId(job.id)}')" title="Open Apply Assist browser">Assist Me</button>` : ''}
+                        ${renderJobActions(job, 'list-row')}
                     </div>
                 </div>
             </div>
@@ -341,12 +339,7 @@ function selectJob(jobId) {
 // The full job detail body. Shared by the classic split-pane (selectJob) and
 // the deck layout's peek modal (openJobModal in deck.js) so both render the
 // exact same content and actions.
-function buildJobDetailHtml(job, opts) {
-    opts = opts || {};
-    // The peek modal always offers Apply Assist (parity with the pipeline's
-    // review cards, which never gate on apply_type); the classic pane keeps
-    // showing it only for external-apply jobs.
-    const showAssist = job.apply_type === 'external' || opts.assistAlways;
+function buildJobDetailHtml(job) {
     const tags = safeParseJSON(job.tags, []);
     const hasScore = job.fit_score !== null && job.fit_score !== undefined && job.fit_score !== '' && !isNaN(Number(job.fit_score)) && Number(job.fit_score) > 0;
     // A deleted job may still carry an application row; its own 'deleted'
@@ -391,20 +384,7 @@ function buildJobDetailHtml(job, opts) {
         </div>
 
         <div class="detail-actions">
-            ${isDeleted ? `
-            <button class="btn btn-secondary btn-sm" onclick="restoreJob('${safeId(job.id)}')" title="Put this posting back in the Inbox">Restore to Inbox</button>
-            ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
-            <button class="btn btn-danger btn-sm" onclick="eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase Permanently</button>
-            ` : `
-            <button class="btn btn-secondary btn-sm" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
-            <button class="btn btn-primary btn-sm" onclick="tailorJob('${safeId(job.id)}')" title="Generate a resume and cover letter customized to this job">Tailor Resume</button>
-            ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${safeId(job.id)}')">Apply Assist</button>` : ''}
-            ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="viewApplicationFor('${escapeHtml(String(job.id))}')">View Application</button>` : ''}
-            ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
-            ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${safeId(job.id)}')">Mark Applied</button>` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${safeId(job.id)}')">Embellishments</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteSingleJob('${safeId(job.id)}')">Delete</button>
-            `}
+            ${renderJobActions(job, 'detail')}
         </div>
 
         <div id="emb-panel-${safeId(job.id)}" class="detail-emb-panel" style="display:none"></div>

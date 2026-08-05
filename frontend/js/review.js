@@ -123,9 +123,7 @@ function renderShortlisted(data) {
                 <div class="job-card-right">
                     ${renderHeatChip(job.fit_score)}
                     <div class="scout-actions">
-                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${safeId(job.id)}')" title="Generate a resume and cover letter customized to this job">Tailor</button>
-                        <button class="btn btn-secondary btn-xs" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
-                        <button class="btn btn-ghost btn-xs" onclick="passShortlisted('${safeId(job.id)}')">Pass</button>
+                        ${renderJobActions(job, 'review-row')}
                     </div>
                 </div>
             </div>
@@ -700,7 +698,7 @@ function renderReviewQueue(apps) {
                         <a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(app.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(app.job_id)}">Open Job URL</a>
                     ` : `
                         ${window._autoApplyEnabled ? `<button class="btn btn-primary btn-sm" onclick="autoApply('${escapeHtml(app.id)}')">Auto Apply</button>` : ''}
-                        <button class="btn btn-assist btn-sm" onclick="launchAssist('${escapeHtml(app.job_id)}')">Apply Assist</button>
+                        ${renderJobActions({ id: app.job_id, url: app.url, status: app.status }, 'review-detail')}
                         <button class="btn btn-green btn-sm" onclick="markAppApplied('${escapeHtml(app.id)}')">Mark Applied</button>
                         <button class="btn btn-danger btn-sm" onclick="rejectApp('${escapeHtml(app.id)}')">Reject</button>
                     `}

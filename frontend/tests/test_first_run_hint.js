@@ -42,7 +42,7 @@ const dom = new JSDOM(
 const { window } = dom;
 const doc = window.document;
 
-const SCRIPTS = ["core.js", "dashboard.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
+const SCRIPTS = ["core.js", "dashboard.js", "job-actions.js", "jobs.js", "review.js", "jobs-actions.js", "deck.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );

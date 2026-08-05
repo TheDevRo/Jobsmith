@@ -55,7 +55,7 @@ const doc = window.document;
 // visible to every later script (e.g. jobs.js reads jobs-actions.js's
 // `selectModeActive`), whereas separate evals would scope them per-eval.
 // Order matches index.html.
-const SCRIPTS = ["core.js", "jobs.js", "jobs-actions.js"];
+const SCRIPTS = ["core.js", "job-actions.js", "jobs.js", "jobs-actions.js"];
 window.eval(
   SCRIPTS.map((f) => fs.readFileSync(path.join(JS_DIR, f), "utf8")).join("\n;\n")
 );

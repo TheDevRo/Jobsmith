@@ -1391,13 +1391,16 @@
 
     <script src="js/core.js?v=46"></script>
     <script src="js/dashboard.js?v=40"></script>
-    <script src="js/jobs.js?v=47"></script>
-    <script src="js/review.js?v=41"></script>
+    <!-- The per-job action registry must define jobActions()/renderJobActions()
+         before its consumers (jobs.js, review.js, deck.js) render anything. -->
+    <script src="js/job-actions.js?v=1"></script>
+    <script src="js/jobs.js?v=48"></script>
+    <script src="js/review.js?v=42"></script>
     <script src="js/settings.js?v=46"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=40"></script>
-    <script src="js/deck.js?v=8"></script>
+    <script src="js/deck.js?v=9"></script>
     <script src="js/onboarding.js?v=39"></script>
 </body>
 </html>

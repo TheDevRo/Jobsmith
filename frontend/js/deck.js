@@ -772,7 +772,7 @@ async function openJobModal(jobId) {
     ov.innerHTML = `
         <div class="job-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(job.title || 'Job details')}">
             <button type="button" class="job-modal-close" aria-label="Close" title="Close (Esc)" onclick="closeJobModal()">&#10005;</button>
-            <div class="job-modal-body">${buildJobDetailHtml(job, { assistAlways: true })}</div>
+            <div class="job-modal-body">${buildJobDetailHtml(job)}</div>
         </div>`;
     ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeJobModal(); });
     document.body.appendChild(ov);
@@ -840,7 +840,9 @@ function boardCardMenu(ev, colKey, id, jobId) {
         `<button role="menuitem" onclick="_runCardMenu('${escapeHtml(colKey)}','${escapeHtml(t.to)}','${escapeHtml(String(id))}')">${escapeHtml(_transitionMenuLabel(t))}</button>`
     ).join('')
     // Delete is reachable without a pointer — the ✕ only appears on hover.
-    + (jobId ? `<button role="menuitem" class="kmenu-danger" onclick="_runCardMenuDelete('${escapeHtml(String(jobId))}')">Delete posting</button>` : '')
+    // Job-level entries come from the actions registry (job-actions.js); the
+    // moves above stay here because they are column-driven, not job-driven.
+    + (jobId ? renderJobActions({ id: jobId }, 'kanban-menu') : '')
     + (!opts.length && !jobId ? `<button role="menuitem" disabled>No actions available</button>` : '');
     document.body.appendChild(menu);
     const btn = ev.currentTarget || ev.target;
