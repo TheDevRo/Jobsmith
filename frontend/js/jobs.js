@@ -774,7 +774,7 @@ async function launchAssist(jobId) {
     } catch (e) {
         // C2 — the most common cause is "extension not installed yet", which
         // the bare error message never says.
-        toast('Could not start Apply Assist: ' + e.message + '. If the extension isn’t installed yet, see Settings → Apply Assist.', 'error');
+        toast('Could not start Apply Assist: ' + e.message + '. If the extension isn’t installed yet, see Settings → Apply.', 'error');
     }
 }
 

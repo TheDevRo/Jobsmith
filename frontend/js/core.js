@@ -508,7 +508,7 @@ function firstRunHint() {
     return '';
 }
 
-// Settings → Integrations (where the AI server URL and model live).
+// Settings → AI (where the AI server URL and model live).
 function goAISettings() {
     location.hash = 'settings';
     setTimeout(() => {
@@ -519,7 +519,7 @@ function goAISettings() {
     }, 0);
 }
 
-// Settings → Apply Assist (browser-extension pairing lives there). Same shape
+// Settings → Apply (browser-extension pairing lives there). Same shape
 // as goAISettings(), different tab.
 function goAssistSettings() {
     location.hash = 'settings';

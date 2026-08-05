@@ -56,7 +56,7 @@ wizard writes every answer into it.
 
 **Skipping and re-running.** Every step can be skipped, and you can close the
 wizard entirely — the app works, it just has less to go on. Re-run it any time
-from **Settings → Re-run setup wizard**. A re-run adds a **Review** step that
+from **Settings → App → Re-run setup wizard**. A re-run adds a **Review** step that
 shows a diff of what would change before anything is saved, so it is safe to
 run again on a configured install.
 
@@ -74,7 +74,7 @@ These sources work with no API key at all:
 - LinkedIn, Indeed, RemoteOK, WeWorkRemotely, Arbeitnow
 - Per-company ATS boards: Greenhouse, Lever, Ashby, Workable, Recruitee
 
-Adzuna and USAJobs need free API keys, added later in **Settings → Integrations**
+Adzuna and USAJobs need free API keys, added later in **Settings → Job Search**
 if you want them. Skip them for now.
 
 The run chip at the top shows live progress. A first fetch typically returns a
@@ -118,7 +118,7 @@ offline — check the banner.
 **Honesty levels** control how far the AI may stray from your facts:
 `honest` (reword only) → `tailored` (use the job's keywords, no fabrication) →
 `embellished` (upgrade scope and impact) → `fabricated` (invent achievements).
-The default is `honest`. Set the global default in **Settings → Honesty**, and
+The default is `honest`. Set the global default in **Settings → AI**, and
 override it per edit in the AI Edit panel. Anything above `tailored` can produce
 false statements — you are responsible for what you submit.
 
@@ -130,7 +130,7 @@ them there; **AI Edit** lets you revise with natural-language instructions.
 Applying uses the Jobsmith browser extension, which runs inside your normal
 Chrome or Firefox.
 
-Go to **Settings → Apply Assist** and use **Get for Chrome** / **Get for
+Go to **Settings → Apply** and use **Get for Chrome** / **Get for
 Firefox**. Chrome installs are unpacked (`chrome://extensions` → Developer mode
 → Load unpacked); Firefox has a signed build served straight from the app.
 
@@ -169,9 +169,9 @@ the Pipeline toolbar (or **L**) swaps the board for the stage tabs, and back.
 
 ## Where to get help
 
-- **Replay the product tour** — **Settings → Replay product tour** restarts the
+- **Replay the product tour** — **Settings → App → Replay product tour** restarts the
   in-app walkthrough at any time.
-- **Re-run the setup wizard** — **Settings → Re-run setup wizard**, safe on a
+- **Re-run the setup wizard** — **Settings → App → Re-run setup wizard**, safe on a
   configured install (it shows a diff first).
 - **Bugs and questions** —
   [GitHub Issues](https://github.com/TheDevRo/Jobsmith/issues). Including what

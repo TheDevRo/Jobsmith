@@ -3706,9 +3706,13 @@ body[data-theme="light"] .job-modal-overlay { background: rgba(30, 20, 12, 0.35)
 .prompt-status { font-size: 12px; color: var(--text-muted); }
 
 /* ---- Settings Basic / Advanced mode ---- */
-/* In basic mode, hide every advanced-only tab, card, and field. Inputs stay
-   in the DOM so saveSettings() still round-trips their values. */
+/* Basic mode is an allowlist: only section-cards marked .settings-basic show.
+   Everything else — unmarked cards plus the .settings-advanced fields inside
+   basic cards — is hidden. Inputs stay in the DOM so saveSettings() still
+   round-trips their values. */
+#settings:not(.settings-mode-advanced) .settings-tab-panel .section-card:not(.settings-basic) { display: none !important; }
 #settings:not(.settings-mode-advanced) .settings-advanced { display: none !important; }
+.settings-tab.settings-tab-hidden { display: none !important; }
 
 .settings-mode-toggle {
     margin-left: auto;

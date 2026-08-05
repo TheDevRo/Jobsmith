@@ -49,12 +49,12 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **Per-domain rate limits** — Cap daily applies per ATS host
 - **Fit-score breakdown** — Click any score on the dashboard for a per-criterion explanation
 - **Salary estimates** — Jobs without disclosed comp get an AI-aided market estimate (Adzuna + BLS data), clearly labeled
-- **Editable AI prompts** — Every internal LLM prompt (scoring, tailoring, cover letters, parsing, auto-apply…) can be viewed, edited, and reset from Settings → Prompts; overrides persist in `config.yaml`, defaults keep improving with updates
+- **Editable AI prompts** — Every internal LLM prompt (scoring, tailoring, cover letters, parsing, auto-apply…) can be viewed, edited, and reset from Settings → AI → Prompts (Advanced mode); overrides persist in `config.yaml`, defaults keep improving with updates
 - **Basic / Advanced settings** — Settings opens in Basic mode with just the essentials; flip the toggle to Advanced to expose every knob (auto-apply tuning, prompt editor, scoring tier, context window, logs, and more)
 - **Session persistence** — Per-domain browser session management so you stay logged in across runs
 - **FlareSolverr integration** — Bypasses Cloudflare challenges on protected job boards
 - **Modern dashboard** — Sidebar navigation (**Inbox** → **Pipeline** → **Activity**), split-pane job feed, real-time notifications, batch controls with stop/pause
-- **Folder sync (desktop ↔ iOS)** — Optional serverless two-way sync of jobs, applications, and your profile through a shared folder (iCloud Drive, Dropbox, …). No account and no server — each device reads and writes the same folder (last-writer-wins merge); ATS login passwords are never written to the folder. Configure in **Settings → Sync**.
+- **Folder sync (desktop ↔ iOS)** — Optional serverless two-way sync of jobs, applications, and your profile through a shared folder (iCloud Drive, Dropbox, …). No account and no server — each device reads and writes the same folder (last-writer-wins merge); ATS login passwords are never written to the folder. Configure in **Settings → App**.
     - **The sync folder is trusted.** There is no signing or access control on its contents — anyone (or any app) with write access to that folder can alter or delete your synced jobs, applications, and profile, and your devices will merge those changes. Only sync through a folder you control; don't share it.
     - **Docker users must mount the sync folder as a volume.** The engine writes inside the container, so an un-mounted path syncs nowhere. Add the folder to your compose service, e.g.:
       ```yaml
@@ -63,7 +63,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
           volumes:
             - ${JOBSMITH_SYNC_FOLDER:-./sync-folder}:/app/sync-folder
       ```
-      then set `sync.folder: /app/sync-folder` in **Settings → Sync**.
+      then set `sync.folder: /app/sync-folder` in **Settings → App**.
 - **Native iOS app** — A fully standalone SwiftUI app (`ios-standalone/`) runs the whole pipeline on-device (fetch, score, tailor, review, apply) and syncs with the desktop; see [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md)
 
 ## Architecture
@@ -136,7 +136,7 @@ a setup wizard that walks you through:
 
 `config.yaml` is created for you on first boot and every answer is written back
 to it, so nothing needs to be edited by hand. You can **Skip** the wizard and
-re-run it any time from **Settings → Re-run setup wizard**; re-running shows a
+re-run it any time from **Settings → App → Re-run setup wizard**; re-running shows a
 diff of what would change before saving. Everything the wizard sets is also
 editable later in **Settings**.
 
@@ -155,7 +155,7 @@ For the default LM Studio setup:
 If LM Studio is on a separate machine (e.g., a homelab server), use its IP: `http://192.168.x.x:1234/v1`
 
 Using a hosted provider instead? Skip this step — just set the server URL and
-API key in **Settings → Integrations** (or in the wizard's first step) and pick
+API key in **Settings → Job Search** (or in the wizard's first step) and pick
 your models from the dropdowns.
 
 The app boots fine with no AI server configured; only the AI features — scoring,
@@ -227,7 +227,7 @@ profile:
 #### AI connection
 
 Any OpenAI-compatible chat-completions endpoint works. Both settings are also
-editable in the app under **Settings → Integrations → AI Connection**.
+editable in the app under **Settings → AI → AI Connection**.
 
 ```yaml
 ai:
@@ -315,11 +315,11 @@ application_honesty:
 
 All of these can also be changed live in the **Settings** tab.
 
-> Settings has a **Basic / Advanced** toggle (top-right of the tab bar). Basic covers everything needed to run the app; Advanced additionally reveals the Auto-Apply, Prompts, and Logs tabs plus tuning knobs like scoring tier, context window, cookie import, ATS/Workday credentials, max resume entries, and the AI Edit model tier. Values set in Advanced stay in effect when you switch back to Basic.
+> Settings has five tabs — Profile, Job Search, AI, Apply, App — and a **Basic / Advanced** toggle (top-right of the tab bar). Basic shows only the essential cards on each tab (profile, keywords/locations/salary, AI connection + models, honesty, resume style, extension install, folder sync); Advanced reveals everything else: prompts, logs, cookie import, ATS/Workday credentials, network bind, scoring tier, context window, max resume entries, and the AI Edit model tier. Values set in Advanced stay in effect when you switch back to Basic.
 
 #### AI prompts (optional)
 
-Every prompt sent to the local LLM can be customized from **Settings → Prompts** (Advanced mode). Templates use `{placeholder}` variables that are filled in at run time — literal braces (e.g. JSON examples) need no escaping. Only customized prompts are stored, under a top-level `prompts:` key:
+Every prompt sent to the local LLM can be customized from **Settings → AI → Prompts** (Advanced mode). Templates use `{placeholder}` variables that are filled in at run time — literal braces (e.g. JSON examples) need no escaping. Only customized prompts are stored, under a top-level `prompts:` key:
 
 ```yaml
 prompts:
@@ -389,7 +389,7 @@ docker compose up -d   # builds the image locally, then seeds
                        # config/config.yaml from config.example.yaml
 ```
 
-Open **http://localhost:8888**, then go to **Settings → Integrations** and set
+Open **http://localhost:8888**, then go to **Settings → AI** and set
 your AI endpoint. If LM Studio (or Ollama) is running on the same machine as
 Docker, use `http://host.docker.internal:1234/v1` — from inside the container,
 plain `localhost` means the container itself, not your host.
@@ -456,7 +456,7 @@ Platform-specific handlers for common ATS systems. Falls back to "Manual Apply" 
 
 For sites that require login, save a session so auto-apply stays authenticated:
 
-1. Go to **Settings → Browser Sessions**
+1. Go to **Settings → Job Search**
 2. Click **Sign in to LinkedIn** (or the relevant domain)
 3. A visible browser window opens — log in normally
 4. The session is saved to `sessions/` and reused automatically on future runs
@@ -476,7 +476,7 @@ Ensure your AI server is running with a model loaded and the URL in Settings mat
 Broaden search keywords, add Adzuna API keys for more results, or check that Greenhouse/Lever company slugs are correct.
 
 **Auto-apply fails or gets stuck**
-Check `failed_screenshots/` for screenshots of the failure state. For Cloudflare-protected sites, configure FlareSolverr. For sites requiring login, set up a session in Settings → Browser Sessions. CAPTCHAs will stop the agent and return a "manual apply required" message.
+Check `failed_screenshots/` for screenshots of the failure state. For Cloudflare-protected sites, configure FlareSolverr. For sites requiring login, set up a session in Settings → Job Search. CAPTCHAs will stop the agent and return a "manual apply required" message.
 
 **LinkedIn login issues**
 Try a different browser type in Settings (Firefox/Chromium/WebKit). If issues persist, delete `data/linkedin_session/` and retry.
@@ -498,7 +498,7 @@ and start the server again. Schema migrations re-apply forward automatically.
 Run `.venv/bin/python scripts/dev/debug_apply.py "<url>"` to drive the auto-apply flow end-to-end against a single posting. The script fills the form but never clicks Submit, regardless of `mode`.
 
 **A prompt edit broke generation output**
-Custom prompts from Settings → Prompts are used verbatim — if generated resumes stop parsing (missing SUMMARY/EXPERIENCE headers, markdown creeping in), hit **Reset to Default** on the prompt you changed. Placeholders the app doesn't recognize are left as literal `{text}` and flagged when you save.
+Custom prompts from Settings → AI → Prompts are used verbatim — if generated resumes stop parsing (missing SUMMARY/EXPERIENCE headers, markdown creeping in), hit **Reset to Default** on the prompt you changed. Placeholders the app doesn't recognize are left as literal `{text}` and flagged when you save.
 
 **Tests**
 `.venv/bin/python -m pytest tests/ -v` — covers field mapping, honesty prompts, prompt registry/overrides, parsers, salary estimation, and the API layer.

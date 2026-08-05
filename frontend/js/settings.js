@@ -364,8 +364,8 @@ function toggleLogsAutoRefresh() {
     const on = document.getElementById('logs-autorefresh').checked;
     if (on && !logsAutoRefreshTimer) {
         logsAutoRefreshTimer = setInterval(() => {
-            // Skip fetches while the Logs panel isn't visible
-            const panel = document.getElementById('stab-logs');
+            // Skip fetches while the Logs card isn't visible
+            const panel = document.getElementById('card-logs');
             if (panel && panel.offsetParent !== null) loadLogs();
         }, 3000);
     } else if (!on && logsAutoRefreshTimer) {
@@ -1392,7 +1392,7 @@ async function verifyLinkedinLocations() {
 
 
 // ============================================================
-// AI job-title suggester (Settings → Search + setup wizard)
+// AI job-title suggester (Settings → Job Search + setup wizard)
 // ============================================================
 const TS_QUESTIONS = [
     { key: 'direction', label: 'What should your next role look like?', type: 'select',
@@ -1516,8 +1516,9 @@ function tsAddSelected() {
 }
 
 // ---- Basic / Advanced settings mode ----
-// Basic shows everything needed to run the app; Advanced additionally exposes
-// tuning knobs (Prompts, Logs tabs + .settings-advanced elements).
+// Basic is an allowlist: only section-cards marked .settings-basic are shown
+// (see the CSS rule on #settings:not(.settings-mode-advanced)). Advanced shows
+// everything, including the .settings-advanced controls sprinkled inside cards.
 // The mode only affects visibility — hidden inputs keep their values and are
 // still collected by saveSettings(), so switching modes never loses data.
 
@@ -1538,13 +1539,47 @@ function applySettingsMode() {
     document.getElementById('settings-mode-basic')?.classList.toggle('active', !adv);
     document.getElementById('settings-mode-advanced')?.classList.toggle('active', adv);
 
-    // If the active tab just became hidden (e.g. Prompts open, switch to Basic),
-    // fall back to the first visible tab.
+    // A tab whose pane has no .settings-basic card would be an empty screen in
+    // Basic mode — hide its button. (Generalizes the old rule that hid the
+    // Prompts and Logs tabs, which were marked .settings-advanced by hand.)
+    const tabs = Array.from(section.querySelectorAll('.settings-tab'));
+    tabs.forEach(btn => {
+        const hidden = !adv && !settingsTabHasBasicContent(btn);
+        btn.classList.toggle('settings-tab-hidden', hidden);
+        btn.hidden = hidden;
+    });
+
+    // If the active tab just became hidden, fall back to the first visible one.
     const activeTab = section.querySelector('.settings-tab.active');
-    if (!adv && activeTab && activeTab.classList.contains('settings-advanced')) {
-        const firstVisible = section.querySelector('.settings-tab:not(.settings-advanced)');
+    if (activeTab && activeTab.classList.contains('settings-tab-hidden')) {
+        const firstVisible = tabs.find(b => !b.classList.contains('settings-tab-hidden'));
         if (firstVisible) firstVisible.click();
     }
+}
+
+// Pane id a tab button switches to, read off its inline onclick.
+function settingsTabPaneId(btn) {
+    const m = /switchSettingsTab\(\s*this\s*,\s*'([^']+)'/.exec(btn.getAttribute('onclick') || '');
+    return m ? m[1] : null;
+}
+
+function settingsTabHasBasicContent(btn) {
+    if (btn.classList.contains('settings-advanced')) return false;
+    const paneId = settingsTabPaneId(btn);
+    if (!paneId) return true;
+    const pane = document.getElementById(paneId);
+    if (!pane) return true;
+    return !!pane.querySelector('.section-card.settings-basic');
+}
+
+// The Prompts and Logs cards live inside the AI / App tabs now and are
+// Advanced-only; don't fetch them when they can't be seen.
+function loadPromptsIfAdvanced() {
+    if (getSettingsMode() === 'advanced' && typeof loadPrompts === 'function') loadPrompts();
+}
+
+function loadLogsIfAdvanced() {
+    if (getSettingsMode() === 'advanced' && typeof loadLogs === 'function') loadLogs();
 }
 
 document.addEventListener('DOMContentLoaded', applySettingsMode);

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=52">
+    <link rel="stylesheet" href="style.css?v=53">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -472,14 +472,10 @@
             <section id="settings" class="tab-content">
                 <div class="settings-tabs">
                     <button class="settings-tab active" onclick="switchSettingsTab(this, 'stab-profile')">Profile</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-search')">Search</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-integrations')">Integrations</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Apply Assist</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-sync'); loadSyncSettings()">Sync</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
-                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
-                    <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-logs'); loadLogs()">Logs</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-search')">Job Search</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-integrations'); loadPromptsIfAdvanced()">AI</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist'); loadAnswerBank()">Apply</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-sync'); loadSyncSettings(); loadLogsIfAdvanced()">App</button>
                     <div class="settings-mode-toggle" role="group" aria-label="Settings mode" title="Basic shows the essentials; Advanced exposes every knob (AI prompts, logs, and more).">
                         <button id="settings-mode-basic" onclick="setSettingsMode('basic')">Basic</button>
                         <button id="settings-mode-advanced" onclick="setSettingsMode('advanced')">Advanced</button>
@@ -492,13 +488,8 @@
 
                 <!-- Profile Tab -->
                 <div id="stab-profile" class="settings-tab-panel active">
-                    <div class="setup-relaunch-bar">
-                        <span>Want to redo first-time setup, or import a fresh résumé?</span>
-                        <button class="btn btn-secondary btn-sm" onclick="obRelaunch()">Re-run setup wizard</button>
-                        <button class="btn btn-secondary btn-sm" id="settings-replay-tour" onclick="tourReplay()">Replay product tour</button>
-                    </div>
                     <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Personal Info</h2>
                             <div class="form-group"><label>Full Name</label><input type="text" id="cfg-name"></div>
                             <div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div>
@@ -522,19 +513,16 @@
                             <div class="form-group"><label>Summary</label><textarea id="cfg-summary" rows="4"></textarea></div>
                             <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="cfg-skills"></div>
                         </div>
-
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Experience</h2>
                             <div id="experience-list"></div>
                             <button class="btn btn-primary btn-sm" onclick="addExperience()" style="margin-top:10px">+ Add Position</button>
                         </div>
-
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Education</h2>
                             <div id="education-list"></div>
                             <button class="btn btn-primary btn-sm" onclick="addEducation()" style="margin-top:10px">+ Add Education</button>
                         </div>
-
                         <div class="section-card">
                             <h2>Certifications</h2>
                             <div class="form-group">
@@ -542,14 +530,12 @@
                                 <textarea id="cfg-certifications" rows="4" placeholder="CompTIA Security+&#10;AWS Solutions Architect"></textarea>
                             </div>
                         </div>
-
                         <div class="section-card">
                             <h2>References</h2>
                             <p class="section-hint">Appended verbatim to the end of every generated resume. Never sent to the AI.</p>
                             <div id="references-list"></div>
                             <button class="btn btn-primary btn-sm" onclick="addReference()" style="margin-top:10px">+ Add Reference</button>
                         </div>
-
                         <div class="section-card">
                             <h2>EEO / Compliance</h2>
                             <p class="section-hint">Used to auto-fill voluntary self-identification questions. All fields are optional.</p>
@@ -604,10 +590,10 @@
                     </div>
                 </div>
 
-                <!-- Search Tab -->
+                <!-- Job Search Tab -->
                 <div id="stab-search" class="settings-tab-panel">
                     <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Job Search</h2>
                             <div class="form-group"><label>Keywords (comma-separated)</label><input type="text" id="cfg-keywords">
                                 <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
@@ -677,6 +663,37 @@
                             </div>
                         </div>
                         <div class="section-card">
+                            <h2>LinkedIn Session</h2>
+                            <p class="section-hint">Sign into LinkedIn so auto-apply can access authenticated job pages.</p>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="linkedin-login-btn" onclick="linkedinLogin()">Sign in to LinkedIn</button>
+                                <button class="btn btn-secondary btn-sm" id="linkedin-check-btn" style="display:none" onclick="checkLinkedInSessionValidity()">Check Connection</button>
+                                <button class="btn btn-danger btn-sm" id="linkedin-logout-btn" style="display:none" onclick="linkedinLogout()">Disconnect</button>
+                            </div>
+                            <div id="linkedin-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+                        <div class="section-card">
+                            <h2>Indeed Session</h2>
+                            <p class="section-hint">Sign into Indeed so auto-apply can access authenticated job pages.</p>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="indeed-login-btn" onclick="indeedLogin()">Connect Indeed Account</button>
+                                <button class="btn btn-danger btn-sm" id="indeed-logout-btn" style="display:none" onclick="indeedLogout()">Disconnect</button>
+                            </div>
+                            <div id="indeed-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+                        <div class="section-card">
+                            <h2>Adzuna</h2>
+                            <p class="section-hint">Register at <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">developer.adzuna.com</a> to get a free App ID and App Key.</p>
+                            <div class="form-group"><label>App ID</label><input type="password" id="cfg-adzuna-app-id" placeholder="Your Adzuna App ID" autocomplete="off"></div>
+                            <div class="form-group"><label>App Key</label><input type="password" id="cfg-adzuna-app-key" placeholder="Your Adzuna App Key" autocomplete="off"></div>
+                        </div>
+                        <div class="section-card">
+                            <h2>USAJobs</h2>
+                            <p class="section-hint">Free API -- register at <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">developer.usajobs.gov</a></p>
+                            <div class="form-group"><label>Email (User-Agent)</label><input type="email" id="cfg-usajobs-email" placeholder="your@email.com"></div>
+                            <div class="form-group"><label>API Key</label><input type="text" id="cfg-usajobs-key" placeholder="Your USAJobs API key"></div>
+                        </div>
+                        <div class="section-card">
                             <h2>Data Management</h2>
                             <p class="section-hint">Start the job list over: clears your Inbox, Pipeline, and Recently
                                 Deleted. Every posting — including ones you deleted — becomes discoverable again in
@@ -684,13 +701,44 @@
                                 settings, and answer bank are kept.</p>
                             <button class="btn btn-danger btn-sm" onclick="deleteAllTrackedPostings()">Delete all tracked postings</button>
                         </div>
+                        <div class="section-card settings-advanced">
+                            <h2>Import Browser Cookies</h2>
+                            <p class="section-hint">Skip interactive sign-in by importing cookies from the browser you're already logged in with. Export them with an extension like Cookie-Editor (JSON) or as a Netscape <code>cookies.txt</code>, then upload the file here.</p>
+                            <div class="form-group">
+                                <label>Target Site</label>
+                                <div style="display:flex;gap:8px">
+                                    <select id="cookie-import-site" style="flex:1" onchange="cookieImportSiteChanged()">
+                                        <option value="auto">Auto-detect from cookies</option>
+                                        <option value="linkedin">LinkedIn</option>
+                                        <option value="indeed">Indeed</option>
+                                        <option value="other">Other domain…</option>
+                                    </select>
+                                    <input type="text" id="cookie-import-domain" placeholder="e.g. glassdoor.com" style="flex:1;display:none">
+                                </div>
+                            </div>
+                            <div class="btn-row">
+                                <input type="file" id="cookie-import-file" accept=".json,.txt" style="display:none" onchange="importCookies(this)">
+                                <button class="btn btn-primary" id="cookie-import-btn" onclick="document.getElementById('cookie-import-file').click()">Choose Cookie File &amp; Import</button>
+                            </div>
+                            <div id="cookie-import-status" class="ai-status" style="margin-top:10px"></div>
+                        </div>
+                        <div class="section-card settings-advanced">
+                            <h2>BLS (Bureau of Labor Statistics)</h2>
+                            <p class="section-hint">Optional. Used as a fallback for the salary estimator when Adzuna doesn't have data. Register for a free key at <a href="https://data.bls.gov/registrationEngine/" target="_blank" rel="noopener">data.bls.gov</a> (raises rate limit from 25/day to 500/day). Leave blank to skip BLS lookups entirely.</p>
+                            <div class="form-group"><label>API Key</label><input type="password" id="cfg-bls-api-key" placeholder="Optional — leave blank to disable BLS" autocomplete="off"></div>
+                        </div>
+                        <div class="section-card settings-advanced">
+                            <h2>FlareSolverr</h2>
+                            <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
+                            <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Integrations Tab -->
+                <!-- AI Tab -->
                 <div id="stab-integrations" class="settings-tab-panel">
                     <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>AI Connection</h2>
                             <div class="form-group" style="display:flex;gap:8px;align-items:flex-end">
                                 <div style="flex:1"><label>Server URL</label><input type="text" id="cfg-ai-url" placeholder="http://localhost:1234/v1"></div>
@@ -764,108 +812,7 @@
                             <div id="ai-status" class="ai-status"></div>
                             <div id="ctx-reload-status" class="ai-status" style="margin-top:6px"></div>
                         </div>
-
-                        <div class="section-card">
-                            <h2>LinkedIn Session</h2>
-                            <p class="section-hint">Sign into LinkedIn so auto-apply can access authenticated job pages.</p>
-                            <div class="btn-row">
-                                <button class="btn btn-primary" id="linkedin-login-btn" onclick="linkedinLogin()">Sign in to LinkedIn</button>
-                                <button class="btn btn-secondary btn-sm" id="linkedin-check-btn" style="display:none" onclick="checkLinkedInSessionValidity()">Check Connection</button>
-                                <button class="btn btn-danger btn-sm" id="linkedin-logout-btn" style="display:none" onclick="linkedinLogout()">Disconnect</button>
-                            </div>
-                            <div id="linkedin-status" class="ai-status" style="margin-top:10px"></div>
-                        </div>
-
-                        <div class="section-card">
-                            <h2>Indeed Session</h2>
-                            <p class="section-hint">Sign into Indeed so auto-apply can access authenticated job pages.</p>
-                            <div class="btn-row">
-                                <button class="btn btn-primary" id="indeed-login-btn" onclick="indeedLogin()">Connect Indeed Account</button>
-                                <button class="btn btn-danger btn-sm" id="indeed-logout-btn" style="display:none" onclick="indeedLogout()">Disconnect</button>
-                            </div>
-                            <div id="indeed-status" class="ai-status" style="margin-top:10px"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>Import Browser Cookies</h2>
-                            <p class="section-hint">Skip interactive sign-in by importing cookies from the browser you're already logged in with. Export them with an extension like Cookie-Editor (JSON) or as a Netscape <code>cookies.txt</code>, then upload the file here.</p>
-                            <div class="form-group">
-                                <label>Target Site</label>
-                                <div style="display:flex;gap:8px">
-                                    <select id="cookie-import-site" style="flex:1" onchange="cookieImportSiteChanged()">
-                                        <option value="auto">Auto-detect from cookies</option>
-                                        <option value="linkedin">LinkedIn</option>
-                                        <option value="indeed">Indeed</option>
-                                        <option value="other">Other domain…</option>
-                                    </select>
-                                    <input type="text" id="cookie-import-domain" placeholder="e.g. glassdoor.com" style="flex:1;display:none">
-                                </div>
-                            </div>
-                            <div class="btn-row">
-                                <input type="file" id="cookie-import-file" accept=".json,.txt" style="display:none" onchange="importCookies(this)">
-                                <button class="btn btn-primary" id="cookie-import-btn" onclick="document.getElementById('cookie-import-file').click()">Choose Cookie File &amp; Import</button>
-                            </div>
-                            <div id="cookie-import-status" class="ai-status" style="margin-top:10px"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>ATS Login Credentials</h2>
-                            <p class="section-hint">Password used when the tool needs to log into a non-Workday ATS portal. The login email is your profile email above.</p>
-                            <div class="form-group"><label>ATS Login Password</label><input type="password" id="cfg-ats-login-password" placeholder="Password for non-Workday job portals" autocomplete="off"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>Workday Credentials</h2>
-                            <p class="section-hint">Email and password for Workday candidate accounts.</p>
-                            <div class="form-group"><label>Workday Email</label><input type="email" id="cfg-workday-email" placeholder="your@email.com"></div>
-                            <div class="form-group"><label>Workday Password</label><input type="password" id="cfg-workday-password" placeholder="Use a strong, unique password"></div>
-                        </div>
-
-                        <div class="section-card">
-                            <h2>Adzuna</h2>
-                            <p class="section-hint">Register at <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">developer.adzuna.com</a> to get a free App ID and App Key.</p>
-                            <div class="form-group"><label>App ID</label><input type="password" id="cfg-adzuna-app-id" placeholder="Your Adzuna App ID" autocomplete="off"></div>
-                            <div class="form-group"><label>App Key</label><input type="password" id="cfg-adzuna-app-key" placeholder="Your Adzuna App Key" autocomplete="off"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>BLS (Bureau of Labor Statistics)</h2>
-                            <p class="section-hint">Optional. Used as a fallback for the salary estimator when Adzuna doesn't have data. Register for a free key at <a href="https://data.bls.gov/registrationEngine/" target="_blank" rel="noopener">data.bls.gov</a> (raises rate limit from 25/day to 500/day). Leave blank to skip BLS lookups entirely.</p>
-                            <div class="form-group"><label>API Key</label><input type="password" id="cfg-bls-api-key" placeholder="Optional — leave blank to disable BLS" autocomplete="off"></div>
-                        </div>
-
-                        <div class="section-card">
-                            <h2>USAJobs</h2>
-                            <p class="section-hint">Free API -- register at <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">developer.usajobs.gov</a></p>
-                            <div class="form-group"><label>Email (User-Agent)</label><input type="email" id="cfg-usajobs-email" placeholder="your@email.com"></div>
-                            <div class="form-group"><label>API Key</label><input type="text" id="cfg-usajobs-key" placeholder="Your USAJobs API key"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>FlareSolverr</h2>
-                            <p class="section-hint">Solves Cloudflare Turnstile challenges. Both servers must share the same public IP.</p>
-                            <div class="form-group"><label>FlareSolverr URL</label><input type="text" id="cfg-flaresolverr-url" placeholder="http://192.168.1.x:8191/v1"></div>
-                        </div>
-
-                        <div class="section-card settings-advanced">
-                            <h2>Network</h2>
-                            <p class="section-hint">Which network interface the Jobsmith server listens on. Takes effect after restarting Jobsmith (or the Docker container).</p>
-                            <div class="form-group">
-                                <label>Bind Interface</label>
-                                <select id="cfg-server-host" style="width:100%">
-                                    <option value="127.0.0.1">This computer only (127.0.0.1)</option>
-                                    <option value="0.0.0.0">All interfaces &mdash; LAN access (0.0.0.0)</option>
-                                </select>
-                                <span class="hint">&ldquo;All interfaces&rdquo; lets other devices on your network open the dashboard at http://&lt;this-machine's-IP&gt;:8888 &mdash; there is no login, so only enable it on networks you trust. In Docker, loopback is enforced by the port mapping in docker-compose.yml rather than this setting.</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Application Honesty Tab -->
-                <div id="stab-honesty" class="settings-tab-panel">
-                    <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic" id="card-honesty">
                             <h2>Application Honesty Level</h2>
                             <div class="honesty-warning-banner">
                                 &#9888; Warning: Settings above &ldquo;Tailored&rdquo; may generate false information. You are responsible for the accuracy of submitted applications.
@@ -886,8 +833,7 @@
                                 <strong>Fabricated</strong> — invent achievements and fill gaps; review before interviewing.
                             </div>
                         </div>
-
-                        <div class="section-card section-card-wide">
+                        <div class="section-card section-card-wide settings-basic" id="card-resume-style">
                             <h2>Resume Visual Style</h2>
                             <p class="section-hint">Controls fonts, colors, and layout of the generated resume &mdash; and the matching cover letter. Every style stays single-column real text, so all of them parse cleanly through an ATS.</p>
 
@@ -940,7 +886,6 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="section-card">
                             <h2>Document Format</h2>
                             <p class="section-hint">Choose whether the generated resume and cover letter come out as Word (DOCX) or PDF. PDF is rendered in pure Python &mdash; no extra software needed. A DOCX is always kept for autofill.</p>
@@ -949,7 +894,6 @@
                                 <button class="honesty-stop document-format-stop" data-fmt="pdf" onclick="setDocumentFormat('pdf')">PDF</button>
                             </div>
                         </div>
-
                         <div class="section-card settings-advanced">
                             <h2>Max Experience Entries</h2>
                             <p class="section-hint">Cap the number of past roles shown on tailored resumes. The local LLM picks the most relevant non-pinned roles for the target job. Pin a role in the Profile tab to force it onto every resume.</p>
@@ -963,7 +907,6 @@
                                 </label>
                             </div>
                         </div>
-
                         <div class="section-card settings-advanced">
                             <h2>AI Edit Model</h2>
                             <p class="section-hint">Default model used by the AI Edit feature when revising resumes and cover letters. Per-edit override available in the modal.</p>
@@ -976,18 +919,22 @@
                                 <strong>Strong</strong> — Higher-quality revisions using the Content model (<code>ai.models.strong</code>, recommended).
                             </div>
                         </div>
+                        <div class="section-card settings-advanced" id="card-prompts">
+                            <h2>AI Prompts</h2>
+                            <p class="section-hint">Every prompt Jobsmith sends to the AI, editable. Placeholders like <code>{profile_summary}</code> are filled in automatically at run time — keep the ones you need. Customized prompts are saved to config.yaml and win over the built-in defaults; prompts left at default automatically pick up improvements in app updates. Saving is per-prompt (the Save Settings button up top doesn't touch these).</p>
+                            <div id="prompts-list"><p class="section-hint">Loading prompts…</p></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Apply Assist Tab -->
+                <!-- Apply Tab -->
                 <div id="stab-assist" class="settings-tab-panel">
                     <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Apply Assist</h2>
                             <p class="section-hint">Apply Assist runs inside your normal Chrome or Firefox via the Jobsmith browser extension. When you click "Apply Assist" on a job, the extension injects a sidebar with your tailored resume, cover letter, and pre-filled answers right into the live ATS page. No separate browser is launched.</p>
                         </div>
-
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Install the extension</h2>
                             <p class="section-hint">Save the extension to your Downloads folder, then load it in your browser.</p>
                             <div class="form-group">
@@ -1014,7 +961,6 @@
                                 </ol>
                             </div>
                         </div>
-
                         <div class="section-card">
                             <h2>Extension token</h2>
                             <p class="section-hint">The extension authenticates to your local Jobsmith instance with this token. You normally never touch it &mdash; the token pairs automatically the first time you launch Apply Assist. Paste it into the extension popup's "Extension token" field only if pairing fails.</p>
@@ -1027,13 +973,7 @@
                                 <div id="ext-token-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Answer Bank Tab -->
-                <div id="stab-answerbank" class="settings-tab-panel">
-                    <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card" id="card-answerbank">
                             <h2>Answer Bank</h2>
                             <p class="section-hint">Pre-written answers for common application questions. The auto-apply system uses these instead of asking the AI to generate fresh answers every time. Fill in the placeholders with your real answers.</p>
 
@@ -1047,55 +987,35 @@
 
                             <div id="answer-bank-list"></div>
                         </div>
-
                         <div class="section-card">
                             <h2>Custom Answers</h2>
                             <p class="section-hint">Add your own question/answer pairs. Set trigger keywords that match specific questions on application forms.</p>
                             <div id="custom-answer-list"></div>
                             <button class="btn btn-primary btn-sm" onclick="addCustomAnswer()" style="margin-top:12px">+ Add Custom Answer</button>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Prompts Tab -->
-                <div id="stab-prompts" class="settings-tab-panel">
-                    <div class="settings-grid">
-                        <div class="section-card">
-                            <h2>AI Prompts</h2>
-                            <p class="section-hint">Every prompt Jobsmith sends to the AI, editable. Placeholders like <code>{profile_summary}</code> are filled in automatically at run time — keep the ones you need. Customized prompts are saved to config.yaml and win over the built-in defaults; prompts left at default automatically pick up improvements in app updates. Saving is per-prompt (the Save Settings button up top doesn't touch these).</p>
-                            <div id="prompts-list"><p class="section-hint">Loading prompts…</p></div>
+                        <div class="section-card settings-advanced">
+                            <h2>ATS Login Credentials</h2>
+                            <p class="section-hint">Password used when the tool needs to log into a non-Workday ATS portal. The login email is your profile email above.</p>
+                            <div class="form-group"><label>ATS Login Password</label><input type="password" id="cfg-ats-login-password" placeholder="Password for non-Workday job portals" autocomplete="off"></div>
+                        </div>
+                        <div class="section-card settings-advanced">
+                            <h2>Workday Credentials</h2>
+                            <p class="section-hint">Email and password for Workday candidate accounts.</p>
+                            <div class="form-group"><label>Workday Email</label><input type="email" id="cfg-workday-email" placeholder="your@email.com"></div>
+                            <div class="form-group"><label>Workday Password</label><input type="password" id="cfg-workday-password" placeholder="Use a strong, unique password"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Logs Tab -->
-                <div id="stab-logs" class="settings-tab-panel">
-                    <div class="settings-grid">
-                        <div class="section-card">
-                            <h2>Backend Logs</h2>
-                            <p class="section-hint">Recent backend activity — job fetching, tailoring, auto-apply, and errors. Useful when something fails silently. The log rotates at 5&nbsp;MB (3 backups kept).</p>
-                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-                                <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
-                                <label style="display:flex;align-items:center;gap:6px;font-size:13px">
-                                    <input type="checkbox" id="logs-autorefresh" onchange="toggleLogsAutoRefresh()"> Auto-refresh
-                                </label>
-                                <select id="logs-lines" onchange="loadLogs()" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
-                                    <option value="200">Last 200 lines</option>
-                                    <option value="500" selected>Last 500 lines</option>
-                                    <option value="2000">Last 2000 lines</option>
-                                </select>
-                                <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy</button>
-                                <button class="btn btn-secondary btn-sm" onclick="revealLogFile()">Reveal log file</button>
-                            </div>
-                            <pre id="logs-output" class="logs-output">Loading…</pre>
-                            <div id="logs-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
-                        </div>
-                    </div>
-                </div>
-
+                <!-- App Tab -->
                 <div id="stab-sync" class="settings-tab-panel">
+                    <div class="setup-relaunch-bar">
+                        <span>Want to redo first-time setup, or import a fresh résumé?</span>
+                        <button class="btn btn-secondary btn-sm" onclick="obRelaunch()">Re-run setup wizard</button>
+                        <button class="btn btn-secondary btn-sm" id="settings-replay-tour" onclick="tourReplay()">Replay product tour</button>
+                    </div>
                     <div class="settings-grid">
-                        <div class="section-card">
+                        <div class="section-card settings-basic">
                             <h2>Folder Sync</h2>
                             <p class="section-hint">Two-way sync of jobs, applications, and your profile with the Jobsmith iOS app through a shared folder (iCloud Drive, Dropbox, etc.). No account and no server — each device reads and writes the same folder. Your ATS login passwords are never written to the folder.</p>
                             <div class="form-group">
@@ -1146,7 +1066,6 @@
                             </div>
                             <div id="sync-status" style="margin-top:12px;font-size:0.9rem;color:var(--text-secondary)"></div>
                         </div>
-
                         <div class="section-card">
                             <h2>Live updates</h2>
                             <p class="section-hint">Automatically refresh the current screen as things change in the background — new jobs from a scrape, applications finishing, or changes synced from your iPhone. Turn this off if you'd rather refresh manually.</p>
@@ -1156,6 +1075,37 @@
                                 </label>
                                 <span class="hint">Refreshes the open tab every few seconds. Pauses while you're typing, scrolling a menu, or a dialog is open, so it won't interrupt you.</span>
                             </div>
+                        </div>
+                        <div class="section-card settings-advanced">
+                            <h2>Network</h2>
+                            <p class="section-hint">Which network interface the Jobsmith server listens on. Takes effect after restarting Jobsmith (or the Docker container).</p>
+                            <div class="form-group">
+                                <label>Bind Interface</label>
+                                <select id="cfg-server-host" style="width:100%">
+                                    <option value="127.0.0.1">This computer only (127.0.0.1)</option>
+                                    <option value="0.0.0.0">All interfaces &mdash; LAN access (0.0.0.0)</option>
+                                </select>
+                                <span class="hint">&ldquo;All interfaces&rdquo; lets other devices on your network open the dashboard at http://&lt;this-machine's-IP&gt;:8888 &mdash; there is no login, so only enable it on networks you trust. In Docker, loopback is enforced by the port mapping in docker-compose.yml rather than this setting.</span>
+                            </div>
+                        </div>
+                        <div class="section-card settings-advanced" id="card-logs">
+                            <h2>Backend Logs</h2>
+                            <p class="section-hint">Recent backend activity — job fetching, tailoring, auto-apply, and errors. Useful when something fails silently. The log rotates at 5&nbsp;MB (3 backups kept).</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                                <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                                    <input type="checkbox" id="logs-autorefresh" onchange="toggleLogsAutoRefresh()"> Auto-refresh
+                                </label>
+                                <select id="logs-lines" onchange="loadLogs()" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px">
+                                    <option value="200">Last 200 lines</option>
+                                    <option value="500" selected>Last 500 lines</option>
+                                    <option value="2000">Last 2000 lines</option>
+                                </select>
+                                <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy</button>
+                                <button class="btn btn-secondary btn-sm" onclick="revealLogFile()">Reveal log file</button>
+                            </div>
+                            <pre id="logs-output" class="logs-output">Loading…</pre>
+                            <div id="logs-status" style="margin-top:6px;font-size:0.85rem;color:var(--text-secondary)"></div>
                         </div>
                     </div>
                 </div>
@@ -1392,18 +1342,18 @@
     <!-- The Pipeline stage vocabulary (labels/order/colours) must exist before
          review.js and deck.js render the funnel, the tabs or the board. -->
     <script src="js/pipeline-stages.js?v=1"></script>
-    <script src="js/core.js?v=48"></script>
+    <script src="js/core.js?v=49"></script>
     <script src="js/dashboard.js?v=41"></script>
     <!-- The per-job action registry must define jobActions()/renderJobActions()
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
-    <script src="js/jobs.js?v=49"></script>
+    <script src="js/jobs.js?v=50"></script>
     <script src="js/review.js?v=43"></script>
-    <script src="js/settings.js?v=46"></script>
-    <script src="js/prompts.js?v=1"></script>
+    <script src="js/settings.js?v=47"></script>
+    <script src="js/prompts.js?v=2"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=41"></script>
-    <script src="js/deck.js?v=11"></script>
-    <script src="js/onboarding.js?v=41"></script>
+    <script src="js/deck.js?v=12"></script>
+    <script src="js/onboarding.js?v=42"></script>
 </body>
 </html>

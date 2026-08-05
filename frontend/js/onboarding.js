@@ -157,7 +157,7 @@ function obNext() {
 }
 
 async function obSkip() {
-    if (!(await appConfirm('Skip first-time setup? You can re-run it anytime from Settings → Profile.'))) return;
+    if (!(await appConfirm('Skip first-time setup? You can re-run it anytime from Settings → App.'))) return;
     try { await api('/api/onboarding/complete', { method: 'POST', body: '{}' }); } catch (e) {}
     obHide();
     toast('Setup skipped — you can re-run it from Settings.', 'info');
@@ -734,63 +734,63 @@ const TOUR_STEPS = [
         hash: '#settings',
         selector: '.settings-tabs',
         title: 'Settings, tab by tab',
-        body: 'Settings opens in Basic mode — six tabs cover everything you need day-to-day. The Save Settings button at the top right saves every tab at once. The next stops walk through each one so nothing feels like a mystery toggle.',
+        body: 'Settings opens in Basic mode — five tabs cover everything you need day-to-day: Profile, Job Search, AI, Apply, and App. The Save Settings button at the top right saves every tab at once. The next stops walk through them so nothing feels like a mystery toggle.',
     },
     {
         hash: '#settings',
         selector: '#stab-search',
-        title: 'Search',
-        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, and exclusion terms — plus company watchlists that follow specific Greenhouse, Lever, Ashby, Workable, and Recruitee boards. Use the board finder or AI company suggestions to build the list. Tighten these if your feed is too noisy; loosen them if you\'re not seeing enough.',
+        title: 'Job Search',
+        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, and exclusion terms — plus company watchlists that follow specific Greenhouse, Lever, Ashby, Workable, and Recruitee boards. Your job sources live here too: LinkedIn and Indeed sign-in for authenticated scraping, and Adzuna / USAJobs API keys for extra feeds. Tighten these if your feed is too noisy; loosen them if you\'re not seeing enough.',
         before: () => _tourSwitchSettingsTab('stab-search'),
     },
     {
         hash: '#settings',
         selector: '#stab-integrations',
-        title: 'Integrations',
-        body: 'External services: LM Studio AI endpoint + model picks (Content / Navigator / Utility), LinkedIn and Indeed sign-in for authenticated scraping, and Adzuna / USAJobs API keys for more job sources. None are required — connect what you have. Advanced mode adds more here: scoring tier, context window, cookie import, ATS/Workday credentials, BLS, and FlareSolverr.',
+        title: 'AI',
+        body: 'Everything the AI does: your LM Studio (or other OpenAI-compatible) endpoint and the three model picks — Content, Navigator, Utility — plus how honestly it tailors, the resume visual style, and DOCX/PDF output. Advanced mode adds the scoring tier, context window, max experience entries, the AI Edit model, and the full prompt editor.',
         before: () => _tourSwitchSettingsTab('stab-integrations'),
     },
     {
         hash: '#settings',
-        selector: '#stab-honesty',
+        selector: '#card-honesty',
         title: 'Honesty levels',
-        body: 'Pick how much latitude the AI takes when tailoring: honest (only restate facts), tailored (rephrase for emphasis), embellished (stretch a bit), or fabricated (invent — generally avoid). You can override this per generation. This tab also sets the resume visual style and DOCX/PDF output format.',
-        before: () => _tourSwitchSettingsTab('stab-honesty'),
+        body: 'Pick how much latitude the AI takes when tailoring: honest (only restate facts), tailored (rephrase for emphasis), embellished (stretch a bit), or fabricated (invent — generally avoid). You can override this per generation. Just below it, the style studio sets how your resume looks.',
+        before: () => _tourSwitchSettingsTab('stab-integrations'),
     },
     {
         hash: '#settings',
         selector: '#stab-assist',
-        title: 'Apply Assist',
-        body: 'This is the main way you apply — and it runs inside your normal Chrome or Firefox via our browser extension (no separate browser is launched). On Firefox, click "Install for Firefox (signed)" for a permanent, Mozilla-signed add-on; on Chrome, download the zip and load it unpacked. Then paste the token below into the extension popup. After that, clicking "Apply Assist" on any job injects a sidebar with your tailored materials and autofills standard fields right on the live ATS page — and you can click any field in the sidebar to copy its value.',
+        title: 'Apply',
+        body: 'This is the main way you apply — and it runs inside your normal Chrome or Firefox via our browser extension (no separate browser is launched). On Firefox, click "Get for Firefox" for a permanent, Mozilla-signed add-on; on Chrome, "Get for Chrome" saves an unpacked folder you load from chrome://extensions. Pairing is automatic; the token below is only a fallback. After that, clicking "Apply Assist" on any job injects a sidebar with your tailored materials and autofills standard fields right on the live ATS page — and you can click any field in the sidebar to copy its value. Your answer bank and ATS/Workday credentials live on this tab too.',
         before: () => _tourSwitchSettingsTab('stab-assist'),
-    },
-    {
-        hash: '#settings',
-        selector: '#stab-answerbank',
-        title: 'Answer Bank',
-        body: 'Every time you answer a custom application question (work auth, sponsorship, why this company, etc.), it gets stored here so the next form gets pre-filled automatically. Edit or delete entries any time if your answers change.',
-        before: () => _tourSwitchSettingsTab('stab-answerbank'),
     },
     {
         hash: '#settings',
         selector: '.settings-mode-toggle',
         title: 'Basic vs. Advanced',
-        body: 'This toggle controls how much of Settings you see. Basic keeps it to the essentials; Advanced (shown now) reveals the Prompts and Logs tabs plus deeper knobs on the other tabs. Anything you set in Advanced stays in effect when you switch back.',
+        body: 'This toggle controls how much of Settings you see. Basic keeps each tab to the essentials; Advanced (shown now) reveals every other card — prompts, logs, credentials, network, and the deeper knobs. Anything you set in Advanced stays in effect when you switch back.',
         before: () => setSettingsMode('advanced'),
     },
     {
         hash: '#settings',
-        selector: '#stab-prompts',
+        selector: '#card-answerbank',
+        title: 'Answer Bank',
+        body: 'Every time you answer a custom application question (work auth, sponsorship, why this company, etc.), it gets stored here so the next form gets pre-filled automatically. Edit or delete entries any time if your answers change.',
+        before: () => { setSettingsMode('advanced'); _tourSwitchSettingsTab('stab-assist'); loadAnswerBank(); },
+    },
+    {
+        hash: '#settings',
+        selector: '#card-prompts',
         title: 'Edit the AI\'s prompts',
-        body: 'Every prompt Jobsmith sends to your local AI — scoring, resume tailoring, cover letters, parsing — is editable here. Placeholders like {profile_summary} are filled in automatically at run time. Customized prompts are saved to your config; Reset to Default brings any of them back.',
-        before: () => { setSettingsMode('advanced'); _tourSwitchSettingsTab('stab-prompts'); loadPrompts(); },
+        body: 'Every prompt Jobsmith sends to your local AI — scoring, resume tailoring, cover letters, parsing — is editable at the bottom of the AI tab. Placeholders like {profile_summary} are filled in automatically at run time. Customized prompts are saved to your config; Reset to Default brings any of them back.',
+        before: () => { setSettingsMode('advanced'); _tourSwitchSettingsTab('stab-integrations'); loadPrompts(); },
     },
     {
         hash: '#settings',
         selector: '#settings-replay-tour',
         title: 'Replay anytime',
-        body: 'Done! You can re-run this tour anytime from this button under Settings → Profile. Happy applying.',
-        before: () => _tourSwitchSettingsTab('stab-profile'),
+        body: 'Done! The App tab holds folder sync with the iPhone app, live updates, logs, and these two buttons — you can re-run this tour or the setup wizard anytime from Settings → App. Happy applying.',
+        before: () => _tourSwitchSettingsTab('stab-sync'),
     },
 ];
 
@@ -939,7 +939,7 @@ function tourPrev() {
 
 async function tourSkip() {
     await _tourClose(true);
-    toast('Tour skipped — replay it anytime from Settings → Profile.', 'info');
+    toast('Tour skipped — replay it anytime from Settings → App.', 'info');
 }
 
 async function tourFinish() {

@@ -1,4 +1,4 @@
-// prompts.js — Settings → Prompts tab: view/edit/reset the internal AI prompts.
+// prompts.js — Settings → AI → AI Prompts card: view/edit/reset the internal AI prompts.
 // Loaded once per session; saves are per-prompt via PUT/DELETE /api/prompts/{key}.
 
 let _promptsData = null;   // array from GET /api/prompts, in registry order

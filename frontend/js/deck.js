@@ -1120,16 +1120,18 @@ function _buildRegistry() {
         { group: 'Actions', label: 'Toggle Pipeline view (board / table)', keywords: 'layout kanban classic tabs review', run: () => { location.hash = 'review'; setTimeout(() => _runIf('togglePipelineView'), 0); } },
         { group: 'Actions', label: 'Toggle Now rail', keywords: 'runs progress sidebar', run: () => _runIf('toggleNowRail') },
 
-        // Settings panes
-        { group: 'Settings', label: 'Profile', keywords: 'name resume experience', run: () => paletteGoSettings('stab-profile') },
-        { group: 'Settings', label: 'Search', keywords: 'keywords locations watchlist', run: () => paletteGoSettings('stab-search') },
-        { group: 'Settings', label: 'Integrations', keywords: 'ai linkedin adzuna api', run: () => paletteGoSettings('stab-integrations') },
-        { group: 'Settings', label: 'Honesty', keywords: 'embellish fabricate level', run: () => paletteGoSettings('stab-honesty') },
-        { group: 'Settings', label: 'Apply Assist', keywords: 'autofill assist', run: () => paletteGoSettings('stab-assist') },
-        { group: 'Settings', label: 'Sync', keywords: 'folder device phone', run: () => paletteGoSettings('stab-sync') },
-        { group: 'Settings', label: 'Answer Bank', keywords: 'questions answers', run: () => paletteGoSettings('stab-answerbank') },
-        { group: 'Settings', label: 'Prompts', keywords: 'ai prompt registry', run: () => paletteGoSettings('stab-prompts') },
-        { group: 'Settings', label: 'Logs', keywords: 'debug logs', run: () => paletteGoSettings('stab-logs') },
+        // Settings panes (5 tabs). The extra entries below are deep links to a
+        // card inside a tab — the old per-topic tabs people still search for.
+        { group: 'Settings', label: 'Profile', keywords: 'name resume experience education eeo references', run: () => paletteGoSettings('stab-profile') },
+        { group: 'Settings', label: 'Job Search', keywords: 'keywords locations watchlist sources adzuna usajobs linkedin api', run: () => paletteGoSettings('stab-search') },
+        { group: 'Settings', label: 'AI', keywords: 'integrations model lm studio honesty prompts resume style', run: () => paletteGoSettings('stab-integrations') },
+        { group: 'Settings', label: 'Apply', keywords: 'apply assist autofill answers extension workday ats', run: () => paletteGoSettings('stab-assist') },
+        { group: 'Settings', label: 'App', keywords: 'sync folder device phone appearance network logs tour', run: () => paletteGoSettings('stab-sync') },
+        { group: 'Settings', label: 'Honesty level', keywords: 'embellish fabricate level', run: () => paletteGoSettings('stab-integrations', 'card-honesty') },
+        { group: 'Settings', label: 'Resume style', keywords: 'visual template accent font', run: () => paletteGoSettings('stab-integrations', 'card-resume-style') },
+        { group: 'Settings', label: 'Answer Bank', keywords: 'questions answers', run: () => paletteGoSettings('stab-assist', 'card-answerbank') },
+        { group: 'Settings', label: 'Prompts', keywords: 'ai prompt registry', run: () => paletteGoSettings('stab-integrations', 'card-prompts') },
+        { group: 'Settings', label: 'Logs', keywords: 'debug logs', run: () => paletteGoSettings('stab-sync', 'card-logs') },
     ];
 }
 
@@ -1159,12 +1161,23 @@ function paletteAddUrl() {
     }, 0);
 }
 
-function paletteGoSettings(panelId) {
+function paletteGoSettings(panelId, cardId) {
     location.hash = 'settings';
     setTimeout(() => {
+        // A card that only exists in Advanced mode (Prompts, Logs, …) needs the
+        // mode flipped, or the palette would land on an empty-looking tab.
+        const card = cardId ? document.getElementById(cardId) : null;
+        if (card && !card.classList.contains('settings-basic') && typeof setSettingsMode === 'function'
+            && typeof getSettingsMode === 'function' && getSettingsMode() !== 'advanced') {
+            setSettingsMode('advanced');
+        }
         const btns = document.querySelectorAll('#settings .settings-tab');
         for (const b of btns) {
-            if ((b.getAttribute('onclick') || '').includes(`'${panelId}'`)) { b.click(); return; }
+            if ((b.getAttribute('onclick') || '').includes(`'${panelId}'`)) {
+                b.click();
+                if (card && card.scrollIntoView) setTimeout(() => card.scrollIntoView({ block: 'start', behavior: 'smooth' }), 0);
+                return;
+            }
         }
     }, 0);
 }
