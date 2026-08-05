@@ -1,5 +1,9 @@
 # Jobsmith Desktop (Tauri)
 
+> Looking for how to *use* the desktop app rather than build it? See
+> [docs/getting-started-desktop.md](docs/getting-started-desktop.md) — install,
+> setup wizard, first fetch, tailoring, and Apply Assist.
+
 The desktop app is a thin [Tauri](https://tauri.app) shell around the existing
 FastAPI backend. Tauri opens a native window; the backend runs as a bundled
 **sidecar** (a PyInstaller one-file build of `backend/main.py`) that the shell

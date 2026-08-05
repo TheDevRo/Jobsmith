@@ -227,5 +227,10 @@ fetch_status: dict = {"active": False, "phase": "", "detail": "", "sources_done"
 # scored right now ("title · company"); done/total drive the progress bar;
 # `failed` counts jobs the scoring backend couldn't reach (left unscored to retry).
 score_status: dict = {"status": "idle", "done": 0, "total": 0, "failed": 0, "current": "", "detail": "", "started_at": None, "finished_at": None}
+# Batch-tailoring result counters (B3). Purely additive/informational: the
+# run's lifecycle is still driven by the "tailor_batch" task slot. `tailored`
+# counts jobs that cleared min_score AND produced materials, so the UI can
+# explain a run that legitimately did nothing.
+tailor_status: dict = {"processed": 0, "tailored": 0, "min_score": 0.0, "finished_at": None}
 detect_types_status: dict = {"active": False, "processed": 0, "easy_apply": 0, "quick_apply": 0, "external": 0, "unknown": 0, "detail": ""}
 refetch_status: dict = {"active": False, "processed": 0, "total": 0, "updated": 0, "failed": 0, "detail": ""}

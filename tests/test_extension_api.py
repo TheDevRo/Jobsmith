@@ -261,3 +261,61 @@ def test_workday_account_report_and_read(workday_client, token_path, tmp_path, m
     r = workday_client.post("/api/ext/workday_account", headers=hdr,
                             json={"tenant_host": host, "action": "signed_in"})
     assert r.json()["account"]["status"] == "active"
+
+
+# ---- A3: assist checkin persists extension_paired -------------------------
+
+@pytest.fixture
+def paired_config(monkeypatch):
+    """Capture what assist_checkin writes back to config.yaml."""
+    from backend import app_state
+
+    saved = {"cfg": {"profile": {}}, "writes": 0}
+
+    def _save(cfg):
+        saved["cfg"] = cfg
+        saved["writes"] += 1
+
+    monkeypatch.setattr(app_state, "load_config", lambda: dict(saved["cfg"]))
+    monkeypatch.setattr(app_state, "save_config", _save)
+    return saved
+
+
+def _start_handoff():
+    """Register a handoff session and return (session_id, setup_token)."""
+    from backend import applicant_assist
+
+    setup_token = "setup-tok"
+    rec = applicant_assist.create_handoff_session(
+        {"id": "job1", "title": "T", "company": "C", "url": "https://example.com/apply"},
+        setup_token,
+    )
+    return rec["id"], setup_token
+
+
+def test_assist_checkin_marks_extension_paired(client, token_path, paired_config):
+    session_id, setup_token = _start_handoff()
+    r = client.post("/api/ext/assist/checkin",
+                    headers={"X-Jobsmith-Token": setup_token},
+                    json={"session_id": session_id})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert paired_config["cfg"]["extension_paired"] is True
+    assert paired_config["writes"] == 1
+
+    # Already true → no second write (no config churn per checkin).
+    session_id2, setup_token2 = _start_handoff()
+    r = client.post("/api/ext/assist/checkin",
+                    headers={"X-Jobsmith-Token": setup_token2},
+                    json={"session_id": session_id2})
+    assert r.status_code == 200
+    assert paired_config["writes"] == 1
+
+
+def test_assist_checkin_rejects_bad_token(client, token_path, paired_config):
+    session_id, _ = _start_handoff()
+    r = client.post("/api/ext/assist/checkin",
+                    headers={"X-Jobsmith-Token": "nope"},
+                    json={"session_id": session_id})
+    assert r.status_code == 401
+    assert paired_config["writes"] == 0

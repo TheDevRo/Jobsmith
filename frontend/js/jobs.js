@@ -214,7 +214,7 @@ function renderQualitySection(job) {
         </div>`).join('');
     return `
         <div class="detail-section">
-            <h4>Posting Quality — ${Math.round(report.score)}/100</h4>
+            <h4 title="Posting quality: 0-100 signal that this listing may be a ghost job (vague, stale, or duplicated) — lower is more suspicious">Posting Quality — ${Math.round(report.score)}/100</h4>
             <div class="quality-signal-list">${rows}</div>
         </div>`;
 }
@@ -222,9 +222,10 @@ function renderQualitySection(job) {
 function renderJobs(jobs, total) {
     const container = document.getElementById('jobs-list');
     if (jobs.length === 0) {
+        const hint = (typeof firstRunHint === 'function') ? firstRunHint() : '';
         container.innerHTML = isRecycleBinView()
             ? '<p class="placeholder">Recently Deleted is empty.</p>'
-            : '<p class="placeholder">Nothing to scout right now. <a href="#dashboard" style="color:var(--accent)">Fetch new jobs</a> from Activity, or adjust your filters.</p>';
+            : '<p class="placeholder">Nothing to scout right now. <a href="#dashboard" style="color:var(--accent)">Fetch new jobs</a> from Activity, or adjust your filters.' + hint + '</p>';
         document.getElementById('jobs-pagination').innerHTML = '';
         clearDetailPane();
         return;
@@ -267,7 +268,7 @@ function renderJobs(jobs, total) {
                         <div class="job-card-meta">
                             <span>${escapeHtml(job.location || '')}</span>
                             <span class="source-badge">${escapeHtml(job.source)}</span>
-                            ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
+                            ${job.is_easy_apply ? '<span class="easy-apply-badge" title="Jobs you can apply to directly on the source site, without a separate employer portal">Easy Apply</span>' : ''}
                             ${qualityBadge(job)}
                             ${appliedBadge(job)}
                             <span>${timeAgo(job.date_discovered)}</span>
@@ -283,7 +284,7 @@ function renderJobs(jobs, total) {
                         </div>` : ''}
                         ${status === 'deleted' ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();restoreJob('${safeId(job.id)}')" title="Restore this posting to the Inbox">Restore</button>
                         <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase</button>` : ''}
-                        ${status !== 'deleted' && job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${safeId(job.id)}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
+                        ${status !== 'deleted' && job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${safeId(job.id)}')" title="Open Apply Assist browser">Assist Me</button>` : ''}
                     </div>
                 </div>
             </div>
@@ -362,7 +363,7 @@ function buildJobDetailHtml(job, opts) {
                 <div class="detail-meta">
                     <span class="pill pill-${status}">${statusLabel}</span>
                     <span class="source-badge">${escapeHtml(job.source)}</span>
-                    ${job.is_easy_apply ? '<span class="easy-apply-badge">Easy Apply</span>' : ''}
+                    ${job.is_easy_apply ? '<span class="easy-apply-badge" title="Jobs you can apply to directly on the source site, without a separate employer portal">Easy Apply</span>' : ''}
                     ${qualityBadge(job)}
                     ${appliedBadge(job)}
                     <span style="font-size:12px;color:var(--text-muted)">${timeAgo(job.date_discovered)}</span>
@@ -396,7 +397,7 @@ function buildJobDetailHtml(job, opts) {
             <button class="btn btn-danger btn-sm" onclick="eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase Permanently</button>
             ` : `
             <button class="btn btn-secondary btn-sm" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
-            <button class="btn btn-primary btn-sm" onclick="tailorJob('${safeId(job.id)}')">Tailor Resume</button>
+            <button class="btn btn-primary btn-sm" onclick="tailorJob('${safeId(job.id)}')" title="Generate a resume and cover letter customized to this job">Tailor Resume</button>
             ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${safeId(job.id)}')">Apply Assist</button>` : ''}
             ${job.app_id ? `<button class="btn btn-secondary btn-sm" onclick="viewApplicationFor('${escapeHtml(String(job.id))}')">View Application</button>` : ''}
             ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
@@ -757,10 +758,10 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// ---- Applicant Assist ----
+// ---- Apply Assist ----
 
 async function launchAssist(jobId) {
-    toast('Preparing Applicant Assist…', 'info');
+    toast('Preparing Apply Assist…', 'info');
     // Tell the extension which job is now active so its sidepanel/autofill
     // can pick up the right resume + answer bank — same hint that the old
     // "Open Job URL" button sent. Fire-and-forget.
@@ -786,13 +787,15 @@ async function launchAssist(jobId) {
         }
         toast('Apply Assist response was unexpected', 'error');
     } catch (e) {
-        toast('Failed to launch Assist: ' + e.message, 'error');
+        // C2 — the most common cause is "extension not installed yet", which
+        // the bare error message never says.
+        toast('Could not start Apply Assist: ' + e.message + '. If the extension isn’t installed yet, see Settings → Apply Assist.', 'error');
     }
 }
 
 function _renderAutofillReport(report) {
     if (!report) {
-        return '<p style="color:var(--text-muted);font-size:13px">No autofill report yet — run Applicant Assist to generate one.</p>';
+        return '<p style="color:var(--text-muted);font-size:13px">No autofill report yet — run Apply Assist to generate one.</p>';
     }
     const filled = (report.filled || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
     const attention = (report.needs_attention || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');

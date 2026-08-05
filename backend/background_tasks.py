@@ -257,11 +257,14 @@ async def _bg_tailor_batch(min_score: float):
     """Score all discovered jobs; generate materials for those above threshold."""
     state.cancel_tailor.clear()
     BATCH_SIZE = 50
+    # B3 — reset the informational counters for this run.
+    state.tailor_status = {"processed": 0, "tailored": 0, "min_score": min_score, "finished_at": None}
     try:
         cfg = state.load_config()
         profile = cfg.get("profile", {})
         honesty_level = cfg.get("application_honesty", {}).get("honesty_level", "honest")
         processed = 0
+        tailored = 0
 
         while True:
             if state.cancel_tailor.is_set():
@@ -341,13 +344,16 @@ async def _bg_tailor_batch(min_score: float):
                             profile, resume_text, cl_text, honesty_level, cfg
                         )
                         await db.set_embellishment_log(job_id, emb_log)
+                        tailored += 1
                     except Exception:
                         logger.exception("Failed to generate materials for %s", job.get("title"))
                         await db.update_job_status(job_id, "discovered")
                 else:
                     await db.update_job_status(job_id, "discovered")
                 processed += 1
+                state.tailor_status.update(processed=processed, tailored=tailored)
 
+        state.tailor_status.update(processed=processed, tailored=tailored, finished_at=_iso_now())
         await db.log_activity("batch_tailor_complete", f"Processed {processed} jobs")
         state.push_notification("tailor", "Batch Tailoring Complete", f"Processed {processed} jobs", "success")
     except asyncio.CancelledError:

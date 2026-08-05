@@ -15,8 +15,15 @@ async function loadDashboard() {
             api('/api/activity?limit=20'),
         ]);
 
-        // Cache for the Now rail's "Today" line (used from other tabs without refetch).
+        // Cache for the Now rail's "Today" line (used from other tabs without
+        // refetch) and for firstRunHint() (B2).
         window._lastStats = stats;
+
+        // A3: getting-started checklist (reads the cache set on the line above).
+        renderGettingStarted();
+
+        // C3: the post-wizard nudge has done its job the moment jobs exist.
+        if ((stats.total_jobs || 0) > 0 && typeof hideBanner === 'function') hideBanner('first-fetch');
 
         document.getElementById('stat-total').textContent = stats.total_jobs || 0;
         document.getElementById('stat-pending').textContent = stats.pending_review || 0;
@@ -42,7 +49,8 @@ async function loadDashboard() {
 
         const feed = document.getElementById('activity-feed');
         if (activity.length === 0) {
-            feed.innerHTML = '<p class="placeholder">No activity yet. Fetch some jobs to get started!</p>';
+            const hint = (typeof firstRunHint === 'function') ? firstRunHint() : '';
+            feed.innerHTML = '<p class="placeholder">No activity yet. Fetch some jobs to get started!' + hint + '</p>';
         } else {
             feed.innerHTML = activity.map(a => `
                 <div class="activity-item">
@@ -82,6 +90,97 @@ async function loadDashboard() {
     } catch (e) {
         /* the card just stays hidden */
     }
+}
+
+// ---- A3: getting-started checklist ----
+// Five things a new install needs before the product does anything useful.
+// Data-gated like the digest card and deliberately cheap: it renders only from
+// loadDashboard (never polled), reads the caches other code already fills
+// (window._aiStatus, window._lastStats), and fetches /api/onboarding/status at
+// most once per page load. The moment all five pass it marks itself done in
+// localStorage and hides — so an already-configured user sees it, at most, for
+// the one render before auto-dismissal, and in practice never notices it.
+const CHECKLIST_KEY = 'jobsmith_checklist_done';
+
+function _checklistDone() {
+    try { return localStorage.getItem(CHECKLIST_KEY) === '1'; } catch (e) { return false; }
+}
+
+function dismissChecklist() {
+    try { localStorage.setItem(CHECKLIST_KEY, '1'); } catch (e) { /* private mode */ }
+    const card = document.getElementById('getting-started-card');
+    if (card) card.style.display = 'none';
+}
+
+// "Check connection" on the AI row: probe, then redraw with the answer.
+async function checklistCheckAI() {
+    if (typeof checkAIStatus === 'function') await checkAIStatus();
+    renderGettingStarted();
+}
+
+async function renderGettingStarted() {
+    const card = document.getElementById('getting-started-card');
+    const rowsEl = document.getElementById('getting-started-rows');
+    if (!card || !rowsEl) return;
+    if (_checklistDone()) { card.style.display = 'none'; return; }
+
+    // Profile + extension pairing live in config, not in /api/stats. Cached for
+    // the page's lifetime: the endpoint also probes the AI server (up to 8s), so
+    // it must not be refetched on every dashboard load. A failed fetch means we
+    // know nothing — say nothing rather than guess.
+    let onb = window._onbStatus;
+    if (!onb) {
+        try { onb = window._onbStatus = await api('/api/onboarding/status'); }
+        catch (e) { card.style.display = 'none'; return; }
+    }
+
+    const stats = window._lastStats || {};
+    const ai = window._aiStatus;
+    const byStatus = stats.jobs_by_status || {};
+    const shortlisted = (byStatus.shortlisted || 0) + (stats.pending_review || 0);
+
+    const rows = [
+        {
+            label: 'AI server connected',
+            ok: !!(ai && ai.ok),
+            // Never probed yet → offer the probe, not a settings trip.
+            action: ai
+                ? { label: 'Open AI Settings', fn: 'goAISettings()' }
+                : { label: 'Check connection', fn: 'checklistCheckAI()' },
+        },
+        {
+            label: 'Profile set up',
+            ok: !!onb.profile_ok,
+            action: { label: 'Set up profile', fn: 'obOpen()' },
+        },
+        {
+            label: 'First jobs fetched',
+            ok: (stats.total_jobs || 0) > 0,
+            action: { label: 'Fetch jobs', fn: 'stageFetch()' },
+        },
+        {
+            label: 'First job shortlisted',
+            ok: shortlisted > 0,
+            action: { label: 'Review jobs', fn: "location.hash='jobs'" },
+        },
+        {
+            label: 'Browser extension paired',
+            // Applications already submitted prove pairing worked before the
+            // flag existed — don't nag upgraded installs.
+            ok: !!onb.extension_paired || (stats.total_applied || 0) > 0,
+            action: { label: 'Set up extension', fn: 'goAssistSettings()' },
+        },
+    ];
+
+    if (rows.every(r => r.ok)) { dismissChecklist(); return; }
+
+    rowsEl.innerHTML = rows.map(r => `
+        <div class="gs-row${r.ok ? ' gs-row-done' : ''}">
+            <span class="gs-mark" aria-hidden="true">${r.ok ? '&#10003;' : ''}</span>
+            <span class="gs-label">${r.label}</span>
+            ${r.ok ? '' : `<button type="button" class="btn btn-secondary btn-sm gs-action" onclick="${r.action.fn}">${r.action.label}</button>`}
+        </div>`).join('');
+    card.style.display = '';
 }
 
 // ---- Apply Today ----
@@ -716,6 +815,17 @@ function startFetchPoll() {
                     const msg = cancelled ? s.detail : `Found ${s.jobs_found} jobs (${s.jobs_inserted} new)`;
                     trackRun('fetch', { status: 'done', pct: 100, result: cancelled ? 'stopped' : `${s.jobs_inserted} new jobs`, detail: msg });
                     toast(msg, 'success');
+                    if (typeof hideBanner === 'function') hideBanner('first-fetch');  // C3
+                    // C1 — there is finally something for the tour to narrate.
+                    // Fires at most once ever (localStorage), and never once the
+                    // tour has been completed/skipped (_onbStatus is kept in
+                    // sync by _tourClose in onboarding.js).
+                    if (window._onbStatus && !window._onbStatus.tour_complete
+                        && !localStorage.getItem('jobsmith_tour_offered_postfetch')) {
+                        localStorage.setItem('jobsmith_tour_offered_postfetch', '1');
+                        if (typeof hideBanner === 'function') hideBanner('tour-offer');
+                        if (typeof tourStart === 'function') setTimeout(() => tourStart(), 600);
+                    }
                     loadJobs();
                     loadDashboard();
                 } else if (s.phase === 'error') {
@@ -786,6 +896,16 @@ function renderScoreStatus(s) {
         const msg = s.detail || `Scored ${s.done} jobs`;
         trackRun('score', { status: 'done', pct: 100, result: `${s.done} scored`, detail: msg });
         toast(msg, 'success');
+        // A2: "Scored 0 jobs (40 failed)" reads as a mystery. `done` counts every
+        // job attempted, failures included, so scored = done - failed. Nothing
+        // scored and everything failed is almost always a dead AI server —
+        // re-check it so the banner is up by the time the user looks.
+        const failed = s.failed || 0;
+        const scored = (s.done || 0) - failed;
+        if (failed > 0 && scored === 0) {
+            if (typeof checkAIStatus === 'function') checkAIStatus();
+            toast(`0 scored, ${failed} failed — this usually means the AI server is offline. Check the banner at the top.`, 'error');
+        }
         loadJobs();
         loadDashboard();
     } else if (s.status === 'cancelled') {
@@ -917,6 +1037,9 @@ function _startRefetchDescPoll() {
 
 // Operations poll
 let _opsPollInterval = null;
+// B3 — set by tailorAll(), cleared when that run ends. Keeps the "nothing to
+// tailor" explanation off page-load polls that merely observe an idle backend.
+let _tailorRunStarted = false;
 function _startOpsPoll() {
     if (_opsPollInterval) return;
     _opsPollInterval = setInterval(async () => {
@@ -937,6 +1060,13 @@ function _startOpsPoll() {
                     btn.textContent = 'Tailor';
                     document.getElementById('tailor-stop-btn').style.display = 'none';
                     trackRun('tailor', { status: 'done', pct: 100, result: 'done' });
+                    // B3 — a batch that tailored nothing looks identical to a
+                    // successful one. Name the min-score threshold instead.
+                    const tr = s.tailor_batch_result || {};
+                    if (_tailorRunStarted && !tr.cancelled && (tr.tailored || 0) === 0) {
+                        toast('Nothing to tailor — Tailor picks up shortlisted jobs with fit ≥ 50. Score jobs first, or tailor one directly from its detail pane.', 'info');
+                    }
+                    _tailorRunStarted = false;
                 }
             }
             if (!s.estimate_salaries) {
@@ -1031,6 +1161,7 @@ async function tailorAll() {
         btn.textContent = 'Tailoring...';
         document.getElementById('tailor-stop-btn').style.display = '';
         trackRun('tailor', { status: 'active', pct: 0, detail: 'Tailoring shortlisted jobs…' });
+        _tailorRunStarted = true;  // B3: only explain runs this page kicked off
         toast('Batch tailoring started!', 'success');
         _startOpsPoll();
     } catch (e) {

@@ -356,9 +356,20 @@ async def onboarding_status():
         }
     except Exception as exc:
         ai_status = {"ok": False, "models": [], "error": str(exc)}
+    profile = cfg.get("profile", {}) or {}
+    p_name = (profile.get("full_name") or "").strip()
+    p_email = (profile.get("email") or "").strip()
     return {
         "needs_onboarding": _needs_onboarding(cfg),
         "tour_complete": bool(cfg.get("tour_complete", False)),
+        # A3 checklist inputs — both plain config reads, no extra I/O.
+        # profile_ok is the same real-profile test as _needs_onboarding, minus
+        # the onboarding_complete short-circuit (skipping the wizard marks it
+        # complete without ever filling a profile in).
+        "profile_ok": bool(
+            p_name and p_name != _EXAMPLE_NAME and p_email and p_email != _EXAMPLE_EMAIL
+        ),
+        "extension_paired": bool(cfg.get("extension_paired", False)),
         "ai": ai_status,
     }
 

@@ -5,6 +5,16 @@
 // ---- Review Queue ----
 let currentReviewView = 'pending';
 
+// B2: these two queues are downstream of the AI (nothing gets tailored while the
+// AI server is down), so their empty states get the AI hint — and ONLY the AI
+// hint. "Go fetch jobs" is the wrong advice here, so the first-run/fetch branch
+// of firstRunHint() is deliberately not used.
+function _aiDownHint() {
+    const ai = window._aiStatus;
+    if (!ai || ai.ok) return '';
+    return (typeof firstRunHint === 'function') ? firstRunHint() : '';
+}
+
 function switchReviewView(view) {
     currentReviewView = view;
     document.getElementById('review-tab-shortlisted').classList.toggle('active', view === 'shortlisted');
@@ -33,7 +43,7 @@ function switchReviewView(view) {
 // patched in-place by each loader from data it already has — no double-fetch.
 const _FUNNEL_SEGS = [
     { view: 'shortlisted', label: 'Shortlisted', cls: 'fseg-steel' },
-    { view: 'pending',     label: 'Ready',       cls: 'fseg-ember' },
+    { view: 'pending',     label: 'Ready to Review', cls: 'fseg-ember' },
     { view: 'submitted',   label: 'Applied',     cls: 'fseg-green' },
     { view: 'failed',      label: 'Failed',      cls: 'fseg-red' },
     { view: 'in-progress', label: 'In Progress', cls: 'fseg-amber' },
@@ -95,7 +105,8 @@ function renderShortlisted(data) {
     _setFunnelCount('shortlisted', (data && typeof data.total === 'number') ? data.total : jobs.length);
     const el = document.getElementById('shortlisted-list');
     if (!jobs.length) {
-        el.innerHTML = '<p class="placeholder">No shortlisted jobs yet. Scout your Inbox and shortlist the ones worth pursuing.</p>';
+        el.innerHTML = '<p class="placeholder">No shortlisted jobs yet. Scout your Inbox and shortlist the ones worth pursuing.'
+            + _aiDownHint() + '</p>';
         return;
     }
     el.innerHTML = jobs.map(job => `
@@ -112,7 +123,7 @@ function renderShortlisted(data) {
                 <div class="job-card-right">
                     ${renderHeatChip(job.fit_score)}
                     <div class="scout-actions">
-                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${safeId(job.id)}')">Tailor</button>
+                        <button class="btn btn-primary btn-xs" onclick="tailorJob('${safeId(job.id)}')" title="Generate a resume and cover letter customized to this job">Tailor</button>
                         <button class="btn btn-secondary btn-xs" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
                         <button class="btn btn-ghost btn-xs" onclick="passShortlisted('${safeId(job.id)}')">Pass</button>
                     </div>
@@ -651,7 +662,8 @@ function renderReviewMatchChips(app) {
 function renderReviewQueue(apps) {
     const container = document.getElementById('review-list');
     if (apps.length === 0) {
-        container.innerHTML = '<p class="placeholder">No applications pending review. Tailor some jobs first!</p>';
+        container.innerHTML = '<p class="placeholder">No applications pending review. Tailor some jobs first!'
+            + _aiDownHint() + '</p>';
         return;
     }
 
@@ -925,8 +937,8 @@ function openAiEditModal(appId, target) {
                     </label>
                 </span>
                 <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;padding-left:12px;border-left:1px solid var(--border)">
-                    <span style="color:var(--text-muted)">Honesty:</span>
-                    <select id="ai-edit-honesty" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px">
+                    <span style="color:var(--text-muted)" title="How far the AI may stray from your facts: Honest = reword only; Tailored = use the job's keywords, no fabrication; Embellished = upgrade scope and impact; Fabricated = invent achievements">Honesty:</span>
+                    <select id="ai-edit-honesty" title="How far the AI may stray from your facts: Honest = reword only; Tailored = use the job's keywords, no fabrication; Embellished = upgrade scope and impact; Fabricated = invent achievements" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px">
                         <option value="honest">Honest</option>
                         <option value="tailored">Tailored</option>
                         <option value="embellished">Embellished</option>

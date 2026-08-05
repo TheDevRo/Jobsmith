@@ -143,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
     startNotificationPoll();
     checkBackendPort();        // EOU-03
+    checkAIStatus();           // A1 — fire-and-forget, never blocks startup
     startBrowserStatusPoll();  // REL-04
     reattachActiveRuns();      // re-attach to an in-flight fetch/scoring batch
 
@@ -426,6 +427,105 @@ function checkBackendPort() {
     });
 }
 
+// ---- A1: AI server offline / wrong model ----
+// Everything that matters (scoring, tailoring, résumé parsing) goes through the
+// AI server, and when it's down those runs fail silently. Surface it as a
+// banner instead. Strictly event-driven — /api/ai/status can hang for 8s
+// against a dead server, so it is never put on an interval; callers fire it
+// after the things that can change the answer (startup, settings save, wizard
+// finish, a scoring run that scored nothing).
+let _aiStatusInFlight = false;
+
+async function checkAIStatus() {
+    if (_aiStatusInFlight) return;  // single-flight: a second call is a no-op
+    _aiStatusInFlight = true;
+    try {
+        const s = await api('/api/ai/status');
+        window._aiStatus = s;  // cached for other views to read
+
+        if (!s.ok) {
+            const where = s.base_url ? ` at ${s.base_url}` : '';
+            showBanner('ai-offline', {
+                tone: 'warn',
+                dismissible: true,
+                message: `AI server not reachable${where} — scoring, tailoring, and résumé parsing won't work.`,
+                actions: [
+                    { label: 'Open AI Settings', onClick: () => goAISettings() },
+                    { label: 'Retry', onClick: () => checkAIStatus() },
+                ],
+            });
+            hideBanner('ai-model-missing');
+            return;
+        }
+
+        hideBanner('ai-offline');
+        // Connected, but the configured model isn't one the server actually
+        // serves — the usual cause of "connected yet everything fails".
+        const models = s.models || [];
+        if (s.model && models.length && !models.includes(s.model)) {
+            showBanner('ai-model-missing', {
+                tone: 'warn',
+                dismissible: true,
+                message: `AI server is up but the configured model "${s.model}" isn't loaded — pick one of the available models in Settings.`,
+                actions: [{ label: 'Open AI Settings', onClick: () => goAISettings() }],
+            });
+        } else {
+            hideBanner('ai-model-missing');
+        }
+    } catch (e) {
+        // Never block or throw at a caller — the banner is best-effort.
+    } finally {
+        _aiStatusInFlight = false;
+    }
+}
+
+// ---- B2: setup-aware empty states ----
+// Empty states used to say "fetch jobs" unconditionally, even when the real
+// blocker was a dead AI server. firstRunHint() returns an extra sentence (plus
+// the action that fixes it) ONLY when we positively KNOW something is wrong, so
+// a configured user's copy stays byte-identical to before.
+//
+// It never fetches anything: it reads the caches other code already fills —
+// window._aiStatus (checkAIStatus, A1) and window._lastStats (loadDashboard).
+// Either may be undefined on a view that renders before the dashboard has run;
+// unknown means "assume fine" and return ''. Never guess.
+function firstRunHint() {
+    const ai = window._aiStatus;
+    if (ai && !ai.ok) {
+        return ' <span class="first-run-hint">The AI server isn\'t reachable, so scoring and tailoring won\'t run.'
+            + ' <button class="btn btn-secondary btn-sm" onclick="goAISettings()">Open AI Settings</button></span>';
+    }
+    const stats = window._lastStats;
+    if (stats && typeof stats.total_jobs === 'number' && stats.total_jobs === 0) {
+        return ' <span class="first-run-hint">No jobs yet — fetch your first batch to get started.'
+            + ' <button class="btn btn-primary btn-sm" onclick="stageFetch()">Fetch jobs</button></span>';
+    }
+    return '';
+}
+
+// Settings → Integrations (where the AI server URL and model live).
+function goAISettings() {
+    location.hash = 'settings';
+    setTimeout(() => {
+        const btns = document.querySelectorAll('#settings .settings-tab');
+        for (const b of btns) {
+            if ((b.getAttribute('onclick') || '').includes("'stab-integrations'")) { b.click(); return; }
+        }
+    }, 0);
+}
+
+// Settings → Apply Assist (browser-extension pairing lives there). Same shape
+// as goAISettings(), different tab.
+function goAssistSettings() {
+    location.hash = 'settings';
+    setTimeout(() => {
+        const btns = document.querySelectorAll('#settings .settings-tab');
+        for (const b of btns) {
+            if ((b.getAttribute('onclick') || '').includes("'stab-assist'")) { b.click(); return; }
+        }
+    }, 0);
+}
+
 // ---- REL-04: Chromium install progress / failure ----
 // The desktop shell downloads ~150 MB of Chromium on first launch. It used to
 // do that behind a static splash spinner with no progress, no error and no
@@ -587,20 +687,23 @@ function heatColor(score) {
 
 const FLAME_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2S6 7 6 13a6 6 0 0 0 12 0c0-2-1-3.5-2-5 0 1.5-1 2.5-2 2.5 0-3-2-6.5-2-8.5z"/></svg>';
 
+// Shared jargon tooltip: one sentence explaining what a fit score is.
+const FIT_SCORE_TIP = 'Fit score: how well a job matches your profile, 0-100, scored by your AI server.';
+
 // Fit score as a heat chip. Null/undefined → outlined empty state.
 function renderHeatChip(score) {
     if (score === null || score === undefined || score === '' || isNaN(Number(score))) {
-        return `<span class="heat-chip heat-empty">${FLAME_SVG}—</span>`;
+        return `<span class="heat-chip heat-empty" title="${FIT_SCORE_TIP} Not scored yet.">${FLAME_SVG}—</span>`;
     }
     const s = Math.round(Number(score));
     const c = heatColor(s);
-    return `<span class="heat-chip" style="background:linear-gradient(135deg, ${c}, ${heatColor(s + 12)})">${FLAME_SVG}${s}</span>`;
+    return `<span class="heat-chip" title="${FIT_SCORE_TIP}" style="background:linear-gradient(135deg, ${c}, ${heatColor(s + 12)})">${FLAME_SVG}${s}</span>`;
 }
 
 // Fit score as a detail-pane ring (score + "FIT").
 function renderHeatRing(score) {
     const s = Math.round(Number(score) || 0);
-    return `<div class="heat-ring" style="--heat:${heatColor(s)};--pct:${Math.min(Math.max(s, 0), 100)}">`
+    return `<div class="heat-ring" title="${FIT_SCORE_TIP}" style="--heat:${heatColor(s)};--pct:${Math.min(Math.max(s, 0), 100)}">`
         + `<div style="display:grid;place-items:center"><span class="heat-ring-score">${s}</span>`
         + `<span class="heat-ring-label">FIT</span></div></div>`;
 }

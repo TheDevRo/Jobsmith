@@ -377,6 +377,13 @@ async def operations_status():
         "apply": _is_active("apply"),
         "detect_apply_types": _is_active("detect_apply_types"),
         "estimate_salaries": _is_active("estimate_salaries"),
+        # B3 — additive: last/current batch-tailor result counters so the UI can
+        # explain a run that tailored nothing (everything below min_score).
+        # `cancelled` reflects the stop flag, which is cleared at run start.
+        "tailor_batch_result": {
+            **state.tailor_status,
+            "cancelled": state.cancel_tailor.is_set(),
+        },
     }
 
 

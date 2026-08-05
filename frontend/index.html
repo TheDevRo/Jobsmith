@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=49">
+    <link rel="stylesheet" href="style.css?v=50">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -81,6 +81,17 @@
 
             <!-- Activity Tab (stats + outcomes + batch tools) -->
             <section id="dashboard" class="tab-content active">
+                <!-- A3: getting-started checklist. Data-gated like #digest-card —
+                     stays hidden until renderGettingStarted() decides it's needed,
+                     and auto-dismisses itself the first time every row is green. -->
+                <div class="section-card getting-started-card" id="getting-started-card" style="display:none">
+                    <div class="gs-head">
+                        <p class="eyebrow">Getting started</p>
+                        <button type="button" class="gs-dismiss" onclick="dismissChecklist()" title="Hide this checklist for good">Dismiss</button>
+                    </div>
+                    <div class="gs-rows" id="getting-started-rows"></div>
+                </div>
+
                 <div class="stats-row">
                     <div class="stat-card stat-card-link" onclick="location.hash='jobs'" title="View all jobs">
                         <div class="stat-icon stat-icon-blue">
@@ -118,7 +129,7 @@
                             <div class="stat-label">Total Applied</div>
                         </div>
                     </div>
-                    <div class="stat-card stat-card-link" onclick="location.hash='fit-breakdown'" title="View fit score breakdown">
+                    <div class="stat-card stat-card-link" onclick="location.hash='fit-breakdown'" title="Fit score: how well a job matches your profile, 0-100, scored by your AI server. Click to view the full breakdown.">
                         <div class="stat-icon stat-icon-orange">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                         </div>
@@ -182,7 +193,7 @@
                                 <!-- Tailor (min-score behaviour unchanged, no options) -->
                                 <div class="run-verb" data-verb="tailor">
                                     <div class="run-split">
-                                        <button class="btn btn-secondary run-verb-main" id="tailor-btn" onclick="tailorAll()">Tailor</button>
+                                        <button class="btn btn-secondary run-verb-main" id="tailor-btn" onclick="tailorAll()" title="Tailors shortlisted jobs with fit score &ge; 50">Tailor</button>
                                     </div>
                                     <button class="btn btn-danger btn-sm run-verb-stop" id="tailor-stop-btn" onclick="cancelTailorBatch()" style="display:none">Stop</button>
                                 </div>
@@ -332,7 +343,7 @@
                             <label class="remote-toggle"><input type="checkbox" id="filter-remote" onchange="loadJobs()"> Remote Only</label>
                             <label class="remote-toggle"><input type="checkbox" id="filter-easy-apply" onchange="loadJobs()"> Easy Apply Only</label>
                             <div class="score-filter">
-                                <label>Min Score: <span id="score-val">0</span></label>
+                                <label title="Fit score: how well a job matches your profile, 0-100, scored by your AI server">Min Score: <span id="score-val">0</span></label>
                                 <input type="range" id="filter-score" min="0" max="100" value="0" oninput="document.getElementById('score-val').textContent=this.value" onchange="loadJobs()">
                             </div>
                             <div class="salary-filter">
@@ -357,8 +368,8 @@
 
                 <div class="jobs-toolbar">
                     <div class="toolbar-left">
-                        <span class="eyebrow" style="margin-right:4px">Scout</span>
-                        <button class="btn btn-primary btn-sm" onclick="location.hash='dashboard'" title="Fetch new jobs from Activity">Fetch Jobs</button>
+                        <span class="eyebrow" style="margin-right:4px" title="Scout = triage: skim new jobs and shortlist the good ones">Scout</span>
+                        <button class="btn btn-primary btn-sm" onclick="stageFetch()" title="Fetch new jobs from your configured sources">Fetch Jobs</button>
                         <button class="btn btn-ghost btn-sm" id="toggle-select-btn" onclick="toggleSelectMode()">Select</button>
                         <button class="btn btn-ghost btn-sm inbox-view-toggle" id="inbox-view-toggle" onclick="toggleInboxView()" title="Switch between the triage stage and the list (L)">List view</button>
                     </div>
@@ -460,7 +471,7 @@
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-search')">Search</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-integrations')">Integrations</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-honesty')">Honesty</button>
-                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Applicant Assist</button>
+                    <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-assist')">Apply Assist</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-sync'); loadSyncSettings()">Sync</button>
                     <button class="settings-tab" onclick="switchSettingsTab(this, 'stab-answerbank'); loadAnswerBank()">Answer Bank</button>
                     <button class="settings-tab settings-advanced" onclick="switchSettingsTab(this, 'stab-prompts'); loadPrompts()">Prompts</button>
@@ -968,7 +979,7 @@
                     </div>
                 </div>
 
-                <!-- Applicant Assist Tab -->
+                <!-- Apply Assist Tab -->
                 <div id="stab-assist" class="settings-tab-panel">
                     <div class="settings-grid">
                         <div class="section-card">
@@ -993,20 +1004,20 @@
                                     <li><em>Get for Chrome</em> saves the unpacked extension folder (<code>jobsmith-extension-chrome</code>) to your Downloads and reveals it. Chrome loads it from disk, so keep the folder around (move it somewhere permanent if you like).</li>
                                     <li>Open <code>chrome://extensions</code>, enable <em>Developer mode</em> (top-right).</li>
                                     <li>Click <em>Load unpacked</em> and pick that folder. The extension persists across restarts.</li>
-                                    <li>Open the extension popup and paste the token below.</li>
+                                    <li>Launch Apply Assist from any job &mdash; the extension pairs itself. Only if that fails, open the extension popup and paste the token below.</li>
                                 </ol>
                                 <p style="margin:8px 0 4px"><strong>Firefox:</strong></p>
                                 <ol style="margin:0 0 8px 18px;padding:0">
                                     <li><em>Get for Firefox</em> saves a Mozilla-signed <code>jobsmith-assist.xpi</code> to your Downloads when one has been built. Install it via <code>about:addons</code> &rarr; the gear icon &#9881; &rarr; <em>Install Add-on From File…</em> &mdash; it persists across restarts.</li>
                                     <li>If no signed <code>.xpi</code> exists yet, the unpacked folder is saved instead. Load it via <code>about:debugging</code> &rarr; <em>This Firefox</em> &rarr; <em>Load Temporary Add-on…</em> &rarr; pick its <code>manifest.json</code>. Firefox clears temporary add-ons on restart &mdash; see <code>extension/README.md</code> to build a signed <code>.xpi</code>.</li>
-                                    <li>Open the extension popup and paste the token below.</li>
+                                    <li>Launch Apply Assist from any job &mdash; the extension pairs itself. Only if that fails, open the extension popup and paste the token below.</li>
                                 </ol>
                             </div>
                         </div>
 
                         <div class="section-card">
                             <h2>Extension token</h2>
-                            <p class="section-hint">The extension authenticates to your local Jobsmith instance with this token. Paste it into the extension popup's "Extension token" field after install.</p>
+                            <p class="section-hint">The extension authenticates to your local Jobsmith instance with this token. You normally never touch it &mdash; the token pairs automatically the first time you launch Apply Assist. Paste it into the extension popup's "Extension token" field only if pairing fails.</p>
                             <div class="form-group">
                                 <div style="display:flex;gap:8px;align-items:center">
                                     <input type="text" id="ext-token" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem" onclick="this.select()">
@@ -1332,6 +1343,7 @@
                         </div>
                         <p class="ob-hint" style="margin:8px 0 0">Later found under Settings &rarr; Integrations with the mode toggle set to Advanced.</p>
                     </div>
+                    <p class="ob-hint">Applying to jobs uses the Jobsmith browser extension &mdash; install it from <strong>Settings &rarr; Apply Assist</strong> once setup is done. The token pairs itself the first time you launch Apply Assist.</p>
                     <p class="ob-hint">Tip: connect LinkedIn from Settings &rarr; Integrations for the widest job coverage.</p>
                     <p class="ob-hint">Power users: Settings opens in Basic mode with the essentials &mdash; flip the toggle to <strong>Advanced</strong> to expose auto-apply tuning, the AI prompt editor (every prompt Jobsmith sends to your local model is editable), and backend logs.</p>
                 </div>
@@ -1377,15 +1389,15 @@
         </div>
     </div>
 
-    <script src="js/core.js?v=45"></script>
-    <script src="js/dashboard.js?v=39"></script>
-    <script src="js/jobs.js?v=46"></script>
-    <script src="js/review.js?v=40"></script>
-    <script src="js/settings.js?v=45"></script>
+    <script src="js/core.js?v=46"></script>
+    <script src="js/dashboard.js?v=40"></script>
+    <script src="js/jobs.js?v=47"></script>
+    <script src="js/review.js?v=41"></script>
+    <script src="js/settings.js?v=46"></script>
     <script src="js/prompts.js?v=1"></script>
     <script src="js/sessions.js?v=34"></script>
-    <script src="js/jobs-actions.js?v=39"></script>
-    <script src="js/deck.js?v=7"></script>
-    <script src="js/onboarding.js?v=38"></script>
+    <script src="js/jobs-actions.js?v=40"></script>
+    <script src="js/deck.js?v=8"></script>
+    <script src="js/onboarding.js?v=39"></script>
 </body>
 </html>

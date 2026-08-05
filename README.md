@@ -24,6 +24,10 @@ Grab the [latest release](https://github.com/TheDevRo/Jobsmith/releases/latest):
   yourself or install via TestFlight. See
   [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md).
 
+First time here? [**Getting started (desktop)**](docs/getting-started-desktop.md)
+takes you from install to your first submitted application. There is no config
+file to edit — a setup wizard runs on first launch.
+
 AI features need an OpenAI-compatible server — [LM Studio](https://lmstudio.ai)
 running locally (recommended, fully private), Ollama, or a hosted provider like
 OpenRouter or OpenAI with an API key. Everything else works without one.
@@ -110,7 +114,61 @@ chmod +x setup.sh
 
 This creates a virtual environment, installs Python dependencies, and installs the Playwright Chromium browser.
 
-### 2. Configure
+(Using the macOS DMG instead? Skip this step — the app bundles everything.)
+
+### 2. Start the server
+
+```bash
+source .venv/bin/activate
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8888
+```
+
+Open **http://localhost:8888** in your browser.
+
+### 3. Follow the setup wizard
+
+**There is no config file to edit.** The first time the dashboard loads it opens
+a setup wizard that walks you through:
+
+1. **AI server** — point Jobsmith at LM Studio, Ollama, or a hosted provider, test the connection, and pick your fast/strong models from the server's own list
+2. **Profile** — upload or paste your resume and let the AI fill in your details, or type them in
+3. **Job search** — keywords, locations, and salary floor
+
+`config.yaml` is created for you on first boot and every answer is written back
+to it, so nothing needs to be edited by hand. You can **Skip** the wizard and
+re-run it any time from **Settings → Re-run setup wizard**; re-running shows a
+diff of what would change before saving. Everything the wizard sets is also
+editable later in **Settings**.
+
+New to Jobsmith? [**Getting started (desktop)**](docs/getting-started-desktop.md)
+walks through the whole first run — wizard, first fetch, scoring, tailoring,
+the browser extension, and Apply Assist.
+
+### 4. Start your AI server
+
+For the default LM Studio setup:
+
+1. Open LM Studio and download a model (Mistral 7B or Qwen 3.5 recommended)
+2. Go to the **Local Server** tab, load your model, click **Start Server**
+3. Server runs at `http://localhost:1234` by default
+
+If LM Studio is on a separate machine (e.g., a homelab server), use its IP: `http://192.168.x.x:1234/v1`
+
+Using a hosted provider instead? Skip this step — just set the server URL and
+API key in **Settings → Integrations** (or in the wizard's first step) and pick
+your models from the dropdowns.
+
+The app boots fine with no AI server configured; only the AI features — scoring,
+tailoring, AI Edit — stay dormant until you point it at one, and the dashboard
+shows a banner telling you so.
+
+## Advanced / headless install
+
+Everything below is optional. It documents the same settings the wizard writes,
+for headless boxes, Docker hosts, or anyone who would rather edit YAML than
+click through a UI. Skip it entirely if you used the wizard.
+
+### Configure by hand
 
 Copy the example config and fill in your details:
 
@@ -290,7 +348,7 @@ flaresolverr:
   url: http://localhost:8191/v1    # Point to your FlareSolverr instance
 ```
 
-### 3. Environment variables
+### Environment variables
 
 `.env` controls feature flags and runtime paths. The defaults work for most setups:
 
@@ -304,30 +362,17 @@ BROWSER_USE_MAX_STEPS=50
 
 > `config.yaml` is **gitignored** — your credentials never leave your machine.
 
-### 4. Start your AI server
-
-For the default LM Studio setup:
-
-1. Open LM Studio and download a model (Mistral 7B or Qwen 3.5 recommended)
-2. Go to the **Local Server** tab, load your model, click **Start Server**
-3. Server runs at `http://localhost:1234` by default
-
-If LM Studio is on a separate machine (e.g., a homelab server), use its IP: `http://192.168.x.x:1234/v1`
-
-Using a hosted provider instead? Skip this step — just set the server URL and
-API key in **Settings → Integrations** (or `ai.base_url` / `ai.api_key` in
-`config.yaml`) and pick your models from the dropdowns.
-
-### 5. Start the server
+### Start the server headlessly
 
 ```bash
 source .venv/bin/activate
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 8888
 ```
 
-Open **http://localhost:8888** in your browser.
+The dashboard is then at **http://localhost:8888**. With `config.yaml` already
+filled in, the wizard does not appear.
 
-### Docker
+## Docker
 
 Works on Windows, Linux, and Intel macOS.
 

@@ -43,7 +43,7 @@ Produces:
 A signed `.xpi` in `extension/dist/firefox/web-ext-artifacts/` survives rebuilds
 (build.sh stashes it) and is excluded from the zips.
 
-In the app, Settings → Applicant Assist → **Get for Chrome / Get for Firefox**
+In the app, Settings → Apply Assist → **Get for Chrome / Get for Firefox**
 calls `POST /api/extension/save/{browser}` (loopback only), which copies the
 extension into `~/Downloads` and reveals it — the desktop shell's webview can't
 download files, so the backend writes to disk directly. Chrome gets the
@@ -63,7 +63,7 @@ web-ext sign --channel=unlisted --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_J
 
 (Generate `AMO_JWT_ISSUER`/`AMO_JWT_SECRET` at <https://addons.mozilla.org/developers/addon/api/key/>.) This drops a signed `.xpi` into `extension/dist/firefox/web-ext-artifacts/`. Then either:
 
-- Run the backend and open Settings → Applicant Assist → **Install for Firefox (signed)** (served from `/api/extension/firefox-xpi`); Firefox prompts to add it, **or**
+- Run the backend and open Settings → Apply Assist → **Install for Firefox (signed)** (served from `/api/extension/firefox-xpi`); Firefox prompts to add it, **or**
 - `about:addons` → gear ⚙️ → **Install Add-on From File…** → pick the `.xpi`.
 
 > Re-signing requires a bumped `version` in `src/manifest.firefox.json` each time — AMO rejects duplicate versions.

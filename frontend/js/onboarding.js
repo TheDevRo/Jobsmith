@@ -15,11 +15,55 @@ document.addEventListener('DOMContentLoaded', () => { obCheckStatus(); });
 async function obCheckStatus() {
     try {
         const s = await api('/api/onboarding/status');
+        window._onbStatus = s;  // A3: reused by the checklist instead of refetching
         if (s.needs_onboarding) { obOpen({ aiStatus: s.ai }); return; }
         if (!s.tour_complete) {
-            setTimeout(() => tourStart(), 300);
+            // C1 — the tour narrates a UI full of jobs; on an empty app it
+            // points at blank panes. Only auto-start when there is data to
+            // narrate, otherwise offer it alongside the action that creates
+            // that data. One extra /api/stats call, and only on this branch.
+            let total = 0;
+            if (window._lastStats) total = window._lastStats.total_jobs || 0;
+            else {
+                try {
+                    const st = await api('/api/stats');
+                    window._lastStats = st;
+                    total = st.total_jobs || 0;
+                } catch (e) { total = 0; }
+            }
+            if (total > 0) setTimeout(() => tourStart(), 300);
+            else obTourOffer();
         }
     } catch (e) { console.error('onboarding status failed', e); }
+}
+
+// ---- C1: tour offer banner (empty app) ----
+// Sits alongside the C3 'first-fetch' banner: separate id, separate hide, so
+// neither clobbers the other. Fetching from here hides the offer because the
+// post-fetch hook in dashboard.js takes over from there.
+function obTourOffer() {
+    if (typeof showBanner !== 'function') return;
+    showBanner('tour-offer', {
+        tone: 'info',
+        dismissible: true,
+        message: 'New here? Fetch your first jobs, then take the 2-minute tour.',
+        actions: [
+            {
+                label: 'Fetch jobs',
+                onClick: () => {
+                    if (typeof stageFetch === 'function') stageFetch();
+                    if (typeof hideBanner === 'function') hideBanner('tour-offer');
+                },
+            },
+            {
+                label: 'Start tour anyway',
+                onClick: () => {
+                    if (typeof hideBanner === 'function') hideBanner('tour-offer');
+                    tourStart();
+                },
+            },
+        ],
+    });
 }
 
 function obOpen({ aiStatus } = {}) {
@@ -117,6 +161,32 @@ async function obSkip() {
     try { await api('/api/onboarding/complete', { method: 'POST', body: '{}' }); } catch (e) {}
     obHide();
     toast('Setup skipped — you can re-run it from Settings.', 'info');
+    window._onbStatus = null;  // A3: profile/pairing state just changed
+    if (typeof checkAIStatus === 'function') checkAIStatus();  // A1
+    obFirstFetchNudge();  // C3
+}
+
+// ---- C3: post-wizard first-fetch nudge ----
+// Leaving the wizard drops the user on an empty app with no obvious next move.
+// Park a banner on the dashboard with the one action that matters. It is
+// self-contained (own banner id, own hide) so a later 'tour-offer' banner for
+// the same moment can sit alongside it. Dismissed for good once jobs exist —
+// see hideBanner('first-fetch') in dashboard.js.
+function obFirstFetchNudge() {
+    location.hash = 'dashboard';
+    if (typeof showBanner !== 'function') return;
+    showBanner('first-fetch', {
+        tone: 'info',
+        dismissible: true,
+        message: 'Setup complete — fetch your first batch of jobs.',
+        actions: [{
+            label: 'Fetch now',
+            onClick: () => {
+                if (typeof stageFetch === 'function') stageFetch();
+                if (typeof hideBanner === 'function') hideBanner('first-fetch');
+            },
+        }],
+    });
 }
 
 function obRelaunch() { obOpen(); }
@@ -467,8 +537,14 @@ async function obFinish() {
         await api('/api/onboarding/complete', { method: 'POST', body: '{}' });
         toast('You’re all set — welcome aboard!', 'success');
         obHide();
-        if (location.hash === '#settings') loadSettings();
+        const inSettings = location.hash === '#settings';
+        if (inSettings) loadSettings();
         else location.hash = 'dashboard';
+        window._onbStatus = null;  // A3: profile/pairing state just changed
+    if (typeof checkAIStatus === 'function') checkAIStatus();  // A1
+        // C3 — but not for a re-run launched from Settings: that user already has
+        // jobs and shouldn't be yanked to the dashboard mid-edit.
+        if (!inSettings) obFirstFetchNudge();
         setTimeout(() => tourStart(), 400);
     } catch (e) {
         toast('Could not save setup: ' + (e.message || e), 'error');
@@ -887,6 +963,9 @@ async function _tourClose(markComplete) {
     window.removeEventListener('scroll', _tourReposition, { capture: true });
     if (markComplete) {
         try { await api('/api/onboarding/tour-complete', { method: 'POST', body: '{}' }); } catch (e) {}
+        // C1 — keep the cached status honest so the post-fetch hook in
+        // dashboard.js can't relaunch a tour the user just finished/skipped.
+        if (window._onbStatus) window._onbStatus.tour_complete = true;
     }
 }
 

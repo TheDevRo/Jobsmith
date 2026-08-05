@@ -178,7 +178,7 @@ function stageFactPills(job) {
     }
     if (job.location) pills.push(`<span class="deck-fact">${escapeHtml(job.location)}</span>`);
     if (job.is_easy_apply || job.apply_type === 'easy_apply' || job.apply_type === 'quick_apply') {
-        pills.push(`<span class="deck-fact">Easy Apply</span>`);
+        pills.push(`<span class="deck-fact" title="Jobs you can apply to directly on the source site, without a separate employer portal">Easy Apply</span>`);
     }
     const emp = job.employment_type || job.job_type;
     if (emp) pills.push(`<span class="deck-fact">${escapeHtml(emp)}</span>`);
@@ -285,13 +285,22 @@ function renderStage() {
     if (!host) return;
 
     if (_stageJobs.length === 0) {
+        // B2: an empty stage on a brand-new install isn't "inbox zero", it's
+        // "nothing has ever been fetched". Only retitle when the stats cache
+        // actually says the database is empty — otherwise the copy is unchanged.
+        const st = window._lastStats;
+        const firstRun = !!(st && typeof st.total_jobs === 'number' && st.total_jobs === 0);
+        const zeroTitle = firstRun ? 'Welcome — fetch your first jobs' : 'Inbox zero';
+        const zeroSub = firstRun
+            ? 'Your sources are ready to go. Pull in a first batch and start triaging.'
+            : 'No new jobs to triage. Fetch a fresh batch to keep the momentum going.';
         host.innerHTML = `
             <div class="deck-zero">
                 <div class="deck-zero-icon" aria-hidden="true">
                     <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>
                 </div>
-                <h3>Inbox zero</h3>
-                <p>No new jobs to triage. Fetch a fresh batch to keep the momentum going.</p>
+                <h3>${escapeHtml(zeroTitle)}</h3>
+                <p>${escapeHtml(zeroSub)}</p>
                 <button class="btn btn-primary" onclick="stageFetch()">Fetch new jobs</button>
                 <button class="btn btn-ghost btn-sm" onclick="setInboxView('list')">Switch to list view</button>
             </div>`;
@@ -458,9 +467,9 @@ document.addEventListener('keydown', (e) => {
 const DECK_COLUMNS = [
     { key: 'shortlisted',     label: 'Shortlisted',      dot: 'var(--steel)' },
     { key: 'tailoring',       label: 'Tailoring',        dot: 'var(--accent-yellow)' },
-    { key: 'pending',         label: 'Ready to review',  dot: 'var(--accent-ember)' },
+    { key: 'pending',         label: 'Ready to Review',  dot: 'var(--accent-ember)' },
     { key: 'applied',         label: 'Applied',          dot: 'var(--accent-green)' },
-    { key: 'needs-attention', label: 'Needs attention',  dot: 'var(--accent-red)' },
+    { key: 'needs-attention', label: 'Needs Attention',  dot: 'var(--accent-red)' },
 ];
 
 // The ONLY allowed drag transitions. Each maps to exactly one real endpoint.
@@ -842,7 +851,7 @@ function boardCardMenu(ev, colKey, id, jobId) {
 }
 
 function _transitionMenuLabel(t) {
-    const dest = { tailoring: 'Tailoring', applied: 'Applied', pending: 'Ready to review', pass: 'Pass' }[t.to] || t.to;
+    const dest = { tailoring: 'Tailoring', applied: 'Applied', pending: 'Ready to Review', pass: 'Pass' }[t.to] || t.to;
     return `Move to ${dest} — ${t.label}`;
 }
 
@@ -991,7 +1000,7 @@ function _buildRegistry() {
         { group: 'Settings', label: 'Search', keywords: 'keywords locations watchlist', run: () => paletteGoSettings('stab-search') },
         { group: 'Settings', label: 'Integrations', keywords: 'ai linkedin adzuna api', run: () => paletteGoSettings('stab-integrations') },
         { group: 'Settings', label: 'Honesty', keywords: 'embellish fabricate level', run: () => paletteGoSettings('stab-honesty') },
-        { group: 'Settings', label: 'Applicant Assist', keywords: 'autofill assist', run: () => paletteGoSettings('stab-assist') },
+        { group: 'Settings', label: 'Apply Assist', keywords: 'autofill assist', run: () => paletteGoSettings('stab-assist') },
         { group: 'Settings', label: 'Sync', keywords: 'folder device phone', run: () => paletteGoSettings('stab-sync') },
         { group: 'Settings', label: 'Answer Bank', keywords: 'questions answers', run: () => paletteGoSettings('stab-answerbank') },
         { group: 'Settings', label: 'Prompts', keywords: 'ai prompt registry', run: () => paletteGoSettings('stab-prompts') },

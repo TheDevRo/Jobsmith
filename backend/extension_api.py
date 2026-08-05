@@ -185,6 +185,19 @@ def build_router(load_config_fn) -> APIRouter:
             raise HTTPException(401, "Invalid X-Jobsmith-Token for assist checkin")
 
         applicant_assist.mark_handoff_extension_ready(session_id)
+        # A3: a successful checkin is proof the browser extension is installed
+        # and paired — the getting-started checklist reads this flag. Read
+        # before writing so a checkin on every Apply Assist launch doesn't
+        # rewrite config.yaml. Best-effort: pairing must never fail on this.
+        try:
+            from . import app_state as _state
+
+            cfg = _state.load_config()
+            if not cfg.get("extension_paired"):
+                cfg["extension_paired"] = True
+                _state.save_config(cfg)
+        except Exception:
+            logger.debug("could not persist extension_paired", exc_info=True)
         # Hand back the persistent token so the extension can store *that* rather
         # than the ephemeral setup token it just used.
         return {

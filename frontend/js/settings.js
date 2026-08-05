@@ -806,6 +806,7 @@ async function saveSettings() {
     try {
         await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
         toast('Settings saved!', 'success');
+        if (typeof checkAIStatus === 'function') checkAIStatus();  // A1 — the AI URL/model may have just changed
         if (window._loadedServerHost !== undefined && body.server.host !== window._loadedServerHost) {
             window._loadedServerHost = body.server.host;
             toast('Bind interface changed — restart Jobsmith for it to take effect', 'info');

@@ -2852,6 +2852,9 @@ kbd {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .fseg:focus-visible { outline: 2px solid var(--accent-ember); outline-offset: -2px; }
 .fseg.empty { opacity: 0.5; }
@@ -4001,3 +4004,74 @@ body[data-theme="light"] .cmdk-overlay { background: rgba(30,20,12,.28); }
     .deck-top.fling-left, .deck-top.fling-right { transform: none; opacity: 1; }
     .kbatch i, .kprogress i { animation: none; }
 }
+
+/* B2: setup-aware empty-state hint appended to .placeholder copy — only
+   rendered when a setup problem is actually known (firstRunHint(), core.js). */
+.first-run-hint {
+    display: block;
+    margin-top: 10px;
+    color: var(--text-secondary);
+}
+.first-run-hint .btn { margin-left: 8px; vertical-align: baseline; }
+
+/* ---- A3: getting-started checklist (#getting-started-card) ----
+   A section-card that only exists until setup is finished, so it stays quiet:
+   no color-shouting, rows read as a list, and completed rows fade back. */
+.getting-started-card .gs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.gs-dismiss {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.gs-dismiss:hover { color: var(--text-secondary); }
+
+.gs-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.gs-row:last-child { border-bottom: none; }
+
+/* Neutral circle by default; a green check once the step is satisfied. */
+.gs-mark {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    color: transparent;
+}
+
+.gs-row-done .gs-mark {
+    border-color: var(--accent-green);
+    background: var(--accent-green);
+    color: #fff;
+}
+
+.gs-row-done .gs-label { color: var(--text-secondary); }
+
+.gs-label { flex: 1; }
+
+.gs-action { flex: none; }
