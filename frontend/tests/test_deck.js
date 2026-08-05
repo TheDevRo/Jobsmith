@@ -213,6 +213,20 @@ async function assertDrop(from, to, id, verify) {
   checks.push(["modal always offers Apply Assist", !!(overlay && overlay.innerHTML.includes("Apply Assist"))]);
   checks.push(["classic pane still gates Apply Assist on apply_type", !window.buildJobDetailHtml({ id: "j7", title: "t", source: "s" }).includes("Apply Assist")
       && window.buildJobDetailHtml({ id: "j7", title: "t", source: "s", apply_type: "external" }).includes("Apply Assist")]);
+  // A soft-deleted posting can't be deleted again (the API updates zero rows),
+  // so the detail body swaps Delete for Restore + Erase Permanently. Its own
+  // 'deleted' status must also win over any application status it still carries.
+  const deletedBody = window.buildJobDetailHtml({
+    id: "jd", title: "t", source: "s", status: "deleted", app_status: "pending_review",
+  });
+  checks.push(["deleted job offers Restore", deletedBody.includes("Restore to Inbox")]);
+  checks.push(["deleted job offers Erase Permanently", deletedBody.includes("Erase Permanently")]);
+  checks.push(["deleted job hides the Delete button", !deletedBody.includes("deleteSingleJob")]);
+  checks.push(["deleted job hides Tailor/Mark Applied", !deletedBody.includes("tailorJob") && !deletedBody.includes("markApplied")]);
+  checks.push(["deleted status wins over the application status", deletedBody.includes("pill-deleted")]);
+  const liveBody = window.buildJobDetailHtml({ id: "jl", title: "t", source: "s", status: "shortlisted" });
+  checks.push(["live job still offers Delete", liveBody.includes("deleteSingleJob") && !liveBody.includes("Erase Permanently")]);
+
   checks.push(["boardOpenJob leaves the inbox view pref alone", window.localStorage.getItem("jobsmith_inbox_view") === "stage"]);
   checks.push(["boardOpenJob does not navigate", window.location.hash === hashBefore]);
   checks.push(["isJobModalOpen reports open", window.isJobModalOpen() === true]);
@@ -263,6 +277,49 @@ async function assertDrop(from, to, id, verify) {
   const noFloorUrl = await stageFetchUrlFor({ inbox: { sort: "newest", require_stated_pay: true }, search: { min_salary: 0 } });
   checks.push(["newest sort maps to date_discovered desc", noFloorUrl.includes("sort_by=date_discovered") && noFloorUrl.includes("sort_dir=desc")]);
   checks.push(["require_stated_pay ignored without a floor", !noFloorUrl.includes("pay_floor") && !noFloorUrl.includes("require_stated_pay")]);
+
+  // ===================================================================
+  // 9. Pipeline card delete — one click, undo instead of a confirm dialog.
+  // ===================================================================
+  const jobCard = window._jobKcardHtml({ id: "kj1", title: "Role", company: "Acme" }, "shortlisted");
+  checks.push(["job card renders the delete affordance", jobCard.includes("kdel-btn") && jobCard.includes("boardDeleteCard('kj1'")]);
+  checks.push(["job card keeps the ⋯ menu", jobCard.includes("kmenu-btn")]);
+
+  // Application cards delete the posting behind them, not the application row.
+  const appCard = window._appKcardHtml({ id: "app9", job_id: "kj9", title: "Role" }, "applied");
+  checks.push(["app card deletes its underlying job", appCard.includes("boardDeleteCard('kj9'")]);
+  const orphanCard = window._appKcardHtml({ id: "app0", title: "Role" }, "applied");
+  checks.push(["app card with no job_id has no delete button", !orphanCard.includes("kdel-btn")]);
+
+  // The runner: DELETE, then an undo toast whose action PATCHes the job back to
+  // the status it held (so the card returns to its column, not the Inbox).
+  const toasts = [];
+  window.toastAction = (msg, label, onAction) => { toasts.push({ msg, label, onAction }); return null; };
+  calls.length = 0;
+  window.api = (url, opts) => {
+    calls.push({ url, opts });
+    if ((opts || {}).method === "DELETE") return Promise.resolve({ deleted: 1, previous_status: "shortlisted" });
+    return Promise.resolve({});
+  };
+  const confirmBefore = confirmCount;
+  await window.boardDeleteCard("kj1", null);
+  const delCall = calls.find((c) => methodOf(c) === "DELETE");
+  checks.push(["delete hits the single-job endpoint", !!delCall && delCall.url === "/api/jobs/kj1"]);
+  checks.push(["delete does NOT open a confirm dialog", confirmCount === confirmBefore]);
+  checks.push(["delete offers an Undo toast", toasts.length === 1 && toasts[0].label === "Undo"]);
+
+  calls.length = 0;
+  await toasts[0].onAction();
+  const undoCall = calls.find((c) => methodOf(c) === "PATCH");
+  checks.push(["undo PATCHes the previous status back", !!undoCall
+    && undoCall.url === "/api/jobs/kj1/status" && statusOf(undoCall) === "shortlisted"]);
+
+  // Delete is reachable without a pointer: the ⋯ menu carries it, and a column
+  // with no legal moves still opens a menu instead of refusing.
+  window.boardCardMenu({ currentTarget: doc.body }, "applied", "app9", "kj9");
+  const menu = doc.getElementById("kmenu");
+  checks.push(["card menu offers Delete posting", !!menu && menu.innerHTML.includes("Delete posting")]);
+  window._closeCardMenu();
 
   const fail = report(checks);
   if (fail) {

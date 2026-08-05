@@ -544,10 +544,23 @@ async function refreshBoardLive() {
 }
 
 const _KMENU_SVG = '&#8943;';  // ⋯
+const _KDEL_SVG = '&#10005;';  // ✕
 
-function _kMenuBtn(colKey, id) {
-    return `<button type="button" class="kmenu-btn" aria-label="Card actions"
-        onclick="event.stopPropagation();boardCardMenu(event,'${escapeHtml(colKey)}','${escapeHtml(String(id))}')">${_KMENU_SVG}</button>`;
+// Top-right action cluster. The ⋯ menu is always there; the ✕ stays invisible
+// until the card is hovered or focused, so a full column reads as clean cards
+// rather than a wall of delete buttons — but removing a posting is still one
+// click away, with undo instead of a confirm dialog.
+//
+// `jobId` is what actually gets deleted: job cards pass their own id, and
+// application cards (Ready/Applied/Attention) pass the posting behind them.
+// An application with no job_id gets no ✕ — nothing safe to delete.
+function _kActions(colKey, id, jobId) {
+    const del = jobId
+        ? `<button type="button" class="kdel-btn" aria-label="Delete posting" title="Delete posting (undo available)"
+            onclick="event.stopPropagation();boardDeleteCard('${escapeHtml(String(jobId))}',this)">${_KDEL_SVG}</button>`
+        : '';
+    return `<span class="kacts">${del}<button type="button" class="kmenu-btn" aria-label="Card actions"
+        onclick="event.stopPropagation();boardCardMenu(event,'${escapeHtml(colKey)}','${escapeHtml(String(id))}','${escapeHtml(String(jobId || ''))}')">${_KMENU_SVG}</button></span>`;
 }
 
 function _jobKcardHtml(job, colKey) {
@@ -560,7 +573,7 @@ function _jobKcardHtml(job, colKey) {
             <span class="kc">${escapeHtml(job.company || 'Unknown')}${job.location ? ' · ' + escapeHtml(job.location) : ''}</span>
             ${progress}
             <span class="kfoot">${renderHeatChip(job.fit_score)}<span class="kage">${escapeHtml(timeAgo(job.date_discovered) || '')}</span></span>
-            ${_kMenuBtn(colKey, job.id)}
+            ${_kActions(colKey, job.id, job.id)}
         </div>`;
 }
 
@@ -583,7 +596,7 @@ function _appKcardHtml(app, colKey) {
             <span class="kt">${escapeHtml(app.title || app.job_title || 'Untitled')}</span>
             <span class="kc">${escapeHtml(app.company || '')}</span>
             <span class="kfoot">${heat}${tag}</span>
-            ${_kMenuBtn(colKey, app.id)}
+            ${_kActions(colKey, app.id, app.job_id)}
         </div>`;
 }
 
@@ -770,18 +783,56 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isJobModalOpen()) { e.preventDefault(); closeJobModal(); }
 });
 
+// ---- One-click delete from a Pipeline card ----
+// No confirm dialog: the posting only moves to Recently Deleted, and the toast
+// carries an Undo that PATCHes the job back to the status it held — so the card
+// returns to the same column, not to the Inbox. The card is pulled optimistically
+// so the board never feels like it swallowed the click.
+async function boardDeleteCard(jobId, btn) {
+    const card = btn && btn.closest ? btn.closest('.kcard') : null;
+    if (card) card.classList.add('kcard-removing');
+    try {
+        const res = await api(`/api/jobs/${jobId}`, { method: 'DELETE' });
+        const previous = (res && res.previous_status) || 'discovered';
+        if (card) card.remove();
+        if (typeof refreshFunnelCounts === 'function') refreshFunnelCounts();
+        toastAction('Posting deleted', 'Undo', () => boardUndoDelete(jobId, previous), 'info');
+        renderBoard();
+    } catch (e) {
+        if (card) card.classList.remove('kcard-removing');
+        toast('Failed to delete posting', 'error');
+    }
+}
+
+async function boardUndoDelete(jobId, previousStatus) {
+    try {
+        await api(`/api/jobs/${jobId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: previousStatus }),
+        });
+        toast('Delete undone', 'success');
+        if (typeof refreshFunnelCounts === 'function') refreshFunnelCounts();
+        renderBoard();
+    } catch (e) {
+        toast('Failed to undo — the posting is in Recently Deleted', 'error');
+    }
+}
+
 // ---- Keyboard-accessible fallback: per-card "⋯" menu ----
-function boardCardMenu(ev, colKey, id) {
+function boardCardMenu(ev, colKey, id, jobId) {
     _closeCardMenu();
     const opts = deckTransitionsFrom(colKey);
-    if (!opts.length) { toast('No moves available for this card', 'info'); return; }
     const menu = document.createElement('div');
     menu.className = 'kmenu';
     menu.id = 'kmenu';
     menu.setAttribute('role', 'menu');
     menu.innerHTML = opts.map((t) =>
         `<button role="menuitem" onclick="_runCardMenu('${escapeHtml(colKey)}','${escapeHtml(t.to)}','${escapeHtml(String(id))}')">${escapeHtml(_transitionMenuLabel(t))}</button>`
-    ).join('');
+    ).join('')
+    // Delete is reachable without a pointer — the ✕ only appears on hover.
+    + (jobId ? `<button role="menuitem" class="kmenu-danger" onclick="_runCardMenuDelete('${escapeHtml(String(jobId))}')">Delete posting</button>` : '')
+    + (!opts.length && !jobId ? `<button role="menuitem" disabled>No actions available</button>` : '');
     document.body.appendChild(menu);
     const btn = ev.currentTarget || ev.target;
     const r = btn.getBoundingClientRect();
@@ -798,6 +849,13 @@ function _transitionMenuLabel(t) {
 function _runCardMenu(from, to, id) {
     _closeCardMenu();
     runDeckDrop(from, to, id);
+}
+
+// The menu closes before the delete runs, so there's no button to walk up from
+// — boardDeleteCard tolerates that and lets renderBoard() drop the card.
+function _runCardMenuDelete(jobId) {
+    _closeCardMenu();
+    boardDeleteCard(jobId, null);
 }
 
 function _closeCardMenu() {

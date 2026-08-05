@@ -281,7 +281,8 @@ function renderJobs(jobs, total) {
                             <button type="button" class="rverdict no" onclick="passJob('${safeId(job.id)}')" aria-label="Pass" title="Pass  (X or ←)">${VERDICT_X_SVG}</button>
                             <button type="button" class="rverdict yes" onclick="shortlistJob('${safeId(job.id)}')" aria-label="Shortlist" title="Shortlist  (S or →)">${VERDICT_CHECK_SVG}</button>
                         </div>` : ''}
-                        ${status === 'deleted' ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();restoreJob('${safeId(job.id)}')" title="Restore this posting to the Inbox">Restore</button>` : ''}
+                        ${status === 'deleted' ? `<button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();restoreJob('${safeId(job.id)}')" title="Restore this posting to the Inbox">Restore</button>
+                        <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase</button>` : ''}
                         ${status !== 'deleted' && job.apply_type === 'external' ? `<button class="btn btn-assist btn-xs" onclick="event.stopPropagation();launchAssist('${safeId(job.id)}')" title="Open Applicant Assist browser">Assist Me</button>` : ''}
                     </div>
                 </div>
@@ -347,8 +348,11 @@ function buildJobDetailHtml(job, opts) {
     const showAssist = job.apply_type === 'external' || opts.assistAlways;
     const tags = safeParseJSON(job.tags, []);
     const hasScore = job.fit_score !== null && job.fit_score !== undefined && job.fit_score !== '' && !isNaN(Number(job.fit_score)) && Number(job.fit_score) > 0;
-    const status = job.app_status || job.status;
-    const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused'}[status] || status;
+    // A deleted job may still carry an application row; its own 'deleted'
+    // status wins over the application's (same rule as the list rows).
+    const isDeleted = job.status === 'deleted';
+    const status = isDeleted ? 'deleted' : (job.app_status || job.status);
+    const statusLabel = {tailoring: 'Tailoring...', applying: 'Applying...', applied: 'Applied', discovered: 'New', shortlisted: 'Shortlisted', passed: 'Passed', pending_review: 'Pending', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', manual: 'Manual', autofill_complete: 'Autofill Complete', already_applied: 'Already Applied', rate_limited: 'Rate Limited', needs_review: 'Needs Review', paused: 'Paused', deleted: 'Deleted'}[status] || status;
 
     return `
         <div class="detail-header" style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between">
@@ -386,6 +390,11 @@ function buildJobDetailHtml(job, opts) {
         </div>
 
         <div class="detail-actions">
+            ${isDeleted ? `
+            <button class="btn btn-secondary btn-sm" onclick="restoreJob('${safeId(job.id)}')" title="Put this posting back in the Inbox">Restore to Inbox</button>
+            ${job.apply_type === 'external' ? '' : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(safeHref(job.url))}" target="_blank" rel="noopener" data-jobsmith-open-url data-jobsmith-job-id="${escapeHtml(job.id)}">Open Job URL</a>`}
+            <button class="btn btn-danger btn-sm" onclick="eraseJob('${safeId(job.id)}')" title="Erase permanently — this posting can come back in future searches">Erase Permanently</button>
+            ` : `
             <button class="btn btn-secondary btn-sm" onclick="scoreJob('${safeId(job.id)}')">${job.fit_score ? 'Rescore' : 'Score'}</button>
             <button class="btn btn-primary btn-sm" onclick="tailorJob('${safeId(job.id)}')">Tailor Resume</button>
             ${showAssist ? `<button class="btn btn-assist btn-sm" onclick="launchAssist('${safeId(job.id)}')">Apply Assist</button>` : ''}
@@ -394,6 +403,7 @@ function buildJobDetailHtml(job, opts) {
             ${status !== 'applied' && status !== 'manual' ? `<button class="btn btn-green btn-sm" onclick="markApplied('${safeId(job.id)}')">Mark Applied</button>` : ''}
             <button class="btn btn-secondary btn-sm" onclick="toggleEmbPanel('${safeId(job.id)}')">Embellishments</button>
             <button class="btn btn-danger btn-sm" onclick="deleteSingleJob('${safeId(job.id)}')">Delete</button>
+            `}
         </div>
 
         <div id="emb-panel-${safeId(job.id)}" class="detail-emb-panel" style="display:none"></div>

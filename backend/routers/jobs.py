@@ -208,12 +208,23 @@ async def delete_jobs(body: DeleteJobsRequest):
 
 @router.delete("/api/jobs/{job_id}")
 async def delete_single_job(job_id: str):
-    """Delete a single job by ID."""
+    """Soft-delete a single job by ID. Idempotent: a job already in Recently
+    Deleted reports deleted=0 rather than 404, so a stale view (or a repeat
+    request) doesn't surface as an error. 404 means the row is really gone.
+
+    `previous_status` is the status the job held before the delete — the
+    Pipeline's undo PATCHes it back so the card returns to the exact column it
+    came from (restore-from-recycle-bin, by contrast, always lands in Inbox)."""
+    job = await db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    previous = job.get("status")
     count = await db.delete_jobs([job_id])
     if count == 0:
-        raise HTTPException(404, "Job not found")
+        return {"deleted": 0, "previous_status": previous,
+                "message": "Job is already in Recently Deleted"}
     await db.log_activity("delete", f"Deleted job {job_id}")
-    return {"deleted": 1, "message": "Job deleted"}
+    return {"deleted": 1, "previous_status": previous, "message": "Job deleted"}
 
 
 @router.post("/api/jobs/{job_id}/restore")

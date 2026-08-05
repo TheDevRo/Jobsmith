@@ -1588,7 +1588,13 @@ async def update_application_content(app_id: str, resume_content: str, cover_let
 
 
 async def get_pending_reviews(limit: int = 20) -> list[dict]:
-    """Get applications pending review, joined with their job data."""
+    """Get applications pending review, joined with their job data.
+
+    Deleting a posting hides it everywhere, so the Pipeline columns (this and
+    the two below) skip applications whose job is in Recently Deleted — without
+    that filter a deleted posting keeps its card on the board and looks
+    undeletable. Restoring the job brings the card back.
+    """
     db = await _get_db()
     try:
         cursor = await db.execute(
@@ -1597,6 +1603,7 @@ async def get_pending_reviews(limit: int = 20) -> list[dict]:
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status IN ('pending_review', 'paused')
+                 AND j.status != 'deleted'
                ORDER BY (a.status = 'paused') DESC, j.fit_score DESC
                LIMIT ?""",
             (limit,),
@@ -1617,6 +1624,7 @@ async def get_submitted_applications(limit: int = 50) -> list[dict]:
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status = 'applied'
+                 AND j.status != 'deleted'
                ORDER BY a.applied_at DESC, a.created_at DESC
                LIMIT ?""",
             (limit,),
@@ -1637,6 +1645,7 @@ async def get_failed_applications(limit: int = 50) -> list[dict]:
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status IN ('manual', 'failed')
+                 AND j.status != 'deleted'
                ORDER BY a.created_at DESC
                LIMIT ?""",
             (limit,),

@@ -63,23 +63,31 @@ async function tailorSelectedJobs() {
     toast(msg, failed ? 'error' : 'success');
 }
 
+// Shared cleanup for the single-job actions (delete / restore / erase). The
+// action may have come from the deck's peek modal, so close it and refresh
+// whichever surface is showing underneath — except in the recycle bin, which
+// is always the classic list and must reload to drop the row.
+function _refreshAfterJobChange(jobId) {
+    if (selectedJobId === jobId) clearDetailPane();
+    if (typeof closeJobModal === 'function') closeJobModal();
+    if (typeof isRecycleBinView === 'function' && isRecycleBinView()) {
+        loadJobs();
+    } else if (typeof isInboxStageActive === 'function' && isInboxStageActive()) {
+        loadStage();
+    } else if (typeof isDeckLayout === 'function' && isDeckLayout()
+               && (location.hash.replace('#', '') === 'review')) {
+        renderBoard();
+    } else {
+        loadJobs();
+    }
+}
+
 async function deleteSingleJob(jobId) {
     if (!(await appConfirm('Delete this job posting? It moves to Recently Deleted and won’t come back in future searches.'))) return;
     try {
         await api(`/api/jobs/${jobId}`, { method: 'DELETE' });
         toast('Job deleted', 'info');
-        if (selectedJobId === jobId) clearDetailPane();
-        // Deck layout: the delete may have come from the peek modal — close it
-        // and refresh whichever deck surface is showing underneath.
-        if (typeof closeJobModal === 'function') closeJobModal();
-        if (typeof isInboxStageActive === 'function' && isInboxStageActive()) {
-            loadStage();
-        } else if (typeof isDeckLayout === 'function' && isDeckLayout()
-                   && (location.hash.replace('#', '') === 'review')) {
-            renderBoard();
-        } else {
-            loadJobs();
-        }
+        _refreshAfterJobChange(jobId);
     } catch (e) {
         toast('Failed to delete job', 'error');
     }
@@ -153,10 +161,26 @@ async function restoreJob(jobId) {
     try {
         await api(`/api/jobs/${jobId}/restore`, { method: 'POST' });
         toast('Restored to Inbox', 'success');
-        if (selectedJobId === jobId) clearDetailPane();
-        loadJobs();
+        _refreshAfterJobChange(jobId);
     } catch (e) {
         toast('Failed to restore job', 'error');
+    }
+}
+
+// Erase one posting from Recently Deleted. The only single-job path that drops
+// the row for good: the posting becomes discoverable again, and peers get a
+// tombstone on the next sync.
+async function eraseJob(jobId) {
+    if (!(await appConfirm('Permanently erase this posting? It can come back in future searches, and it’ll be erased on your synced devices too.'))) return;
+    try {
+        await api('/api/jobs/purge-deleted', {
+            method: 'POST',
+            body: JSON.stringify({ job_ids: [jobId] }),
+        });
+        toast('Posting erased', 'info');
+        _refreshAfterJobChange(jobId);
+    } catch (e) {
+        toast('Failed to erase posting', 'error');
     }
 }
 

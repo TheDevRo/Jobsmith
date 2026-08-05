@@ -2597,6 +2597,17 @@ body.layout-deck main:has(> #review.tab-content.active) {
 .toast-error { background: rgba(231, 76, 60, 0.95); color: #fff; border-left: 4px solid #c0392b; }
 .toast-info { background: rgba(94, 124, 160, 0.96); color: #fff; border-left: 4px solid #46617f; }
 
+/* Toast carrying one inline action (Undo). The button borrows the toast's own
+   text color so it reads correctly on every tone. */
+.toast-with-action { display: flex; align-items: center; gap: 14px; padding-right: 12px; }
+.toast-with-action .toast-text { flex: 1; }
+.toast-action {
+    flex: none; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.4);
+    color: inherit; font: inherit; font-weight: 650; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+}
+.toast-action:hover { background: rgba(255, 255, 255, 0.28); }
+.toast-action:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
@@ -3895,7 +3906,7 @@ body.layout-deck #review.review-detail .pipeline-board { display: none; }
 .kcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .kcard.dragging { transform: rotate(3deg) scale(1.03); box-shadow: var(--shadow-lg); border-color: var(--accent); cursor: grabbing; opacity: .9; }
 .kcard.kcard-attn { border-color: color-mix(in srgb, var(--accent-red) 45%, var(--border)); }
-.kcard .kt { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--text-primary); padding-right: 18px; }
+.kcard .kt { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--text-primary); padding-right: 42px; }
 .kcard .kc { font-size: 11px; color: var(--text-muted); }
 .kcard .kfoot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .kcard .kage { margin-left: auto; font-size: 10px; color: var(--text-muted); }
@@ -3903,12 +3914,30 @@ body.layout-deck #review.review-detail .pipeline-board { display: none; }
 .kprogress i { display: block; height: 100%; width: 45%; border-radius: 999px; background: linear-gradient(90deg, var(--steel), var(--accent)); animation: kbatch-slide 1.4s ease-in-out infinite; }
 .oktag { font-size: 10px; color: var(--accent-green); }
 .duetag { font-size: 10px; font-weight: 650; color: var(--accent-red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kmenu-btn {
-    position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: 0; background: transparent;
+/* Card action cluster. The ⋯ is always visible; the ✕ fades in on hover or
+   keyboard focus so a full column stays calm instead of reading as a row of
+   delete buttons. Coarse pointers (no hover) get it permanently. */
+.kacts { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; gap: 2px; }
+.kmenu-btn, .kdel-btn {
+    width: 20px; height: 20px; border: 0; background: transparent; padding: 0;
     color: var(--text-muted); cursor: pointer; border-radius: 5px; line-height: 1; font-size: 15px;
 }
 .kmenu-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.kmenu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kmenu-btn:focus-visible, .kdel-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kdel-btn {
+    font-size: 11px; opacity: 0; transform: scale(.85);
+    transition: opacity .12s ease, transform .12s ease, background .12s ease, color .12s ease;
+}
+.kcard:hover .kdel-btn, .kcard:focus-within .kdel-btn, .kdel-btn:focus-visible {
+    opacity: 1; transform: scale(1);
+}
+.kdel-btn:hover { background: color-mix(in srgb, var(--accent-red) 16%, transparent); color: var(--accent-red); }
+@media (hover: none) { .kdel-btn { opacity: 1; transform: scale(1); } }
+/* Optimistic removal: the card recedes while the DELETE is in flight. */
+.kcard-removing { opacity: .4; transition: opacity .12s ease; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+    .kdel-btn, .kcard-removing { transition: none; }
+}
 .kdroplabel {
     border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 10px; min-height: 44px;
     background: var(--accent-tint); display: grid; place-items: center; font-size: 11px; color: var(--accent); font-weight: 600; padding: 6px;
@@ -3935,6 +3964,10 @@ body.layout-deck #review.review-detail .pipeline-board { display: none; }
 }
 .kmenu button:hover { background: var(--bg-hover); }
 .kmenu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.kmenu button:disabled { color: var(--text-muted); cursor: default; }
+.kmenu button:disabled:hover { background: transparent; }
+.kmenu-danger { color: var(--accent-red); }
+.kmenu-danger:hover { background: color-mix(in srgb, var(--accent-red) 14%, transparent); }
 
 /* ===================== A3 · ⌘K command palette ===================== */
 .cmdk-overlay {

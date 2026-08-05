@@ -615,6 +615,33 @@ function toast(message, type = 'info') {
     setTimeout(() => el.remove(), 5000);
 }
 
+// A toast carrying one inline action — the undo affordance behind the
+// Pipeline's one-click delete. Reversible-with-one-click beats a confirm
+// dialog for a soft delete: nothing is lost, and the flow never stalls.
+// Returns the toast element so a caller can dismiss it early.
+function toastAction(message, actionLabel, onAction, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return null;
+    const el = document.createElement('div');
+    el.className = `toast toast-${type} toast-with-action`;
+    const text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = message;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', () => {
+        el.remove();
+        try { onAction(); } catch (e) { /* the handler owns its own errors */ }
+    });
+    el.appendChild(text);
+    el.appendChild(btn);
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 8000);   // longer than a plain toast — it's actionable
+    return el;
+}
+
 // ---- Dialogs ----
 // The desktop shell's webview doesn't implement window.confirm/prompt/alert
 // (confirm returns false, prompt returns null, silently), so all
