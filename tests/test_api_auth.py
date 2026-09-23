@@ -6,9 +6,12 @@ These deliberately opt OUT of the autouse JOBSMITH_ALLOW_INSECURE fixture in
 conftest.py, because the whole point is to exercise the locked-down default.
 """
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
+from backend import database as dbmod
 from backend import extension_api
 from backend.main import app
 from backend.routers import _auth
@@ -65,10 +68,14 @@ class TestCsrfGate:
     endpoints through the browser's ambient loopback trust (CSRF)."""
 
     @pytest.fixture
-    def loopback(self, monkeypatch, client):
+    def loopback(self, monkeypatch, client, tmp_path):
         # Force the trusted-loopback path so we isolate the CSRF check from the
         # token gate: without CSRF protection these POSTs would all succeed.
         monkeypatch.setattr(_auth.state, "is_loopback_request", lambda request: True)
+        # The allowed POSTs really run delete-tracked: point them at a throwaway
+        # db, never the repo's data/jobsmith.db (which CI doesn't even have).
+        monkeypatch.setattr(dbmod, "DB_PATH", tmp_path / "test.db")
+        asyncio.run(dbmod.init_db())
         return client
 
     def test_cross_site_post_is_blocked_even_on_loopback(self, loopback):
