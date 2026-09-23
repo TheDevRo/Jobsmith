@@ -6,6 +6,7 @@ uvicorn>=0.24.0
 aiohttp>=3.9.0
 aiosqlite>=0.19.0
 openai>=1.6.0
+httpx>=0.28.1  # imported directly (apple_bridge, system, salary_estimator); openai 3.x no longer pulls it in
 python-docx>=1.0.0
 reportlab>=4.0.0
 feedparser>=6.0.0
