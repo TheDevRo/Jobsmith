@@ -16,4 +16,4 @@
 # Docker: add `RUN pip install -r requirements-optional.txt` to a derived image,
 # or `pip install -r requirements-optional.txt` inside the running container.
 
-browser-use==0.13.3
+browser-use==0.13.7
