@@ -49,7 +49,13 @@ def watch_parent(parent_pid: int, shell_pid: int = 0) -> None:
             try:
                 os.kill(shell_pid, 0)  # signal 0: existence check only
             except ProcessLookupError:
-                print("[desktop] Tauri shell is gone — shutting the backend down.", flush=True)
+                # The shell owned our stdout pipe, so it's usually closed by
+                # now: a BrokenPipeError here would kill this thread one line
+                # short of the exit and orphan the backend.
+                try:
+                    print("[desktop] Tauri shell is gone — shutting the backend down.", flush=True)
+                except OSError:
+                    pass
                 os._exit(0)
             except PermissionError:
                 pass  # alive, just not ours to signal

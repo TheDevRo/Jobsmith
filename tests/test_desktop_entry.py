@@ -1,4 +1,4 @@
-"""prune_stale_chromium keeps only the live Playwright revision (full + headless shell)."""
+"""packaging/desktop_entry.py: stale-browser pruning and the shell watchdog."""
 import importlib.util
 import sys
 import types
@@ -32,3 +32,28 @@ def test_prunes_old_chromium_and_headless_shell(tmp_path, monkeypatch):
 
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "chromium-1200", "chromium_headless_shell-1200", "ffmpeg-1010"]
+
+
+def test_watchdog_exits_even_when_stdout_pipe_is_closed(monkeypatch):
+    """The dead shell owned our stdout; the goodbye print must not stop the exit."""
+    class _Broken:
+        def write(self, *_): raise BrokenPipeError
+        def flush(self): raise BrokenPipeError
+
+    class _Exited(Exception):
+        pass
+
+    def _exit(code):
+        raise _Exited(code)
+
+    def _no_such_process(pid, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(sys, "stdout", _Broken())
+    monkeypatch.setattr(desktop_entry.os, "kill", _no_such_process)
+    monkeypatch.setattr(desktop_entry.os, "_exit", _exit)
+    try:
+        desktop_entry.watch_parent(0, shell_pid=99999)
+    except _Exited:
+        return
+    raise AssertionError("watchdog did not exit")
