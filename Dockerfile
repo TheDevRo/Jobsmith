@@ -13,7 +13,7 @@
 # PLAYWRIGHT_VERSION must match the `playwright==` pin in requirements.lock /
 # requirements.txt — the base image bundles exactly the browser build that
 # Playwright version expects. The RUN check below enforces it at build time.
-ARG PLAYWRIGHT_VERSION=1.58.0
+ARG PLAYWRIGHT_VERSION=1.62.0
 FROM mcr.microsoft.com/playwright/python:v${PLAYWRIGHT_VERSION}-noble
 
 # ARGs don't survive FROM — re-declare for the check below.
