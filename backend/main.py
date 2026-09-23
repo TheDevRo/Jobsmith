@@ -216,6 +216,9 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheStaticMiddleware)
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+
+
 def _configured_bind() -> tuple[str, int]:
     """Resolve the host/port uvicorn will actually listen on.
 
@@ -231,6 +234,11 @@ def _configured_bind() -> tuple[str, int]:
     except Exception:  # missing/corrupt config — fall back to the defaults
         pass
     host = os.environ.get("JOBSMITH_HOST") or host
+    # docker-entrypoint.sh never binds loopback inside the container (it would
+    # kill the published port) — it binds 0.0.0.0. Mirror that here, or the
+    # Host-header pin below rejects every LAN / Tailscale / proxy hostname.
+    if os.environ.get("JOBSMITH_IN_DOCKER") and host in _LOOPBACK_HOSTS:
+        host = "0.0.0.0"
     try:
         port = int(os.environ.get("JOBSMITH_PORT") or port)
     except ValueError:
@@ -239,7 +247,6 @@ def _configured_bind() -> tuple[str, int]:
 
 
 _BIND_HOST, _BIND_PORT = _configured_bind()
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
 # --- Host-header validation (DNS rebinding) --------------------------------
 # Without this, a page on attacker.com can re-resolve its own domain to

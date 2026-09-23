@@ -18,7 +18,7 @@ looks: under Docker the container sees requests from the bridge gateway
 (e.g. 172.17.0.1), *not* 127.0.0.1 — so every Docker/LAN dashboard user is a
 non-loopback caller and would otherwise be locked out of their own app. The
 SPA trades the token for a cookie once via POST /api/auth/login and rides on it
-from then on. The token is readable at data/.extension_token (mode 0600).
+from then on. The token is readable at data/extension_token.txt (mode 0600).
 
 Escape hatch: set JOBSMITH_ALLOW_INSECURE=1 to restore the old
 trust-the-network behaviour on a genuinely trusted single-user LAN. Off by
@@ -73,9 +73,11 @@ def _request_is_cross_site(request: Request) -> bool:
     a caller with no Origin/Sec-Fetch-Site was never riding ambient authority.
     """
     # Modern browsers stamp every request with Sec-Fetch-Site; trust it first.
+    # "same-site" is NOT enough: ports don't count toward a site, so a page on
+    # any other localhost port (another dev server, a local tool) is same-site.
     sec_fetch_site = request.headers.get("sec-fetch-site")
     if sec_fetch_site:
-        return sec_fetch_site not in ("same-origin", "same-site", "none")
+        return sec_fetch_site not in ("same-origin", "none")
 
     # Fallback for browsers that omit Sec-Fetch-Site: compare Origin to the host
     # we were actually dialled on (handles the LAN/Docker case, where the host
@@ -131,7 +133,7 @@ async def require_local_or_token(
             status_code=401,
             detail=(
                 "Jobsmith requires a token for requests from off this machine. "
-                "Paste the token from data/.extension_token into the dashboard, "
+                "Paste the token from data/extension_token.txt into the dashboard, "
                 "or send it as an X-Jobsmith-Token header."
             ),
         )

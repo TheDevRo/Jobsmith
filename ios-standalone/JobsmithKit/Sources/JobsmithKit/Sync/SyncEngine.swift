@@ -494,6 +494,21 @@ public final class SyncEngine {
             let force = (try meta(dbc, "pending_migration")) == "1"
             if force { try setMeta(dbc, "pending_migration", "0") }
 
+            // First-join guard for the singleton bridges (profile, settings): a
+            // key this device has never exported (no snapshot row) must not
+            // broadcast its local value when the folder already holds one — a
+            // fresh install's empty profile / default settings would get stamped
+            // `now` and out-rank the real data on every device. Skip it; the
+            // import that follows adopts the folder's value and records the
+            // snapshot. Twin of backend/sync/engine.py export_changes.
+            var folderKeys: Set<String>?
+            func inFolder(_ entity: String, _ id: String) throws -> Bool {
+                if folderKeys == nil {
+                    folderKeys = Set(try SyncMerge.loadLogs(folder).map { "\($0.entity)/\($0.id)" })
+                }
+                return folderKeys!.contains("\(entity)/\(id)")
+            }
+
             func diff(entity: String, current: [String: [String: JSONValue]]) throws {
                 let snap = try loadSnapshot(dbc, entity)
                 for (id, data) in current {
@@ -535,7 +550,9 @@ public final class SyncEngine {
                 let canonProfile = SyncEntities.profileIOSToCanonical(iosProfile)
                 let cj = canon(canonProfile)
                 let snap = try loadSnapshot(dbc, "profile")["me"]
-                if force || snap == nil || snap!.deleted || snap!.dataJSON != cj {
+                if snap == nil, try inFolder("profile", "me") {
+                    // first join: adopt the folder's profile on import
+                } else if force || snap == nil || snap!.deleted || snap!.dataJSON != cj {
                     records.append(ChangeRecord(entity: "profile", id: "me", updatedAt: ts,
                                                 device: deviceId, deleted: false, data: canonProfile))
                     try putSnapshot(dbc, "profile", "me", ts, false, cj)
@@ -552,6 +569,7 @@ public final class SyncEngine {
                 for (path, data) in current {
                     let cj = canon(data)
                     let prev = snap[path]
+                    if prev == nil, try inFolder("setting", path) { continue }  // first join: adopt on import
                     if force || prev == nil || prev!.deleted || prev!.dataJSON != cj {
                         records.append(ChangeRecord(entity: "setting", id: path, updatedAt: ts,
                                                     device: deviceId, deleted: false, data: data))

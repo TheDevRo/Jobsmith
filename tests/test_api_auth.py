@@ -82,6 +82,12 @@ class TestCsrfGate:
                              headers={"Origin": "http://evil.example"})
         assert resp.status_code == 403
 
+    def test_same_site_other_port_post_is_blocked(self, loopback):
+        # localhost:3000 -> localhost:8888 is "same-site" (ports don't count).
+        resp = loopback.post("/api/jobs/delete-tracked",
+                             headers={"Sec-Fetch-Site": "same-site"})
+        assert resp.status_code == 403
+
     def test_null_origin_is_blocked(self, loopback):
         resp = loopback.post("/api/jobs/delete-tracked",
                              headers={"Origin": "null"})
@@ -233,3 +239,48 @@ class TestAssistSetupTokenIsEphemeral:
         # …and we get the real, persistent token back to store.
         assert resp.json()["token"] == token
         assert resp.json()["token"] != "ephemeral-xyz"
+
+
+class TestAssistLaunchPageEscaping:
+    """A scraped apply URL must not be able to run script on our origin."""
+
+    def test_script_breakout_url_is_escaped(self, monkeypatch, client):
+        import backend.applicant_assist as aa
+        from backend.routers import assist
+
+        evil = "https://x.test/?q=</script><script>alert(1)</script>"
+        monkeypatch.setattr(assist, "_is_loopback_request", lambda request: True)
+        monkeypatch.setattr(_auth.state, "is_loopback_request", lambda request: True)
+        monkeypatch.setattr(aa, "get_handoff_session", lambda sid: {
+            "id": sid, "setup_token": "t", "apply_url": evil,
+            "job_title": "Eng", "job_company": "Acme",
+        })
+        html = client.get("/assist/launch/s1").text
+        assert "<script>alert(1)" not in html
+        assert "\\u003c/script>" in html
+
+    def test_non_http_apply_url_is_refused(self, monkeypatch, client):
+        from backend.routers import assist
+
+        async def fake_get_job(job_id):
+            return {"id": job_id, "url": "javascript:alert(1)", "application": {"x": 1}}
+
+        monkeypatch.setattr(_auth.state, "is_loopback_request", lambda request: True)
+        monkeypatch.setattr(assist.db, "get_job", fake_get_job)
+        resp = client.post("/api/assist/launch", json={"job_id": "j1"})
+        assert resp.status_code == 400
+
+
+class TestDockerBind:
+    """In Docker the entrypoint binds 0.0.0.0 even when config says loopback;
+    the Host-header pin must follow, or LAN/Tailscale/proxy hosts get 400."""
+
+    def test_docker_treats_loopback_config_as_all_interfaces(self, monkeypatch):
+        from backend import main
+
+        monkeypatch.delenv("JOBSMITH_HOST", raising=False)
+        monkeypatch.setattr(main.state, "load_config", lambda: {"server": {"host": "127.0.0.1"}})
+        monkeypatch.setenv("JOBSMITH_IN_DOCKER", "1")
+        assert main._configured_bind()[0] == "0.0.0.0"
+        monkeypatch.delenv("JOBSMITH_IN_DOCKER")
+        assert main._configured_bind()[0] == "127.0.0.1"

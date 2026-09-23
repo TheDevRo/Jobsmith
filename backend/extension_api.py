@@ -14,6 +14,7 @@ generated on first use and persisted at `data/extension_token.txt`.
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 from typing import Optional
 
@@ -46,6 +47,17 @@ TOKEN_PATH = DATA_DIR / "extension_token.txt"
 # Token management
 # ---------------------------------------------------------------------------
 
+def _write_token(token: str) -> None:
+    # Created 0600 from the first byte (write_text+chmod left a world-readable
+    # window) and published atomically so a reader never sees a torn file.
+    tmp = TOKEN_PATH.with_name(TOKEN_PATH.name + ".tmp")
+    tmp.unlink(missing_ok=True)  # a leftover tmp would keep its old mode
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    tmp.replace(TOKEN_PATH)
+
+
 def get_or_create_token() -> str:
     """Return the extension auth token, generating + persisting one if missing."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -54,8 +66,7 @@ def get_or_create_token() -> str:
         if token:
             return token
     token = secrets.token_urlsafe(32)
-    TOKEN_PATH.write_text(token)
-    TOKEN_PATH.chmod(0o600)
+    _write_token(token)
     logger.info("Extension token generated at %s", TOKEN_PATH)
     return token
 
@@ -64,8 +75,7 @@ def rotate_token() -> str:
     """Generate a new token, overwriting the existing one."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
-    TOKEN_PATH.write_text(token)
-    TOKEN_PATH.chmod(0o600)
+    _write_token(token)
     logger.info("Extension token rotated at %s", TOKEN_PATH)
     return token
 

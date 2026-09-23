@@ -941,3 +941,66 @@ async def test_delete_all_tracked_postings_keeps_answers(tmp_path, monkeypatch):
         {"source": "greenhouse", "external_id": "111", "title": "Engineer",
          "company": "Acme", "url": "https://x/111", "description": "Build things"}
     ) is not None
+
+
+@pytest.mark.asyncio
+async def test_fresh_device_adopts_folder_profile_instead_of_clobbering(tmp_path, monkeypatch):
+    """A device joining an existing sync folder must not broadcast its
+    placeholder profile over the real one (it exports before it imports)."""
+    path_a, path_b, folder, clock = tmp_path / "a.db", tmp_path / "b.db", tmp_path / "sync", Clock()
+    await _init_db(path_a, monkeypatch)
+    await _init_db(path_b, monkeypatch)
+
+    saved_a = {"full_name": "Jane Doe", "summary": "Backend engineer."}
+    saved_b = {"full_name": "Placeholder", "summary": "Your professional summary here."}
+
+    def engine(path, dev, box):
+        return SyncEngine(path, dev, now_fn=clock, load_profile=lambda: dict(box),
+                          save_profile=lambda p: (box.clear(), box.update(p)))
+
+    a, b = engine(path_a, "A1B2", saved_a), engine(path_b, "C3D4", saved_b)
+    for eng in (a, b, a):  # A seeds, B joins, A picks up whatever B emitted
+        await eng.export_changes(folder)
+        await eng.import_changes(folder)
+
+    assert saved_a["summary"] == "Backend engineer."
+    assert saved_b["summary"] == "Backend engineer."
+
+    # After joining, B's own edits sync normally.
+    saved_b["summary"] = "Edited on B."
+    for eng in (b, a):
+        await eng.export_changes(folder)
+        await eng.import_changes(folder)
+    assert saved_a["summary"] == "Edited on B."
+
+
+@pytest.mark.asyncio
+async def test_fresh_device_adopts_folder_settings_instead_of_clobbering(tmp_path, monkeypatch):
+    import copy
+
+    path_a, path_b, folder, clock = tmp_path / "a.db", tmp_path / "b.db", tmp_path / "sync", Clock()
+    await _init_db(path_a, monkeypatch)
+    await _init_db(path_b, monkeypatch)
+
+    base = {"search": {"keywords": ["software engineer"]}, "sync": {"settings": {"postings": True}}}
+    box = {"a": copy.deepcopy(base), "b": copy.deepcopy(base)}
+    box["a"]["search"]["keywords"] = ["staff platform engineer"]
+
+    def engine(path, dev, k):
+        return SyncEngine(path, dev, now_fn=clock,
+                          load_settings=lambda: copy.deepcopy(box[k]),
+                          save_settings=lambda c: box.__setitem__(k, c))
+
+    a, b = engine(path_a, "A1B2", "a"), engine(path_b, "C3D4", "b")
+    for eng in (a, b, a):
+        await eng.export_changes(folder)
+        await eng.import_changes(folder)
+
+    assert box["a"]["search"]["keywords"] == ["staff platform engineer"]
+    assert box["b"]["search"]["keywords"] == ["staff platform engineer"]
+
+    box["b"]["search"]["keywords"] = ["from b"]
+    for eng in (b, a):
+        await eng.export_changes(folder)
+        await eng.import_changes(folder)
+    assert box["a"]["search"]["keywords"] == ["from b"]

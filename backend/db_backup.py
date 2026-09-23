@@ -29,6 +29,7 @@ and start the server again (migrations re-run forward automatically).
 
 import asyncio
 import logging
+import os
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -51,6 +52,10 @@ def _backup_path_for_today() -> Path:
 def _snapshot_sync(src: Path, dest: Path) -> None:
     """Consistent point-in-time copy of a (possibly live) SQLite db."""
     tmp = dest.with_name(dest.name + ".tmp")
+    # Pre-create owner-only: a snapshot holds the whole job search, and sqlite
+    # would otherwise create it with the process umask (usually 0644).
+    tmp.unlink(missing_ok=True)  # a leftover tmp would keep its old mode
+    os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
     src_conn = sqlite3.connect(str(src))
     try:
         dest_conn = sqlite3.connect(str(tmp))

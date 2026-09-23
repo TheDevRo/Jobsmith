@@ -7,6 +7,10 @@ struct ProfileEditorView: View {
     @Environment(AppModel.self) private var model
     @State private var profile = Profile()
     @State private var skillsText = ""
+    /// NavigationLink builds this destination eagerly, and a never-shown
+    /// instance can still fire `onDisappear` — which would save its empty
+    /// `Profile()` over the real one. Only an instance that appeared may save.
+    @State private var hasAppeared = false
 
     var body: some View {
         Form {
@@ -140,6 +144,7 @@ struct ProfileEditorView: View {
         }
         .navigationTitle("Profile")
         .onAppear {
+            hasAppeared = true
             // Only hydrate from config on the first appearance. Returning
             // from the per-role editor (a NavigationLink push/pop) fires
             // onAppear again — re-reading config here would clobber live
@@ -162,6 +167,7 @@ struct ProfileEditorView: View {
             }
         }
         .onDisappear {
+            guard hasAppeared else { return }
             var updated = profile
             updated.skills = skillsText.split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }

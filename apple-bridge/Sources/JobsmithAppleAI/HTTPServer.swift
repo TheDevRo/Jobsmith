@@ -105,6 +105,11 @@ final class HTTPServer {
                                                 message: "Malformed HTTP request",
                                                 type: "invalid_request_error",
                                                 code: "bad_request"))
+            case .forbiddenHost:
+                self.respond(connection, .error(status: 403,
+                                                message: "Only loopback Host headers are accepted",
+                                                type: "invalid_request_error",
+                                                code: "forbidden_host"))
             case .request(let request):
                 self.handler(request) { response in
                     self.respond(connection, response)
@@ -137,6 +142,7 @@ final class HTTPServer {
         switch status {
         case 200: return "OK"
         case 400: return "Bad Request"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
         case 429: return "Too Many Requests"
@@ -150,12 +156,22 @@ final class HTTPServer {
     private enum ParseResult {
         case incomplete
         case malformed
+        case forbiddenHost
         case request(HTTPRequest)
     }
 
+    /// Far above any real prompt; stops a local caller growing the buffer forever.
+    private static let maxRequestBytes = 8 * 1024 * 1024
+
     private static let headerTerminator = Data("\r\n\r\n".utf8)
 
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return ["127.0.0.1", "localhost", "[::1]"].contains { h == $0 || h.hasPrefix($0 + ":") }
+    }
+
     private static func parse(_ buffer: Data) -> ParseResult {
+        guard buffer.count <= maxRequestBytes else { return .malformed }
         guard let headerEnd = buffer.range(of: headerTerminator) else { return .incomplete }
         let headerData = buffer[buffer.startIndex..<headerEnd.lowerBound]
         guard let headerText = String(data: headerData, encoding: .utf8) else { return .malformed }
@@ -167,10 +183,17 @@ final class HTTPServer {
         for line in lines.dropFirst() {
             let parts = line.split(separator: ":", maxSplits: 1)
             guard parts.count == 2 else { continue }
-            if parts[0].lowercased() == "content-length" {
-                contentLength = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            let name = parts[0].lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            if name == "content-length" {
+                contentLength = Int(value) ?? 0
+            } else if name == "host" && !isLoopbackHost(value) {
+                // DNS rebinding: a web page that re-points its own domain at
+                // 127.0.0.1 still sends its own hostname here.
+                return .forbiddenHost
             }
         }
+        guard contentLength >= 0, contentLength <= maxRequestBytes else { return .malformed }
 
         let bodyStart = headerEnd.upperBound
         let available = buffer.distance(from: bodyStart, to: buffer.endIndex)
