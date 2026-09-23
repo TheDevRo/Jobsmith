@@ -981,4 +981,20 @@ final class DigestRankerTests: XCTestCase {
         XCTAssertEqual(rates["greenhouse"] ?? -1, 1.0 / 3.0, accuracy: 0.001)
         XCTAssertNil(rates["linkedin"], "a source below the sample threshold must not be judged")
     }
+
+    /// AppModel's in-memory fallback (shared container failed to open) must
+    /// never sync; the on-disk database reports itself as not in-memory.
+    func testInMemoryDatabaseRefusesToSync() async throws {
+        let db = try AppDatabase.inMemory()
+        XCTAssertTrue(db.isInMemory)
+        let onDisk = try AppDatabase(DatabaseQueue(path: FileManager.default.temporaryDirectory
+            .appendingPathComponent("disk-\(UUID().uuidString).sqlite").path))
+        XCTAssertFalse(onDisk.isInMemory)
+        do {
+            _ = try await SyncManager.shared.syncNow(db: db)
+            XCTFail("in-memory db synced")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 4)
+        }
+    }
 }

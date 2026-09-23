@@ -52,6 +52,8 @@ async def test_snapshot_created_and_openable(dbenv):
         conn.close()
     # No .tmp turd left behind.
     assert list(backup_dir.glob("*.tmp")) == []
+    # A snapshot is the whole job search: owner-only.
+    assert dest.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.asyncio

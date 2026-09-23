@@ -207,6 +207,13 @@ public extension SyncManager {
                  configStore: ConfigStore = .shared,
                  deviceLabel: String? = nil,
                  defaults: UserDefaults = .standard) async throws -> SyncCoordinator.Result {
+        // AppModel's fallback db is empty and thrown away on quit: syncing it
+        // gains nothing and would run this device's export from a blank
+        // snapshot table under its real device id.
+        guard !db.isInMemory else {
+            throw NSError(domain: "JobsmithSync", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sync is off: the database could not be opened"])
+        }
         guard let folder = resolvedFolder(defaults) else {
             throw NSError(domain: "JobsmithSync", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "No sync folder chosen yet"])

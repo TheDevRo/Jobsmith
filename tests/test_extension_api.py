@@ -75,6 +75,13 @@ def test_token_persisted(token_path):
     assert token_path.read_text().strip() == t1
 
 
+def test_token_file_owner_only(token_path):
+    extension_api.get_or_create_token()
+    assert token_path.stat().st_mode & 0o777 == 0o600
+    extension_api.rotate_token()
+    assert token_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_scan_endpoint_uses_llm(client, token_path):
     token = extension_api.get_or_create_token()
 
