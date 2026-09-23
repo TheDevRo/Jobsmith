@@ -17,11 +17,11 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Correctness-only rule set — see ruff.toml. This gate exists to catch
       # undefined names, unused symbols, loop-variable capture, and async
       # busy-waits before tests run; it deliberately does no formatting.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install ruff
@@ -31,8 +31,8 @@ jobs:
     name: Backend (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -73,7 +73,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: coverage.xml
@@ -83,8 +83,8 @@ jobs:
     name: Extension + frontend (node)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -95,7 +95,7 @@ jobs:
     name: Injected Apply JS is in sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # snapshot.js/fill.js are hand-copied from the extension into the iOS app.
       # This is the check that they haven't drifted apart.
       - run: python3 scripts/check_apply_js_sync.py
@@ -104,7 +104,7 @@ jobs:
     name: iOS (xcodebuild)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install xcodegen
         run: brew install xcodegen
       - name: Generate project
@@ -123,7 +123,7 @@ jobs:
       # checks the Swift merge agrees with the Python oracle. It only builds on
       # Darwin (JSONValue.swift needs CoreFoundation), so it self-skips on the
       # Linux backend job — this is the job where it runs.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
