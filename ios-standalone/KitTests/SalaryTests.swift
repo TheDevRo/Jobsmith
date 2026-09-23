@@ -255,10 +255,10 @@ final class ClassificationFallbackTests: XCTestCase {
         XCTAssertNil(result.socCode)
 
         // Result cached in ai_cache under a sha-derived "soc:" key.
-        let row = try await db.writer.read { dbc in
-            try Row.fetchOne(dbc, sql: "SELECT key, value FROM ai_cache")
+        let cachedKey = try await db.writer.read { dbc in
+            try String.fetchOne(dbc, sql: "SELECT key FROM ai_cache")
         }
-        let key: String = try XCTUnwrap(row)["key"]
+        let key = try XCTUnwrap(cachedKey)
         XCTAssertTrue(key.hasPrefix("soc:"))
         XCTAssertEqual(key.count, "soc:".count + 24)
 
