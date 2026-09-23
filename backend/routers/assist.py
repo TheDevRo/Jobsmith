@@ -446,6 +446,11 @@ async def assist_launch(req: AssistLaunchRequest):
     if not job:
         raise HTTPException(404, "Job not found")
 
+    # The launch page redirects to this URL; a scraped "javascript:" URL would
+    # run as script on our origin.
+    if not (job.get("url") or "").lower().startswith(("http://", "https://")):
+        raise HTTPException(400, "This job has no http(s) apply URL")
+
     app_data = job.get("application")
     if not app_data:
         raise HTTPException(400, "No application record for this job — tailor the resume first")
@@ -540,13 +545,16 @@ async def assist_launch_page(session_id: str, request: Request):
     amo_url = ext_cfg.get("amo_url", "") or ""
     web_store_url = ext_cfg.get("web_store_url", "") or ""
 
+    # Embedded in a <script> block: json.dumps leaves "<" alone, so a scraped
+    # URL containing "</script>" would end the block and run as page script on
+    # our (loopback-trusted) origin. \u003c is the same string to JSON.parse.
     session_json = json.dumps({
         "session_id": rec["id"],
         "setup_token": rec["setup_token"],
         "apply_url": rec["apply_url"],
         "amo_url": amo_url,
         "web_store_url": web_store_url,
-    })
+    }).replace("<", "\\u003c")
 
     job_label = _html.escape(f"{rec.get('job_title','')} — {rec.get('job_company','')}".strip(" —"))
     apply_url_attr = _html.escape(rec["apply_url"], quote=True)

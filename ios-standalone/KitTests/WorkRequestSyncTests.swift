@@ -45,7 +45,7 @@ final class WorkRequestSyncTests: XCTestCase {
         try db.writer.write { dbc in
             try dbc.execute(sql: """
                 INSERT INTO work_requests (id, kind, status, requestedBy, requestedAt)
-                VALUES ('foreign', 'score_all', 'pending', 'PEER99', '2026-07-16T00:00:00.000Z')
+                VALUES ('foreign', 'score_all', 'pending', 'PEER99', '2999-01-01T00:00:00.000Z')
                 """)
         }
         // This device (PHONE01) has filed nothing, so its request path is clear
