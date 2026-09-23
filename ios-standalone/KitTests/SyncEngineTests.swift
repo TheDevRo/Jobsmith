@@ -252,6 +252,29 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedB["noticePeriod"], .string("2 weeks"))  // preserved
     }
 
+    /// A device joining an existing folder exports before it imports; its
+    /// never-synced placeholder profile must not out-rank the real one.
+    func testFreshDeviceAdoptsFolderProfileInsteadOfClobbering() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+        var savedA: [String: JSONValue] = ["fullName": .string("Alex Kim"), "summary": .string("iOS dev")]
+        var savedB: [String: JSONValue] = ["fullName": .string(""), "summary": .string("")]
+        let a = SyncEngine(db: try AppDatabase.inMemory(), deviceId: "A1B2",
+                           loadProfile: { savedA }, saveProfile: { savedA = $0 }, now: clock.now)
+        let b = SyncEngine(db: try AppDatabase.inMemory(), deviceId: "C3D4",
+                           loadProfile: { savedB }, saveProfile: { savedB = $0 }, now: clock.now)
+
+        for e in [a, b, a] { try e.export(to: folder); try e.importChanges(from: folder) }
+        XCTAssertEqual(savedA["summary"], .string("iOS dev"))
+        XCTAssertEqual(savedB["summary"], .string("iOS dev"))
+
+        // Once joined, B's own edits flow normally.
+        savedB["summary"] = .string("edited on B")
+        for e in [b, a] { try e.export(to: folder); try e.importChanges(from: folder) }
+        XCTAssertEqual(savedA["summary"], .string("edited on B"))
+    }
+
     /// The real delete path is soft: triage='deleted', synced as a `triage`
     /// record. It reaches the other device and hides the job there — no tombstone
     /// and no side table.
@@ -957,5 +980,21 @@ final class DigestRankerTests: XCTestCase {
         let rates = try apps.responseRateBySource()
         XCTAssertEqual(rates["greenhouse"] ?? -1, 1.0 / 3.0, accuracy: 0.001)
         XCTAssertNil(rates["linkedin"], "a source below the sample threshold must not be judged")
+    }
+
+    /// AppModel's in-memory fallback (shared container failed to open) must
+    /// never sync; the on-disk database reports itself as not in-memory.
+    func testInMemoryDatabaseRefusesToSync() async throws {
+        let db = try AppDatabase.inMemory()
+        XCTAssertTrue(db.isInMemory)
+        let onDisk = try AppDatabase(DatabaseQueue(path: FileManager.default.temporaryDirectory
+            .appendingPathComponent("disk-\(UUID().uuidString).sqlite").path))
+        XCTAssertFalse(onDisk.isInMemory)
+        do {
+            _ = try await SyncManager.shared.syncNow(db: db)
+            XCTFail("in-memory db synced")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 4)
+        }
     }
 }

@@ -1085,8 +1085,8 @@ function promptForToken() {
                 <h2>Enter your Jobsmith token</h2>
                 <p>
                     You're reaching Jobsmith from another machine, so it needs the
-                    access token. Find it in <code>data/.extension_token</code>
-                    (or run <code>docker compose exec jobsmith cat data/.extension_token</code>).
+                    access token. Find it in <code>data/extension_token.txt</code>
+                    (or run <code>docker compose exec jobsmith cat data/extension_token.txt</code>).
                 </p>
                 <input type="password" id="token-gate-input" placeholder="Paste token" autocomplete="off">
                 <div class="token-gate-error" id="token-gate-error"></div>

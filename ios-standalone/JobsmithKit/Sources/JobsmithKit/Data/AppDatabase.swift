@@ -30,6 +30,10 @@ public struct AppDatabase: Sendable {
         return try AppDatabase(pool)
     }
 
+    /// True for `inMemory()` — including AppModel's fallback when the shared
+    /// container won't open. Such a database is empty, so it must never sync.
+    public var isInMemory: Bool { writer.path == ":memory:" }
+
     /// In-memory database for tests and previews.
     public static func inMemory() throws -> AppDatabase {
         try AppDatabase(DatabaseQueue())

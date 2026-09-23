@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.8 -->
+<!-- notes-updated-for: 0.2.9 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -14,47 +14,41 @@ Docker image — all built from the same tag.
 
 ## What's new in __VERSION__
 
-**Zero-setup AI on Apple Silicon.** On macOS 26+ with Apple Intelligence
-enabled, Jobsmith can now run scoring and other short AI tasks on Apple's
-built-in on-device model — free, private, offline, and no server to install.
-The setup wizard offers it automatically when no AI server answers, and
-Settings → AI lets you choose it per model tier. Resume and cover-letter
-generation stays on your configured endpoint (LM Studio, Ollama, or a hosted
-provider) — the on-device model is too small to write good documents, and
-Jobsmith won't pretend otherwise.
+A security and reliability release. No new features; everyone on 0.2.8
+should update.
 
-**Easier to start.** A package of first-run improvements for new users:
+**Security**
 
-- The app now tells you when the **AI server is unreachable** (or the
-  configured model isn't loaded) with a banner and a fix-it button — no more
-  silent "Scored 0 jobs (40 failed)".
-- A **getting-started checklist** on the home screen tracks AI, profile, first
-  fetch, first shortlist, and extension pairing until all are done.
-- Empty states name the actual blocker, the Inbox **Fetch button actually
-  fetches**, the product tour waits until you have jobs to look at, and a
-  dozen bits of jargon got plain-language tooltips.
+- The apply-assist launch page no longer runs script from a malicious job
+  posting's apply URL (only http/https URLs are accepted, and the embedded
+  data is escaped).
+- Pages served from other localhost ports (another dev server, a local tool)
+  can no longer make state-changing requests to Jobsmith.
+- The on-device AI bridge rejects DNS-rebinding requests and oversized
+  bodies.
+- The access token and the daily database backups are now readable only by
+  your user account.
 
-**One mental model per screen.** The Deck/Classic split is gone in favor of
-per-view toggles — Inbox flips between cards ⇄ list, Pipeline between board ⇄
-table, and your old preference migrates automatically. The pipeline funnel is
-now a clickable stage filter, Settings went from nine tabs to five (with a
-Basic mode that shows only the essentials), and Activity became a proper Home
-with a single **Fetch & Score** action for the everyday loop. Every rendering
-and capability survives — only the parallel structures went away.
+**Sync**
 
-**Recycle bin.** Passed and deleted jobs land in a recycle bin with undo,
-restore, and permanent-erase, instead of vanishing.
+- A newly-added device can no longer overwrite your real profile and
+  settings with its blank defaults on its first sync.
+- iOS won't sync if its database failed to open.
 
-**Fixed.**
+**macOS app**
 
-- **Firefox extension "NetworkError" on fresh installs** — the panel now
-  routes backend calls through the extension's background process, so it works
-  immediately without manually granting host permissions. The Mozilla-signed
-  XPI ships inside the app.
-- **Duplicate tailoring runs** — dragging a card to Tailoring after the board
-  had been open a while could fire the run many times over and pile up
-  duplicate "Ready to Review" drafts. Fixed at every layer, and the app cleans
-  up existing duplicates on first launch.
+- Cmd+Q asks before quitting while a search or scoring run is active.
+- Clicking the Dock icon brings the window back when Jobsmith is hidden in
+  the menu bar.
+- Force-quitting or crashing no longer leaves the backend running and
+  holding port 8888.
+- Old Playwright browser downloads are cleaned up (saves ~150 MB per
+  upgrade).
+
+**Docker**
+
+- LAN, Tailscale and reverse-proxy hostnames work again (they were rejected
+  with a 400). The token hint now points at `data/extension_token.txt`.
 
 ## macOS app (Apple Silicon)
 

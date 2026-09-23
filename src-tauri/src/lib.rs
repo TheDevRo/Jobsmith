@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder, MenuItemKind, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -268,6 +268,37 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+fn run_active(app: &tauri::AppHandle) -> bool {
+    app.try_state::<RunState>()
+        .map(|s| s.0.lock().unwrap().active)
+        .unwrap_or(false)
+}
+
+/// Cmd+Q: quitting kills the sidecar and any run in flight, so confirm first
+/// while one is active. (The tray's Quit already says "stops the run".)
+fn request_quit(app: &tauri::AppHandle) {
+    if !run_active(app) {
+        app.exit(0);
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let quit = app
+            .dialog()
+            .message("A search/scoring run is still active. Quitting stops it.")
+            .title("Quit Jobsmith?")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Quit".into(),
+                "Keep Running".into(),
+            ))
+            .blocking_show();
+        if quit {
+            app.exit(0);
+        }
+    });
+}
+
 /// One-time heads-up the first time a close is turned into hide-to-tray.
 fn notify_hidden_to_tray(app: &tauri::AppHandle) {
     static NOTIFIED: AtomicBool = AtomicBool::new(false);
@@ -448,6 +479,22 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .build()?;
 
     let menu = Menu::default(handle)?;
+    // Swap the app menu's predefined Quit (which terminates immediately) for
+    // one that goes through request_quit.
+    #[cfg(target_os = "macos")]
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        for item in app_menu.items()? {
+            if let MenuItemKind::Predefined(p) = &item {
+                if p.text()?.starts_with("Quit") {
+                    app_menu.remove(p)?;
+                }
+            }
+        }
+        let quit = MenuItemBuilder::with_id("app_quit", "Quit Jobsmith")
+            .accelerator("CmdOrCtrl+Q")
+            .build(app)?;
+        app_menu.append(&quit)?;
+    }
     menu.append(&submenu)?;
     app.set_menu(menu)?;
 
@@ -464,6 +511,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
             }
         }
         "report_issue" => open_external(&format!("https://github.com/{}/issues/new", REPO)),
+        "app_quit" => request_quit(app),
         _ => {}
     });
     Ok(())
@@ -488,11 +536,7 @@ pub fn run() {
                     return;
                 }
                 let app = window.app_handle();
-                let active = app
-                    .try_state::<RunState>()
-                    .map(|s| s.0.lock().unwrap().active)
-                    .unwrap_or(false);
-                if active {
+                if run_active(app) {
                     api.prevent_close();
                     let _ = window.hide();
                     // No zombie Dock icon while we live in the menu bar only.
@@ -577,13 +621,13 @@ pub fn run() {
             let dead = sidecar_dead.clone();
             std::thread::spawn(move || {
                 if wait_for_backend(&addr, Duration::from_secs(60), &dead) {
-                    let _ = window.eval(&format!("window.location.replace('{}')", url));
+                    let _ = window.eval(format!("window.location.replace('{}')", url));
                 } else if dead.load(Ordering::SeqCst) {
-                    let _ = window.eval(&failure_script(
+                    let _ = window.eval(failure_script(
                         "The backend process exited during startup.",
                     ));
                 } else {
-                    let _ = window.eval(&failure_script(
+                    let _ = window.eval(failure_script(
                         "The backend did not answer on 127.0.0.1 within 60 seconds.",
                     ));
                 }
@@ -593,16 +637,18 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::Exit => {
                 #[cfg(not(debug_assertions))]
                 if let Some(child) = app_handle.state::<Backend>().0.lock().unwrap().take() {
                     let _ = child.kill();
                 }
-                #[cfg(debug_assertions)]
-                {
-                    let _ = app_handle;
-                }
             }
+            // Relaunching from Finder/Spotlight/Dock while hidden to the tray:
+            // without this the running instance swallows the click and nothing
+            // appears.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => show_main_window(app_handle),
+            _ => {}
         });
 }

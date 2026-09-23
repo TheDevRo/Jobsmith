@@ -24,6 +24,11 @@ struct AIConnectionSettingsView: View {
     @State private var status: ConnectionStatus?
     @State private var showSavePrompt = false
     @State private var presetName = ""
+    /// NavigationLink builds this destination eagerly, and a never-shown
+    /// instance can still fire `onDisappear` — which would flush these empty
+    /// defaults over the real endpoint, key and models. Only an instance that
+    /// actually appeared (and so loaded from config) may save.
+    @State private var hasAppeared = false
 
     private var availableModels: [String] { status?.models ?? [] }
     private var onDeviceAvailable: Bool { AppleOnDeviceEngine.isAvailable }
@@ -87,6 +92,7 @@ struct AIConnectionSettingsView: View {
         }
         .navigationTitle("AI connection")
         .onAppear {
+            hasAppeared = true
             baseURL = model.config.ai.baseURL
             apiKey = model.config.ai.apiKey
             strongModel = model.config.ai.strongModel
@@ -98,6 +104,7 @@ struct AIConnectionSettingsView: View {
             }
         }
         .onDisappear {
+            guard hasAppeared else { return }
             let (u, k, s, f, ut) = (baseURL, apiKey, strongModel, fastModel, utilityModel)
             model.saveConfig { config in
                 config.ai.baseURL = u

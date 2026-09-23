@@ -291,6 +291,23 @@ class SyncEngine:
             enabled = self._enabled_categories()
             inbox_on = "inbox" in enabled
 
+            # First-join guard for the singleton bridges (profile, settings): a key
+            # this device has never exported (no snapshot row) must not broadcast
+            # its local value when the folder already holds one — a fresh install's
+            # placeholder profile / default settings would get stamped `now` and
+            # out-rank the real data on every device. Skip it; the import that
+            # follows adopts the folder's value and records the snapshot.
+            folder_keys: set[tuple[str, str]] | None = None
+
+            def in_folder(entity: str, sid: str) -> bool:
+                nonlocal folder_keys
+                if folder_keys is None:
+                    folder_keys = (
+                        {(r["entity"], r["id"]) for r in mergelib.load_logs(folder)}
+                        if (folder / "changes").exists() else set()
+                    )
+                return (entity, sid) in folder_keys
+
             for adapter in self._adapters(folder):
                 # `inbox` OFF: skip job/triage entirely — no records emitted and,
                 # deliberately, no snapshot rows written/deleted, so re-enabling
@@ -326,7 +343,9 @@ class SyncEngine:
                     cj = _canon(canon_prof)
                     snap = await self._load_snapshot(conn, PROFILE_ENTITY)
                     prev = snap.get(PROFILE_ID)
-                    if force or prev is None or prev["deleted"] or prev["data_json"] != cj:
+                    if prev is None and in_folder(PROFILE_ENTITY, PROFILE_ID):
+                        pass  # first join: adopt the folder's profile on import
+                    elif force or prev is None or prev["deleted"] or prev["data_json"] != cj:
                         records.append(
                             self._live_record(PROFILE_ENTITY, PROFILE_ID, ts, canon_prof)
                         )
@@ -347,6 +366,8 @@ class SyncEngine:
                     for path, data in current.items():
                         cj = _canon(data)
                         prev = snap.get(path)
+                        if prev is None and in_folder(SETTING_ENTITY, path):
+                            continue  # first join: adopt the folder's value on import
                         if force or prev is None or prev["deleted"] or prev["data_json"] != cj:
                             records.append(self._live_record(SETTING_ENTITY, path, ts, data))
                             await self._put_snapshot(conn, SETTING_ENTITY, path, ts, False, cj)

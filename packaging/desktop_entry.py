@@ -49,7 +49,13 @@ def watch_parent(parent_pid: int, shell_pid: int = 0) -> None:
             try:
                 os.kill(shell_pid, 0)  # signal 0: existence check only
             except ProcessLookupError:
-                print("[desktop] Tauri shell is gone — shutting the backend down.", flush=True)
+                # The shell owned our stdout pipe, so it's usually closed by
+                # now: a BrokenPipeError here would kill this thread one line
+                # short of the exit and orphan the backend.
+                try:
+                    print("[desktop] Tauri shell is gone — shutting the backend down.", flush=True)
+                except OSError:
+                    pass
                 os._exit(0)
             except PermissionError:
                 pass  # alive, just not ours to signal
@@ -140,11 +146,20 @@ def prune_stale_chromium(browsers_dir: Path) -> None:
         print(f"[desktop] Skipping stale-browser prune: {exc}", flush=True)
         return
 
-    for entry in browsers_dir.glob("chromium-*"):
-        if not entry.is_dir() or entry.resolve() in live.parents:
-            continue
-        print(f"[desktop] Removing stale browser revision {entry.name}", flush=True)
-        shutil.rmtree(entry, ignore_errors=True)
+    # The live revision number, from the chromium-NNNN dir holding the binary.
+    # Playwright also installs chromium_headless_shell-NNNN beside it at the
+    # same revision; old ones pile up just the same.
+    root = browsers_dir.resolve()
+    live_dir = next((d for d in live.parents if d.parent == root), None)
+    if live_dir is None or "-" not in live_dir.name:
+        return
+    rev = live_dir.name.rsplit("-", 1)[1]
+    for pattern in ("chromium-*", "chromium_headless_shell-*"):
+        for entry in browsers_dir.glob(pattern):
+            if not entry.is_dir() or entry.name.rsplit("-", 1)[1] == rev:
+                continue
+            print(f"[desktop] Removing stale browser revision {entry.name}", flush=True)
+            shutil.rmtree(entry, ignore_errors=True)
 
 
 def ensure_chromium(browsers_dir: Path | None = None, prune: bool = True) -> None:
