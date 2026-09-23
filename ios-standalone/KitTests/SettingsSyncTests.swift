@@ -230,6 +230,25 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(imp.settingsUpdated, 0)
     }
 
+    /// A fresh device's default settings must not clobber the folder's values.
+    func testFreshDeviceAdoptsFolderSettingsInsteadOfClobbering() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("settingsync-\(UUID().uuidString)")
+        let boxA = ConfigBox(["search": .object(["keywords": .array([.string("staff engineer")])])])
+        let boxB = ConfigBox(["search": .object(["keywords": .array([.string("software engineer")])])])
+        let enabled: Set<String> = ["postings"]
+        let a = engine(try AppDatabase.inMemory(), "A1B2", boxA, enabled: enabled, clock: clock)
+        let b = engine(try AppDatabase.inMemory(), "C3D4", boxB, enabled: enabled, clock: clock)
+
+        for e in [a, b, a] { try e.export(to: folder); try e.importChanges(from: folder) }
+        let kw: (ConfigBox) -> JSONValue? = { box in
+            if case .object(let s)? = box.cfg["search"] { return s["keywords"] } else { return nil }
+        }
+        XCTAssertEqual(kw(boxA), .array([.string("staff engineer")]))
+        XCTAssertEqual(kw(boxB), .array([.string("staff engineer")]))
+    }
+
     func testReexportAfterImportIsNoOp() throws {
         let clock = Clock()
         let folder = FileManager.default.temporaryDirectory

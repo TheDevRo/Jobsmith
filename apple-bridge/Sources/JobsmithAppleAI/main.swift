@@ -35,4 +35,16 @@ do {
     exit(1)
 }
 
+// Exit when the backend that spawned us is gone. The desktop backend's own
+// exit watchdog ends it with os._exit (no shutdown hook runs), and a crash or
+// SIGKILL skips it too — without this we'd be reparented to launchd and hold
+// a loopback port forever.
+let parentPID = getppid()
+let parentWatch = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+parentWatch.schedule(deadline: .now() + 2, repeating: 2)
+parentWatch.setEventHandler {
+    if getppid() != parentPID { exit(0) }
+}
+parentWatch.resume()
+
 dispatchMain()

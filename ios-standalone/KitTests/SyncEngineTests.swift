@@ -252,6 +252,29 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedB["noticePeriod"], .string("2 weeks"))  // preserved
     }
 
+    /// A device joining an existing folder exports before it imports; its
+    /// never-synced placeholder profile must not out-rank the real one.
+    func testFreshDeviceAdoptsFolderProfileInsteadOfClobbering() throws {
+        let clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synctest-\(UUID().uuidString)")
+        var savedA: [String: JSONValue] = ["fullName": .string("Alex Kim"), "summary": .string("iOS dev")]
+        var savedB: [String: JSONValue] = ["fullName": .string(""), "summary": .string("")]
+        let a = SyncEngine(db: try AppDatabase.inMemory(), deviceId: "A1B2",
+                           loadProfile: { savedA }, saveProfile: { savedA = $0 }, now: clock.now)
+        let b = SyncEngine(db: try AppDatabase.inMemory(), deviceId: "C3D4",
+                           loadProfile: { savedB }, saveProfile: { savedB = $0 }, now: clock.now)
+
+        for e in [a, b, a] { try e.export(to: folder); try e.importChanges(from: folder) }
+        XCTAssertEqual(savedA["summary"], .string("iOS dev"))
+        XCTAssertEqual(savedB["summary"], .string("iOS dev"))
+
+        // Once joined, B's own edits flow normally.
+        savedB["summary"] = .string("edited on B")
+        for e in [b, a] { try e.export(to: folder); try e.importChanges(from: folder) }
+        XCTAssertEqual(savedA["summary"], .string("edited on B"))
+    }
+
     /// The real delete path is soft: triage='deleted', synced as a `triage`
     /// record. It reaches the other device and hides the job there — no tombstone
     /// and no side table.
