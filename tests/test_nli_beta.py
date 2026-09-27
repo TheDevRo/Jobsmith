@@ -34,6 +34,21 @@ from backend.nli import model as M
 
 ROOT = Path(__file__).resolve().parent.parent
 GOLD = Path(__file__).parent / "fixtures" / "extractive_gold"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_model_downloads(monkeypatch):
+    """Tests never hit the hosted model (690 MB): the default download location is blanked; tests that
+    download use the local model_server fixture via JOBSMITH_NLI_MODEL_URL."""
+    from backend.nli import model as M
+    monkeypatch.setattr(M, "DEFAULT_BASE_URL", "")
+
+
+def test_shipped_download_location_is_the_model_release():
+    import importlib
+    from backend.nli import model as M
+    src = importlib.util.find_spec(M.__name__).origin
+    assert 'DEFAULT_BASE_URL = "https://github.com/TheDevRo/Jobsmith/releases/download/nli-model-v1"' in open(src).read()
 TODAY = date(2026, 9, 26)  # the gold set's reference date
 ON = {"ai": {"base_url": "http://mock.invalid/v1", "nli_beta": {"enabled": True}}}
 OFF = {"ai": {"base_url": "http://mock.invalid/v1"}}

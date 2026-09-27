@@ -31,9 +31,9 @@ FILES = {
     "tokenizer.json": (8648889, "7aa118770f066a74530d161c7d0b994d0629cc0ff3a0df213f184192773f960a"),
 }
 SIZE_BYTES = sum(size for size, _ in FILES.values())
-# Where the two files are hosted: <base>/model.onnx and <base>/tokenizer.json. Not public yet (hosting is the
-# owner's call), so it is unset by default; JOBSMITH_NLI_MODEL_URL overrides it (a mirror, or tests).
-DEFAULT_BASE_URL = ""
+# Where the two files are hosted: <base>/model.onnx and <base>/tokenizer.json (a model-only GitHub release,
+# not an app release). JOBSMITH_NLI_MODEL_URL overrides it (a mirror, or tests).
+DEFAULT_BASE_URL = "https://github.com/TheDevRo/Jobsmith/releases/download/nli-model-v1"
 NOT_HOSTED = "The Local AI model is not available for download yet (no download location is set)"
 
 _lock = threading.Lock()
