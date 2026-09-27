@@ -14,7 +14,21 @@ PRD: `~/jobsmith-extractive/NLI_BETA_PRD.md`. Branch `feat/nli-beta` (worktree `
 - Tests: `tests/test_nli_beta.py` (25) incl. off-mode subprocess import check, gold-set invariant, download flow.
 
 ## Next
-- Build sidecar (size delta, start off/on), Docker, iOS Kit tests, manual smoke in an isolated JOBSMITH_HOME.
+- Owner decisions: model hosting (or fp32 public alternative); Docker build when a daemon is available.
+
+## Acceptance runs (2026-09-26)
+- pytest (not integration): 1040 passed. `npm test` (extension + all jsdom suites incl. test_nli_beta.js): pass.
+  ruff: clean. Off mode: subprocess test proves onnxruntime/tokenizers/numpy/backend.nli.* never imported.
+- Desktop: `scripts/build_desktop.sh --sidecar-only` + `npx tauri build` built Jobsmith.app + DMG (not distributed).
+  Sidecar 122.1 MB vs 99.0 MB for the pre-branch commit (5f7e06b, same venv) = +23.1 MB.
+  Packaged sidecar smoke (isolated HOME, port 18888, scratch/smoke_sidecar.sh): switch off -> health ok, status off,
+  no onnxruntime dylib mapped, Retry with no URL -> the "not available for download yet" error; switch on via
+  PUT -> downloaded from a local file server (JOBSMITH_NLI_MODEL_URL) -> ready; /api/ext/scan filled
+  Yes / Denver / 8 years, left relatives + essay blank (LLM endpoint dead), model load 1.2 s CPU; switch off ->
+  the same scan went back to the LLM path.
+- iOS JobsmithKit: 458 tests passed (no Swift touched).
+- Docker: NOT RUN. OrbStack was stopped; `orbctl start` hung in "Starting" for 10+ min, stopped it again.
+  `uv pip compile requirements.lock` for linux x86_64 / py3.12 resolves (onnxruntime 1.30.0, tokenizers 0.23.2, numpy 2.5.3).
 
 ## Decisions / departures
 - `FieldValue.source`: existing values only (extractive fills `profile`, essays `llm_generated` with
@@ -24,7 +38,7 @@ PRD: `~/jobsmith-extractive/NLI_BETA_PRD.md`. Branch `feat/nli-beta` (worktree `
   contradiction mode for Yes/No); unused tuning knobs and the resume "wording" facts were not ported.
 - Switch is set through its own `PUT /api/settings/nli-beta` (the per-setting endpoint pattern); turning it on
   starts the download server-side. Status adds `installed` so Delete is offered while the switch is off.
-- Model URL override: env `JOBSMITH_NLI_MODEL_URL` (base URL; files fetched as `<base>/<repo path>`).
+- Model URL override: env `JOBSMITH_NLI_MODEL_URL` (base URL; files fetched as `<base>/model.onnx` and `<base>/tokenizer.json`).
 - Download resumes from the `.part` file with an HTTP Range request; the model dir only ever gets verified files.
 - Fit scoring with no requirement lines (or a local-model error) stays `ScoringUnavailable` (unscored, retried
   later) rather than inventing a neutral 50.

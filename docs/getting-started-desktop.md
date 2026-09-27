@@ -84,6 +84,24 @@ machine that can actually run it. If Apple Intelligence is later turned off in
 System Settings, on-device tiers fail with that reason rather than silently
 sending the work to your server.
 
+### Optional: Local AI model (beta)
+
+**Settings → AI → Local AI model (beta)** is one switch for a small on-device
+language-understanding model (about 690 MB, downloaded once when you turn it on,
+deletable from the same place). With it on:
+
+- **Apply Assist** fills the fields left after your profile and answer bank
+  *without an LLM*: it only ever picks a form option, types a value copied from
+  your profile, or computes years from your role dates. Essay questions still go
+  to your AI server and come back as drafts to review; anything it isn't sure of
+  is left blank for you.
+- **Job-fit scoring** falls back to it when your AI server is unreachable. Those
+  scores say *Scored by the local model (beta)* and use a different method
+  (the share of the posting's requirement lines your profile meets), so they
+  don't line up exactly with LLM scores.
+
+Off (the default) changes nothing. The switch is per machine and never syncs.
+
 ## 3. First fetch
 
 Job sources are all **on by default**, so there is nothing to configure. Click

@@ -280,6 +280,16 @@ Handles the higher-level AI tasks (resume tailoring, scoring):
 
 Uses `openai.AsyncOpenAI` with `base_url` pointing at local LM Studio. Supports tiered models (`ai.models.fast` / `ai.models.strong`).
 
+**Local AI model (beta)** — `backend/nli/` plus `backend/auto_apply/extractive/`, all behind `ai.nli_beta.enabled`
+(default off, device-local, never synced). `nli.get_scorer(cfg)` is the only gate: it returns an onnxruntime NLI
+scorer (DeBERTa-v3-large, 8-bit weights, downloaded by `nli/model.py` to `<JOBSMITH_HOME>/models/nli/<revision>/`)
+or `None`; onnxruntime/tokenizers are imported only there. When it returns a scorer, pass 4 of
+`LLMClient.map_fields_to_values` runs `extractive.fill` (options / verbatim profile values / date math behind a
+confidence gate; essays via `generate_answer`, `source=llm_generated`) instead of the field-map LLM call, and
+`score_job_fit` falls back to `nli/fit.py` when the scoring LLM raises `ScoringUnavailable`/`BridgeUnavailable`.
+Any NLI failure falls back to today's path. Settings: `GET /api/ai/nli/status`, `PUT /api/settings/nli-beta`,
+`POST /api/ai/nli/install`, `DELETE /api/ai/nli/model`.
+
 ### 5.5 Applicant Assist (`backend/applicant_assist.py`)
 
 When auto-apply fails, the orchestrator calls `_build_sidebar_script(backend_url)` and injects it into the current page via `page.evaluate()`. This inserts an `<iframe>` pointing to `/assist-sidebar` that survives page navigations (registered via `add_init_script`).
