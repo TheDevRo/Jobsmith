@@ -1,7 +1,7 @@
 import Foundation
 
-/// The DeBERTa-v3 tokenizer, read from the model's HF `tokenizer.json`: Strip +
-/// SentencePiece "Precompiled" normalizer, Metaspace pre-tokenizer, Unigram
+/// The DeBERTa-v3 tokenizer, read from the model's HF `tokenizer.json`: Strip,
+/// SentencePiece "Precompiled" and Replace normalizers, Metaspace pre-tokenizer, Unigram
 /// (Viterbi) model, `[CLS] A [SEP] B [SEP]` pairs truncated only-first. Ported
 /// from HF `tokenizers` so ids match the desktop's Python tokenizer exactly
 /// (golden-tested on the gold set's pairs). Not handled: added special tokens
@@ -12,7 +12,11 @@ struct DebertaTokenizer: Sendable {
     private let maxPieceBytes: Int
     private let unkID: Int32
     private let unkScore: Double
-    private let charsmap: Precompiled
+    private let normalizers: [Normalizer]
+
+    enum Normalizer: Sendable {
+        case strip, precompiled(Precompiled), replace(NSRegularExpression, String)
+    }
 
     enum LoadError: Error { case malformed(String) }
 
@@ -21,10 +25,24 @@ struct DebertaTokenizer: Sendable {
         guard let model = json?["model"] as? [String: Any], model["type"] as? String == "Unigram",
               let vocab = model["vocab"] as? [[Any]], let unk = model["unk_id"] as? Int
         else { throw LoadError.malformed("not a Unigram tokenizer.json") }
-        let normalizers = (json?["normalizer"] as? [String: Any])?["normalizers"] as? [[String: Any]] ?? []
-        guard let b64 = normalizers.first(where: { $0["type"] as? String == "Precompiled" })?["precompiled_charsmap"] as? String,
-              let map = Data(base64Encoded: b64).flatMap(Precompiled.init)
-        else { throw LoadError.malformed("no Precompiled normalizer") }
+        let steps = (json?["normalizer"] as? [String: Any])?["normalizers"] as? [[String: Any]] ?? []
+        normalizers = try steps.map { step in
+            switch step["type"] as? String {
+            case "Strip":
+                return .strip
+            case "Precompiled":
+                guard let map = (step["precompiled_charsmap"] as? String).flatMap({ Data(base64Encoded: $0) })
+                    .flatMap(Precompiled.init) else { throw LoadError.malformed("bad precompiled_charsmap") }
+                return .precompiled(map)
+            case "Replace":
+                let pattern = step["pattern"] as? [String: String] ?? [:]
+                let re = try pattern["Regex"].map { try NSRegularExpression(pattern: $0) }
+                    ?? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: pattern["String"] ?? ""))
+                return .replace(re, NSRegularExpression.escapedTemplate(for: step["content"] as? String ?? ""))
+            default:
+                throw LoadError.malformed("unsupported normalizer \(step["type"] ?? "?")")
+            }
+        }
         var pieces: [[UInt8]: (Int32, Double)] = [:]
         pieces.reserveCapacity(vocab.count)
         var minScore = Double.infinity, maxBytes = 0
@@ -39,12 +57,18 @@ struct DebertaTokenizer: Sendable {
         self.maxPieceBytes = maxBytes
         self.unkID = Int32(unk)
         self.unkScore = minScore - 10  // kUnkPenalty
-        self.charsmap = map
     }
 
     /// Token ids of one text, without special tokens.
     func encode(_ text: String) -> [Int32] {
-        let normalized = charsmap.normalize(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let normalized = normalizers.reduce(text) { s, step in
+            switch step {
+            case .strip: return s.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .precompiled(let map): return map.normalize(s)
+            case .replace(let re, let with):
+                return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: with)
+            }
+        }
         // Metaspace: spaces become ▁, one is prepended, and each word starts at a ▁.
         var s = Array(normalized.replacingOccurrences(of: " ", with: "▁").utf8)
         let mark = Array("▁".utf8)
