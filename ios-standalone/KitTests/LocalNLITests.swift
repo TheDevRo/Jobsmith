@@ -469,6 +469,30 @@ final class LocalNLIScoringTests: XCTestCase {
         XCTAssertNil(ScoreSource.of(matchReport: #"{"matched_skills":[]}"#, reasoning: "Great fit"))
     }
 
+    /// With the match model chosen, a failure names the local model's problem instead of
+    /// blaming the endpoint, and a posting it can't judge is skipped, not batch-stopping.
+    func testChosenMatchModelFailuresSayWhy() async {
+        var config = on; config.ai.fastModel = AIConfig.localMatchModelID
+        let down = Failing(AIEngineError.httpStatus(404, ""))
+        do {
+            _ = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                               config: config, engine: down, nli: { _ in nil })
+            XCTFail("scored")
+        } catch ScoringError.localModelUnavailable(let detail) {
+            XCTAssertTrue(detail.contains("isn't downloaded"), detail)
+        } catch { XCTFail("\(error)") }
+
+        let noLines = Job(from: NormalizedJob(source: "demo", externalId: "d-3", title: "x", company: "y",
+                                              location: "", description: "We are nice. Great snacks."))
+        do {
+            _ = try await ScoringService.score(job: noLines, profile: JobFixtures.profile,
+                                               config: config, engine: down, nli: { _ in Half() })
+            XCTFail("scored")
+        } catch ScoringError.refused(let detail) {
+            XCTAssertTrue(detail.contains("no requirements"), detail)
+        } catch { XCTFail("\(error)") }
+    }
+
     func testPreferLocalScoresWithoutCallingTheLLM() async throws {
         var config = on
         config.ai.fastModel = AIConfig.localMatchModelID

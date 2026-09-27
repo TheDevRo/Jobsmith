@@ -127,9 +127,14 @@ public enum ScoringError: Error, LocalizedError {
     /// long, unsupported language). Deterministic — a retry gets the same
     /// answer — and job-specific, so a batch skips it and keeps going.
     case refused(String)
+    /// The Local match model is the chosen scorer but can't run at all (not
+    /// downloaded, won't load), and the Writing-model fallback failed too.
+    case localModelUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
+        case .localModelUnavailable(let detail):
+            return detail
         case .engineUnavailable(let detail):
             return "The AI endpoint could not be reached: \(detail)"
         case .interrupted(let detail):
@@ -158,31 +163,59 @@ public enum ScoringService {
                              engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
         let local = LocalNLI.enabled(config)
         let preferLocal = ScoreSource.prefersLocal(config)
-        if preferLocal, let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
-            return result
+        var localMiss: LocalMiss?
+        if preferLocal {
+            switch await localScore(job: job, profile: profile, config: config, nli: nli) {
+            case .success(let result): return result
+            case .failure(let miss): localMiss = miss
+            }
         }
         do {
             return try await scoreWithLLM(job: job, profile: profile, config: config, engine: engine)
         } catch {
-            if Task.isCancelled || !local || preferLocal { throw error }
-            if let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
+            if Task.isCancelled { throw error }
+            if let localMiss {
+                // The Local match model is the chosen scorer: say why IT didn't score, not
+                // just that the Writing-model fallback failed.
+                let fallback = "the Writing model fallback also failed (\((error as? LocalizedError)?.errorDescription ?? "\(error)"))"
+                switch localMiss {
+                case .nothingToJudge:
+                    // About this one posting: skip it and keep the batch going.
+                    throw ScoringError.refused("The Local match model found no requirements to check in this posting, and \(fallback).")
+                case .notReady:
+                    throw ScoringError.localModelUnavailable("The Local match model isn't downloaded yet (Settings → AI connection → Local match model), and \(fallback).")
+                case .failed(let why):
+                    throw ScoringError.localModelUnavailable("The Local match model couldn't run (\(why)), and \(fallback).")
+                }
+            }
+            if !local { throw error }
+            if case .success(let result) = await localScore(job: job, profile: profile, config: config, nli: nli) {
                 return result
             }
             throw error
         }
     }
 
-    /// nil = not installed, won't load, errored, or nothing to judge (stays unscored).
+    /// Why the local model produced no score.
+    enum LocalMiss: Error, Equatable {
+        case notReady, nothingToJudge, failed(String)
+    }
+
     private static func localScore(job: Job, profile: Profile, config: AppConfig,
-                                   nli: LocalNLI.Provider) async -> FitResult? {
-        guard let scorer = await nli(config) else { return nil }
+                                   nli: LocalNLI.Provider) async -> Result<FitResult, LocalMiss> {
+        guard let scorer = await nli(config) else {
+            if let why = await NLIRuntime.shared.lastLoadError { return .failure(.failed(why)) }
+            return .failure(.notReady)
+        }
         do {
-            return try await Task.detached(priority: .utility) {
+            let result = try await Task.detached(priority: .utility) {
                 try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
-            }.value?.scored(by: .localModel)
+            }.value
+            guard let result else { return .failure(.nothingToJudge) }
+            return .success(result.scored(by: .localModel))
         } catch {
             NSLog("Local-model scoring failed for \(job.title): \(error)")
-            return nil
+            return .failure(.failed(error.localizedDescription))
         }
     }
 

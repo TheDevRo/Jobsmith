@@ -47,6 +47,8 @@ public actor NLIRuntime {
     private var cached: CoreMLNLI?
     /// Times the model was actually loaded (the off-mode test asserts 0).
     public private(set) var loads = 0
+    /// Why the last load attempt failed (shown when scoring can't use the model).
+    public private(set) var lastLoadError: String?
 
     public func scorer() -> CoreMLNLI? {
         if let cached { return cached }
@@ -54,12 +56,14 @@ public actor NLIRuntime {
         do {
             loads += 1
             cached = try CoreMLNLI(directory: NLIModel.directory)
+            lastLoadError = nil
         } catch {
+            lastLoadError = error.localizedDescription
             // A broken model must never break the LLM path.
             NSLog("Local AI model failed to load; using the LLM instead: \(error)")
         }
         return cached
     }
 
-    public func unload() { cached = nil }
+    public func unload() { cached = nil; lastLoadError = nil }
 }
