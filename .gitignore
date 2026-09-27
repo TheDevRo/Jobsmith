@@ -32,6 +32,7 @@ ios-standalone/scripts/testflight-upload.sh
 # source dirs like ios-standalone/.../JobsmithKit/Data on a case-insensitive FS)
 /data/
 /resumes/
+/models/
 
 # Personal config (copy config.example.yaml to config.yaml and fill in your details)
 config.yaml

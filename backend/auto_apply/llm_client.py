@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from .. import prompt_registry
+from .. import nli, prompt_registry
 
 if TYPE_CHECKING:
     from .models import FieldDescriptor, FieldValue, JobApplicationRequest, UserProfile
@@ -285,8 +285,13 @@ class LLMClient:
                 llm_fields.append(f)
 
         # --- Phase 2: LLM call(s) for remaining fields (chunked, skipped if none) ---
-        llm_results: list[FieldValue] = []
-        if llm_fields:
+        # Local AI model (beta) on and installed: answer them extractively instead.
+        nli_results = (
+            await self._extractive_pass(profile, job, llm_fields, answer_bank)
+            if llm_fields and nli.enabled(self._config) else None
+        )
+        llm_results: list[FieldValue] = nli_results or []
+        if llm_fields and nli_results is None:
             system = prompt_registry.get_template(self._config, "auto_apply_field_map")
             chunks = [
                 llm_fields[i:i + chunk_size]
@@ -347,7 +352,7 @@ class LLMClient:
                 "map_fields_to_values: %d/%d LLM fields parsed across %d chunk(s)",
                 len(mapped_ids), len(llm_fields), len(chunks),
             )
-        else:
+        elif not llm_fields:
             logger.debug("map_fields_to_values: all %d field(s) resolved from answer_bank; skipping LLM call", len(fields))
 
         # --- Phase 3: merge in original field order ---
@@ -363,6 +368,19 @@ class LLMClient:
             elif f.field_id in llm_by_id:
                 out.append(llm_by_id[f.field_id])
         return out
+
+    async def _extractive_pass(self, profile, job, fields, answer_bank) -> "list[FieldValue] | None":
+        """Pass 4 via the local NLI model; None (use the LLM) when it isn't ready or fails."""
+        scorer = nli.get_scorer(self._config)
+        if scorer is None:
+            logger.info("map_fields_to_values: Local AI model not ready; using the LLM")
+            return None
+        from . import extractive
+        try:
+            return await extractive.fill(self, profile, job, fields, answer_bank, scorer)
+        except Exception:
+            logger.exception("map_fields_to_values: local model failed; falling back to the LLM")
+            return None
 
     async def generate_answer(
         self,

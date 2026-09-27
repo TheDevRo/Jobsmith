@@ -252,6 +252,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("linkedin.browser", Cls.LOCAL, Kind.ENUM, "_excluded", enum_values=("firefox", "chrome")),
     Setting("auto_apply.headless", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("auto_apply.use_browser_use", Cls.LOCAL, Kind.BOOL, "_excluded"),
+    # Local AI model (beta): the model is downloaded per machine, so the switch is too.
+    Setting("ai.nli_beta.enabled", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("sync.folder", Cls.LOCAL, Kind.STRING, "_excluded"),
     Setting("sync.device_id", Cls.LOCAL, Kind.STRING, "_excluded"),
     Setting("sync.device_label", Cls.LOCAL, Kind.STRING, "_excluded"),

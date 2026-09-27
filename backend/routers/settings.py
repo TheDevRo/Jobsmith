@@ -15,6 +15,7 @@ from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
 from .. import apple_bridge
+from .. import nli
 from .. import resume_generator
 from .. import resume_parser
 from .. import linkedin_profile_import
@@ -204,6 +205,46 @@ async def ai_status():
         payload["ok"] = False
         payload["error"] = on_device.get("reason") or apple_bridge.REASON_UNSUPPORTED
     return payload
+
+
+class NliBetaUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/api/ai/nli/status")
+async def nli_status():
+    """Local AI model (beta): {enabled, installed, state, progress, size_bytes, error}."""
+    return nli.status(state.load_config())
+
+
+@router.put("/api/settings/nli-beta")
+async def set_nli_beta(body: NliBetaUpdate):
+    """Flip the switch. Turning it on starts (or resumes) the model download."""
+    cfg = state.load_config()
+    cfg.setdefault("ai", {}).setdefault("nli_beta", {})["enabled"] = bool(body.enabled)
+    state.save_config(cfg)
+    if body.enabled:
+        from ..nli import model
+        model.install()
+    return nli.status(cfg)
+
+
+@router.post("/api/ai/nli/install")
+async def nli_install():
+    """Start or resume the model download (also the Retry button)."""
+    from ..nli import model
+    model.install()
+    return nli.status(state.load_config())
+
+
+@router.delete("/api/ai/nli/model")
+async def nli_delete_model():
+    from ..nli import model
+    try:
+        model.delete()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+    return nli.status(state.load_config())
 
 
 @router.get("/api/config")

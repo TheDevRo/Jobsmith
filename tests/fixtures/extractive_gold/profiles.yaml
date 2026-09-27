@@ -1,0 +1,256 @@
+# Six full UserProfile fixtures (synthetic people; example.com contact details).
+# Expanded from ~/laya-bench/profiles.py. The bench's "user" profile is the real
+# user's data, so it is replaced here by a synthetic systems engineer.
+# Deliberate variation:
+#   marketer   - needs visa sponsorship (H-1B), disability status left blank
+#   sales      - declines every EEO question
+#   csm        - two employment gaps (2018-07..2019-08, 2021-03..2021-12)
+#   junior_dev - overlapping roles (co-op inside a TA appointment)
+#   assistant  - protected veteran, military role in history
+# Dates are YYYY-MM; the eval's reference date is 2026-09-26.
+
+sysadmin:
+  full_name: Jordan Blake
+  middle_name: Avery
+  email: jordan.blake@example.com
+  phone: (303) 555-0142
+  location: Denver, CO
+  street_address: 1420 Larimer St
+  city: Denver
+  state: CO
+  zip_code: "80205"
+  country: United States
+  desired_salary: $135,000
+  linkedin: https://www.linkedin.com/in/jordan-blake-example
+  github: https://github.com/jblake-example
+  summary: >-
+    Systems engineer focused on Linux and Windows server administration and AWS cloud migrations.
+    Open to hybrid or remote roles. Not willing to relocate.
+  skills: [Linux, Windows Server, Active Directory, AWS, Terraform, Ansible, Python, Bash, PowerShell, VMware, Kubernetes, Okta, Jamf]
+  experience:
+    - {title: Senior Systems Engineer, company: Summit Health, start_date: 2021-04, end_date: Present,
+       bullets: ["Led a team of 3 system administrators supporting 2,000 users",
+                 "Migrated 140 on-prem servers to AWS using Terraform and Ansible",
+                 "Automated user provisioning with Python and the Okta API"]}
+    - {title: Systems Administrator, company: Cobalt Logistics, start_date: 2017-06, end_date: 2021-03,
+       bullets: ["Administered 200 Linux and Windows servers and two VMware clusters",
+                 "Wrote Bash and PowerShell scripts for patching and backups"]}
+    - {title: IT Support Specialist, company: Cobalt Logistics, start_date: 2015-08, end_date: 2017-05,
+       bullets: ["Resolved Tier 1-2 tickets for 600 employees",
+                 "Managed Active Directory accounts and Jamf-enrolled Macs"]}
+  education:
+    - {degree: BS Information Technology, school: Colorado State University, year: "2015"}
+  certifications: [CompTIA Security+, AWS Certified Solutions Architect - Associate]
+  gender: Male
+  race_ethnicity: White
+  veteran_status: I am not a protected veteran
+  disability_status: No, I do not have a disability
+  work_authorization: "Yes"
+  sponsorship_required: "No"
+  over_18: "Yes"
+  notice_period: 2 weeks
+  available_start: Two weeks after offer
+
+marketer:
+  full_name: Priya Nair
+  email: priya.nair@example.com
+  phone: (512) 555-0188
+  location: Austin, TX
+  street_address: 2201 S Lamar Blvd
+  street_address_2: Apt 310
+  city: Austin
+  state: TX
+  zip_code: "78704"
+  country: United States
+  desired_salary: $105,000 - $115,000
+  linkedin: https://www.linkedin.com/in/priya-nair-example
+  portfolio: https://priyanair-example.com
+  summary: >-
+    Content and social media marketer for B2B SaaS and consumer brands.
+    Currently working in the US on an H-1B visa and will require sponsorship for continued employment.
+    Open to relocation within the US.
+  skills: [content strategy, copywriting, SEO, social media management, HubSpot, Google Analytics, Canva, Adobe Premiere Pro, email marketing, A/B testing]
+  experience:
+    - {title: Senior Content Marketing Manager, company: Brightline, start_date: 2021-02, end_date: Present,
+       bullets: ["Managed 2 writers and a $200K annual content budget",
+                 "Grew organic traffic 140% through an SEO content program",
+                 "Ran A/B tests on email campaigns in HubSpot"]}
+    - {title: Social Media Specialist, company: Harbor Coffee Co, start_date: 2018-05, end_date: 2021-01,
+       bullets: ["Grew Instagram, TikTok and YouTube channels to 250K followers",
+                 "Scripted and edited short-form video in Adobe Premiere Pro"]}
+    - {title: Marketing Coordinator, company: Lumen Creative Agency, start_date: 2017-06, end_date: 2018-04,
+       bullets: ["Coordinated campaign calendars for 12 agency clients"]}
+  education:
+    - {degree: BA Communications, school: University of Texas at Austin, year: "2017"}
+  certifications: [HubSpot Content Marketing Certification, Google Analytics Certification]
+  gender: Female
+  race_ethnicity: Asian
+  veteran_status: I am not a protected veteran
+  disability_status: ""
+  work_authorization: "Yes"
+  sponsorship_required: "Yes"
+  over_18: "Yes"
+  notice_period: Immediately
+  available_start: Immediately
+
+sales:
+  full_name: Marcus Reed
+  email: marcus.reed@example.com
+  phone: (312) 555-0107
+  location: Chicago, IL
+  street_address: 845 W Armitage Ave
+  city: Chicago
+  state: IL
+  zip_code: "60614"
+  country: United States
+  desired_salary: $95,000 base plus commission
+  linkedin: https://www.linkedin.com/in/marcus-reed-example
+  summary: >-
+    B2B account manager selling into foodservice distribution and grocery channels.
+    Comfortable with up to 50% travel. Prefers on-site or hybrid roles in the Chicago area.
+  skills: [national account management, contract negotiation, Salesforce, sales forecasting, P&L management, broker management, trade promotion, territory planning, Microsoft Excel, PowerPoint, pipeline management]
+  experience:
+    - {title: National Account Manager, company: Keystone Foods Distribution, start_date: 2019-03, end_date: Present,
+       bullets: ["Grew assigned national accounts from $12M to $19M in annual revenue",
+                 "Negotiated contracts and coordinated 4 independent food brokers",
+                 "Built monthly sales forecasts in Salesforce"]}
+    - {title: Territory Sales Representative, company: Midwest Beverage Co, start_date: 2015-01, end_date: 2019-02,
+       bullets: ["Managed a 5-state territory of 120 accounts",
+                 "Staffed trade show booths and ran in-store promotions"]}
+    - {title: Inside Sales Associate, company: Carter Office Supply, start_date: 2014-01, end_date: 2014-12,
+       bullets: ["Prospected small-business accounts by phone"]}
+  education:
+    - {degree: BBA Marketing, school: University of Illinois Urbana-Champaign, year: "2013"}
+  certifications: []
+  gender: Decline to self-identify
+  race_ethnicity: Decline to self-identify
+  veteran_status: I don't wish to answer
+  disability_status: I do not want to answer
+  work_authorization: "Yes"
+  sponsorship_required: "No"
+  over_18: "Yes"
+  notice_period: 1 month
+  available_start: "2026-11-02"
+
+csm:
+  full_name: Elena Petrova
+  email: elena.petrova@example.com
+  phone: (503) 555-0163
+  location: Portland, OR
+  street_address: 1110 NW Everett St
+  city: Portland
+  state: OR
+  zip_code: "97209"
+  country: United States
+  desired_salary: $120,000
+  linkedin: https://www.linkedin.com/in/elena-petrova-example
+  summary: >-
+    SaaS customer success manager focused on onboarding, renewals and churn reduction for mid-market and enterprise accounts.
+    Took a career break in 2021 for family caregiving.
+  skills: [customer onboarding, renewals, churn reduction, quarterly business reviews, Gainsight, Salesforce, Zendesk, Jira, SQL, NPS programs]
+  experience:
+    - {title: Senior Customer Success Manager, company: Northwind Analytics, start_date: 2022-01, end_date: Present,
+       bullets: ["Own a $4M ARR book of 35 enterprise accounts",
+                 "Reduced churn from 11% to 6% using Gainsight health scores",
+                 "Lead quarterly business reviews with VP-level stakeholders"]}
+    - {title: Customer Success Manager, company: Pixelworks, start_date: 2019-09, end_date: 2021-02,
+       bullets: ["Onboarded 60 mid-market customers",
+                 "Tracked renewals and expansion opportunities in Salesforce",
+                 "Wrote SQL queries for customer usage reports"]}
+    - {title: Customer Support Lead, company: Tidewater Software, start_date: 2016-01, end_date: 2018-06,
+       bullets: ["Managed a team of 4 support agents in Zendesk"]}
+  education:
+    - {degree: BA Psychology, school: Portland State University, year: "2015"}
+  certifications: [Certified Customer Success Manager (CCSM), Gainsight Administrator]
+  gender: Female
+  race_ethnicity: White
+  veteran_status: I am not a protected veteran
+  disability_status: No, I do not have a disability
+  work_authorization: "Yes"
+  sponsorship_required: "No"
+  over_18: "Yes"
+  notice_period: 2 weeks
+  available_start: Immediately
+
+junior_dev:
+  full_name: Sam Okafor
+  email: sam.okafor@example.com
+  phone: (206) 555-0119
+  location: Seattle, WA
+  street_address: 4300 Fremont Ave N
+  city: Seattle
+  state: WA
+  zip_code: "98103"
+  country: United States
+  desired_salary: $110,000
+  linkedin: https://www.linkedin.com/in/sam-okafor-example
+  github: https://github.com/samokafor-example
+  portfolio: https://samokafor-example.dev
+  summary: >-
+    Software engineer building full-stack web apps with React and Node.js.
+    Open to relocation anywhere in the US and to fully remote roles.
+  skills: [Python, JavaScript, TypeScript, React, Node.js, SQL, PostgreSQL, Git, Docker, AWS (EC2, S3, Lambda), Java, Jest]
+  experience:
+    - {title: Software Engineer I, company: Brightpath Labs, start_date: 2025-08, end_date: Present,
+       bullets: ["Build React and TypeScript features for a customer billing portal",
+                 "Write Python data-migration scripts against PostgreSQL"]}
+    - {title: Software Engineering Co-op, company: Acme Fintech, start_date: 2024-01, end_date: 2024-12,
+       bullets: ["Built internal React dashboards used by 40 analysts",
+                 "Wrote unit tests in Jest"]}
+    - {title: Teaching Assistant, company: University of Washington, start_date: 2023-01, end_date: 2025-06,
+       bullets: ["Led weekly Data Structures sections for 30 students",
+                 "Graded Java programming assignments"]}
+  education:
+    - {degree: BS Computer Science, school: University of Washington, year: "2025"}
+  certifications: [AWS Certified Cloud Practitioner]
+  gender: Male
+  race_ethnicity: Black or African American
+  veteran_status: I am not a protected veteran
+  disability_status: No, I do not have a disability
+  work_authorization: "Yes"
+  sponsorship_required: "No"
+  over_18: "Yes"
+  notice_period: 2 weeks
+  available_start: Two weeks after offer
+
+assistant:
+  full_name: Linda Morales
+  email: linda.morales@example.com
+  phone: (602) 555-0171
+  location: Phoenix, AZ
+  street_address: 3800 N Central Ave
+  city: Phoenix
+  state: AZ
+  zip_code: "85016"
+  country: United States
+  desired_salary: $85,000
+  linkedin: ""
+  summary: >-
+    Executive assistant and office manager supporting C-level executives in finance and legal firms.
+    U.S. Army veteran. Works fully remote or hybrid and is available to travel up to 25%.
+  skills: [calendar management, travel coordination, Microsoft Office (Outlook, Word, Excel, PowerPoint), Google Workspace, Concur, board meeting preparation, event planning, vendor management, QuickBooks]
+  experience:
+    - {title: Executive Assistant to the CEO, company: Crestview Capital, start_date: 2019-04, end_date: Present,
+       bullets: ["Manage the CEO's calendar, travel and board meeting preparation",
+                 "Process expense reports in Concur",
+                 "Coordinate quarterly offsites for 80 staff"]}
+    - {title: Office Manager, company: Dalton Law Group, start_date: 2015-06, end_date: 2019-03,
+       bullets: ["Managed vendors and a $300K office budget",
+                 "Supervised 2 receptionists",
+                 "Kept the firm's books in QuickBooks"]}
+    - {title: Receptionist, company: Dalton Law Group, start_date: 2014-02, end_date: 2015-05,
+       bullets: ["Answered a 12-line phone system and greeted clients"]}
+    - {title: Supply Sergeant, company: U.S. Army, start_date: 2008-01, end_date: 2013-12,
+       bullets: ["Managed supply inventory for a 150-soldier company"]}
+  education:
+    - {degree: AA Business Administration, school: Phoenix College, year: "2015"}
+  certifications: [Microsoft Office Specialist (MOS) Expert]
+  gender: Female
+  race_ethnicity: Hispanic or Latino
+  veteran_status: I identify as one or more of the classifications of protected veteran
+  disability_status: No, I do not have a disability
+  work_authorization: "Yes"
+  sponsorship_required: "No"
+  over_18: "Yes"
+  notice_period: 1 month
+  available_start: One month after offer

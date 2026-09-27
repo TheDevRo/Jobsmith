@@ -1,0 +1,386 @@
+# Gold set: screening questions grouped into six ATS-style forms, crossed with the
+# six profiles in profiles.yaml.
+#
+# gold values (per profile key, `all` = default for every profile):
+#   "<text>"          the one correct answer (an option, a profile value, or a number)
+#   [a, b]            any of these is correct
+#   ESSAY             free-text essay; scored separately
+#   ABSTAIN           the profile does not hold the answer; any fill is a misfill
+#   "ABSTAIN|<v>"     ABSTAIN, but filling <v> is tolerated (an absence-based
+#                     negative such as "No"/"None" that a person would probably
+#                     give). Tolerated fills are neither correct nor misfills.
+#
+# Labelling rules:
+#   - An answer must be justified by the profile fixture. Not stated -> ABSTAIN.
+#   - "No" is gold only when the profile says so explicitly (or the dates show it,
+#     e.g. no gaps); an absence of evidence is ABSTAIN (usually "ABSTAIN|No").
+#   - EEO "decline" options are gold only for the profile that declines (sales).
+#     A blank EEO value is ABSTAIN (strict): nobody chose to decline.
+#   - Legal attestations (felony, drug screen, non-compete, relatives, terminated)
+#     are always strict ABSTAIN.
+#   - Years are computed from role dates with the end month inclusive, Present =
+#     2026-09, overlapping roles merged, gaps excluded, floored. A skill's years
+#     count only roles whose title/bullets mention the skill.
+#
+# kinds: legal, eeo, logistics, experience, short_text, essay, trap
+
+forms:
+  - id: greenhouse
+    ats: Greenhouse
+    job: {job_id: gh-4471, title: Customer Success Manager, company: Pixelworks,
+          url: "https://boards.greenhouse.io/pixelworks/jobs/4471",
+          description: "Pixelworks is hiring a Customer Success Manager in Portland, OR to own onboarding and renewals for a book of mid-market SaaS accounts."}
+    questions:
+      - id: gh_auth
+        kind: legal
+        field: {label: "Are you legally authorized to work in the United States?", field_type: select, options: ["Yes", "No"], required: true}
+        gold: {all: "Yes"}
+      - id: gh_sponsor
+        kind: legal
+        field: {label: "Will you now or in the future require sponsorship for employment visa status (e.g. H-1B visa status)?", field_type: select, options: ["Yes", "No"], required: true}
+        gold: {all: "No", marketer: "Yes"}
+      - id: gh_prev_employed
+        kind: trap
+        field: {label: "Have you ever been employed by Pixelworks?", field_type: select, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", csm: "Yes"}
+      - id: gh_relatives
+        kind: trap
+        field: {label: "Do you have any relatives currently employed by Pixelworks?", field_type: select, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN}
+      - id: gh_linkedin
+        kind: short_text
+        field: {label: "LinkedIn Profile", field_type: text}
+        gold: {sysadmin: "https://www.linkedin.com/in/jordan-blake-example", marketer: "https://www.linkedin.com/in/priya-nair-example",
+               sales: "https://www.linkedin.com/in/marcus-reed-example", csm: "https://www.linkedin.com/in/elena-petrova-example",
+               junior_dev: "https://www.linkedin.com/in/sam-okafor-example", assistant: ABSTAIN}
+      - id: gh_website
+        kind: short_text
+        field: {label: "Website", field_type: text}
+        gold: {all: ABSTAIN, marketer: "https://priyanair-example.com", junior_dev: "https://samokafor-example.dev",
+               sysadmin: "ABSTAIN|https://github.com/jblake-example"}
+      - id: gh_years_cs
+        kind: experience
+        field: {label: "How many years of customer success experience do you have?", field_type: number}
+        gold: {all: "ABSTAIN|0", csm: "6"}
+      - id: gh_salesforce
+        kind: experience
+        field: {label: "How many years of experience do you have with Salesforce?", field_type: number}
+        gold: {all: "ABSTAIN|0", sales: "7", csm: "1"}
+      - id: gh_ccsm
+        kind: experience
+        field: {label: "Are you a Certified Customer Success Manager (CCSM)?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", csm: "Yes"}
+      - id: gh_gender
+        kind: eeo
+        field: {label: "Gender", field_type: select, options: [Male, Female, Decline To Self Identify], extra_context: "Voluntary Self-Identification"}
+        gold: {sysadmin: Male, marketer: Female, sales: Decline To Self Identify, csm: Female, junior_dev: Male, assistant: Female}
+      - id: gh_hispanic
+        kind: eeo
+        field: {label: "Are you Hispanic/Latino?", field_type: select, options: ["Yes", "No", Decline To Self Identify], extra_context: "Voluntary Self-Identification"}
+        gold: {all: "ABSTAIN|No", assistant: "Yes", sales: Decline To Self Identify}
+      - id: gh_veteran
+        kind: eeo
+        field: {label: "Veteran Status", field_type: select, options: [I am not a protected veteran, I identify as one or more of the classifications of protected veteran, "I don't wish to answer"]}
+        gold: {all: I am not a protected veteran, sales: "I don't wish to answer",
+               assistant: I identify as one or more of the classifications of protected veteran}
+      - id: gh_disability
+        kind: eeo
+        field: {label: "Disability Status", field_type: select, options: ["Yes, I have a disability, or have had one in the past", "No, I do not have a disability and have not had one in the past", I do not want to answer]}
+        gold: {all: "No, I do not have a disability and have not had one in the past", marketer: ABSTAIN, sales: I do not want to answer}
+      - id: gh_why
+        kind: essay
+        field: {label: "Why do you want to work at Pixelworks?", field_type: textarea}
+        gold: {all: ESSAY}
+
+  - id: lever
+    ats: Lever
+    job: {job_id: lv-208, title: IT Systems Engineer, company: Harborview Health,
+          url: "https://jobs.lever.co/harborview/208",
+          description: "Harborview Health seeks an IT Systems Engineer for our Denver, CO office (hybrid, 3 days on-site) to run Linux, Windows and AWS infrastructure."}
+    questions:
+      - id: lv_location
+        kind: short_text
+        field: {label: "Current location", field_type: text}
+        gold: {sysadmin: "Denver, CO", marketer: "Austin, TX", sales: "Chicago, IL", csm: "Portland, OR", junior_dev: "Seattle, WA", assistant: "Phoenix, AZ"}
+      - id: lv_current_company
+        kind: short_text
+        field: {label: "Where do you currently work?", field_type: text}
+        gold: {sysadmin: Summit Health, marketer: Brightline, sales: Keystone Foods Distribution, csm: Northwind Analytics, junior_dev: Brightpath Labs, assistant: Crestview Capital}
+      - id: lv_phone
+        kind: short_text
+        field: {label: "Phone", field_type: tel}
+        gold: {sysadmin: (303) 555-0142, marketer: (512) 555-0188, sales: (312) 555-0107, csm: (503) 555-0163, junior_dev: (206) 555-0119, assistant: (602) 555-0171}
+      - id: lv_github
+        kind: short_text
+        field: {label: "GitHub URL", field_type: url}
+        gold: {all: ABSTAIN, sysadmin: "https://github.com/jblake-example", junior_dev: "https://github.com/samokafor-example"}
+      - id: lv_onsite_denver
+        kind: logistics
+        field: {label: "Are you able to work on-site at our Denver, CO office three days a week?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN, sysadmin: "Yes"}
+      - id: lv_python_years
+        kind: experience
+        field: {label: "Years of experience with Python", field_type: select, options: [None, Less than 1 year, 1-2 years, 3-4 years, 5-7 years, 8+ years]}
+        gold: {all: "ABSTAIN|None", sysadmin: 5-7 years, junior_dev: 1-2 years}
+      - id: lv_security_plus
+        kind: experience
+        field: {label: "Do you hold an active CompTIA Security+ certification?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", sysadmin: "Yes"}
+      - id: lv_aws
+        kind: experience
+        field: {label: "Do you have hands-on experience with AWS?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", sysadmin: "Yes", junior_dev: "Yes"}
+      - id: lv_kubernetes
+        kind: experience
+        field: {label: "Have you administered Kubernetes clusters in production?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", sysadmin: ABSTAIN}
+      - id: lv_clearance
+        kind: trap
+        field: {label: "Do you currently hold an active U.S. security clearance?", field_type: select, options: [None, Confidential, Secret, Top Secret, TS/SCI]}
+        gold: {all: "ABSTAIN|None"}
+      - id: lv_felony
+        kind: legal
+        field: {label: "Have you ever been convicted of a felony?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN}
+      - id: lv_project
+        kind: essay
+        field: {label: "Describe a technical project you are proud of.", field_type: textarea}
+        gold: {all: ESSAY}
+
+  - id: workday
+    ats: Workday
+    job: {job_id: wd-R0193, title: Regional Sales Manager, company: Globex Foods,
+          url: "https://globex.wd5.myworkdayjobs.com/careers/job/R0193",
+          description: "Globex Foods is hiring a Regional Sales Manager based in Chicago, IL to grow foodservice distribution accounts. Travel up to 50%."}
+    questions:
+      - id: wd_auth2
+        kind: legal
+        field: {label: "Are you legally eligible to work in the country in which this job is located?", field_type: radio, options: ["Yes", "No"], required: true}
+        gold: {all: "Yes"}
+      - id: wd_age
+        kind: legal
+        field: {label: "Are you at least 18 years of age?", field_type: radio, options: ["Yes", "No"], required: true}
+        gold: {all: "Yes"}
+      - id: wd_chicago
+        kind: logistics
+        field: {label: "Do you currently live in the Chicago metropolitan area?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "No", sales: "Yes"}
+      - id: wd_travel_pct
+        kind: logistics
+        field: {label: "What percentage of travel are you willing to do?", field_type: select, options: [None, Up to 10%, Up to 25%, Up to 50%, More than 50%]}
+        gold: {all: ABSTAIN, sales: Up to 50%, assistant: Up to 25%}
+      - id: wd_b2b_years
+        kind: experience
+        field: {label: "How many years of B2B sales experience do you have?", field_type: select, options: [0-2 years, 3-5 years, 6-9 years, 10+ years]}
+        gold: {all: "ABSTAIN|0-2 years", sales: 10+ years}
+      - id: wd_years_total
+        kind: experience
+        field: {label: "How many years of professional experience do you have?", field_type: number}
+        gold: {sysadmin: "11", marketer: "9", sales: "12", csm: "8", junior_dev: "3", assistant: "18"}
+      - id: wd_excel
+        kind: experience
+        field: {label: "Are you proficient in Microsoft Excel?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", sales: "Yes", assistant: "Yes"}
+      - id: wd_education
+        kind: experience
+        field: {label: "Highest level of education completed", field_type: select, options: [High School Diploma or GED, "Associate's Degree", "Bachelor's Degree", "Master's Degree", Doctorate]}
+        gold: {all: "Bachelor's Degree", assistant: "Associate's Degree"}
+      - id: wd_noncompete
+        kind: legal
+        field: {label: "Are you currently bound by a non-compete or non-solicitation agreement?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN}
+      - id: wd_drug
+        kind: legal
+        field: {label: "Are you willing to submit to a pre-employment drug screen and background check?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN}
+      - id: wd_referred
+        kind: trap
+        field: {label: "Were you referred by a current Globex employee?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No"}
+      - id: wd_start
+        kind: logistics
+        field: {label: "When would you be available to start?", field_type: text}
+        gold: {sysadmin: Two weeks after offer, marketer: Immediately, sales: "2026-11-02", csm: Immediately, junior_dev: Two weeks after offer, assistant: One month after offer}
+      - id: wd_customer_story
+        kind: essay
+        field: {label: "Tell us about a time you turned around a difficult customer relationship.", field_type: textarea}
+        gold: {all: ESSAY}
+
+  - id: ashby
+    ats: Ashby
+    job: {job_id: ab-77, title: Content Marketing Lead, company: Initech,
+          url: "https://jobs.ashbyhq.com/initech/77",
+          description: "Initech is hiring a Content Marketing Lead (remote, US) to own our editorial calendar, SEO program and a small writing team."}
+    questions:
+      - id: ab_email
+        kind: short_text
+        field: {label: "Email", field_type: email, required: true}
+        gold: {sysadmin: jordan.blake@example.com, marketer: priya.nair@example.com, sales: marcus.reed@example.com, csm: elena.petrova@example.com, junior_dev: sam.okafor@example.com, assistant: linda.morales@example.com}
+      - id: ab_citizen
+        kind: legal
+        field: {label: "Are you a U.S. citizen or lawful permanent resident?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN, marketer: "No"}
+      - id: ab_auth_status
+        kind: legal
+        field: {label: "What is your current work authorization status?", field_type: select, options: [U.S. Citizen, Permanent Resident, H-1B Visa, F-1 OPT, Other]}
+        gold: {all: ABSTAIN, marketer: H-1B Visa}
+      - id: ab_relocate
+        kind: logistics
+        field: {label: "Are you willing to relocate for this role?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN, sysadmin: "No", marketer: "Yes", junior_dev: "Yes"}
+      - id: ab_work_arrangement
+        kind: logistics
+        field: {label: "What is your preferred work arrangement?", field_type: select, options: [On-site, Hybrid, Remote]}
+        gold: {all: ABSTAIN, sysadmin: [Hybrid, Remote], sales: [On-site, Hybrid], junior_dev: Remote, assistant: [Remote, Hybrid]}
+      - id: ab_salary
+        kind: logistics
+        field: {label: "What are your salary expectations?", field_type: text}
+        gold: {sysadmin: "$135,000", marketer: "$105,000 - $115,000", sales: "$95,000 base plus commission", csm: "$120,000", junior_dev: "$110,000", assistant: "$85,000"}
+      - id: ab_hubspot
+        kind: experience
+        field: {label: "Do you have experience with HubSpot?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", marketer: "Yes"}
+      - id: ab_manage
+        kind: experience
+        field: {label: "Have you managed direct reports?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "Yes", sales: ABSTAIN, junior_dev: "ABSTAIN|No"}
+      - id: ab_team_size
+        kind: experience
+        field: {label: "How many people have you directly managed?", field_type: select, options: ["0", "1-3", "4-10", More than 10]}
+        gold: {sysadmin: "1-3", marketer: "1-3", sales: ABSTAIN, csm: "4-10", junior_dev: "ABSTAIN|0", assistant: "1-3"}
+      - id: ab_heard
+        kind: short_text
+        field: {label: "How did you hear about this role?", field_type: text}
+        gold: {all: ABSTAIN}
+      - id: ab_orientation
+        kind: eeo
+        field: {label: "Sexual orientation", field_type: select, options: [Heterosexual, Gay or Lesbian, Bisexual, Prefer not to say], extra_context: "Voluntary demographic survey"}
+        gold: {all: ABSTAIN}
+      - id: ab_fit
+        kind: essay
+        field: {label: "What makes you a strong fit for this role?", field_type: textarea}
+        gold: {all: ESSAY}
+
+  - id: bamboohr
+    ats: BambooHR
+    job: {job_id: bb-15, title: Executive Assistant, company: Vandelay Industries,
+          url: "https://vandelay.bamboohr.com/careers/15",
+          description: "Vandelay Industries needs an Executive Assistant to support our CEO from Phoenix, AZ. Some travel (up to 25%)."}
+    questions:
+      - id: bb_city
+        kind: short_text
+        field: {label: "City", field_type: text}
+        gold: {sysadmin: Denver, marketer: Austin, sales: Chicago, csm: Portland, junior_dev: Seattle, assistant: Phoenix}
+      - id: bb_title
+        kind: short_text
+        field: {label: "Position you hold today", field_type: text}
+        gold: {sysadmin: Senior Systems Engineer, marketer: Senior Content Marketing Manager, sales: National Account Manager,
+               csm: Senior Customer Success Manager, junior_dev: Software Engineer I, assistant: Executive Assistant to the CEO}
+      - id: bb_school
+        kind: short_text
+        field: {label: "College/University", field_type: text}
+        gold: {sysadmin: Colorado State University, marketer: University of Texas at Austin, sales: University of Illinois Urbana-Champaign,
+               csm: Portland State University, junior_dev: University of Washington, assistant: Phoenix College}
+      - id: bb_field_of_study
+        kind: short_text
+        field: {label: "Field of study", field_type: text}
+        gold: {sysadmin: [BS Information Technology, Information Technology], marketer: [BA Communications, Communications],
+               sales: [BBA Marketing, Marketing], csm: [BA Psychology, Psychology], junior_dev: [BS Computer Science, Computer Science],
+               assistant: [AA Business Administration, Business Administration]}
+      - id: bb_bachelors
+        kind: experience
+        field: {label: "Do you have a Bachelor's degree or higher?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "Yes", assistant: "ABSTAIN|No"}
+      - id: bb_travel25
+        kind: logistics
+        field: {label: "This role requires travel up to 25% of the time. Are you able to travel?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN, sales: "Yes", assistant: "Yes"}
+      - id: bb_timezone
+        kind: logistics
+        field: {label: "Which U.S. time zone are you located in?", field_type: select, options: [Pacific, Mountain, Central, Eastern]}
+        gold: {sysadmin: Mountain, marketer: Central, sales: Central, csm: Pacific, junior_dev: Pacific, assistant: Mountain}
+      - id: bb_notice
+        kind: logistics
+        field: {label: "Notice period", field_type: select, options: [Immediately available, 2 weeks, 1 month, More than 1 month]}
+        gold: {all: 2 weeks, marketer: Immediately available, sales: 1 month, assistant: 1 month}
+      - id: bb_salary_range
+        kind: logistics
+        field: {label: "Desired annual base salary", field_type: select, options: ["Under $80,000", "$80,000 - $100,000", "$100,001 - $120,000", "$120,001 - $140,000", "Over $140,000"]}
+        gold: {sysadmin: "$120,001 - $140,000", marketer: "$100,001 - $120,000", sales: "$80,000 - $100,000",
+               csm: "$100,001 - $120,000", junior_dev: "$100,001 - $120,000", assistant: "$80,000 - $100,000"}
+      - id: bb_military
+        kind: trap
+        field: {label: "Have you served in the U.S. military?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", assistant: "Yes"}
+      - id: bb_spanish
+        kind: trap
+        field: {label: "Are you fluent in Spanish?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No"}
+      - id: bb_race
+        kind: eeo
+        field: {label: "Race/Ethnicity", field_type: select, options: [American Indian or Alaska Native, Asian, Black or African American, Hispanic or Latino, Native Hawaiian or Other Pacific Islander, White, Two or More Races, Decline to self-identify]}
+        gold: {sysadmin: White, marketer: Asian, sales: Decline to self-identify, csm: White, junior_dev: Black or African American, assistant: Hispanic or Latino}
+      - id: bb_gender_identity
+        kind: eeo
+        field: {label: "Gender identity", field_type: radio, options: [Man, Woman, Non-binary, Prefer not to say]}
+        gold: {sysadmin: Man, marketer: Woman, sales: Prefer not to say, csm: Woman, junior_dev: Man, assistant: Woman}
+      - id: bb_anything
+        kind: essay
+        field: {label: "Is there anything else you would like us to know?", field_type: textarea}
+        gold: {all: ESSAY}
+
+  - id: icims
+    ats: iCIMS
+    job: {job_id: ic-5520, title: Software Engineer, company: Northstar Logistics,
+          url: "https://careers-northstar.icims.com/jobs/5520",
+          description: "Northstar Logistics is hiring a fully remote Software Engineer (TypeScript, React, Python) for our shipment-tracking platform."}
+    questions:
+      - id: ic_i9
+        kind: legal
+        field: {label: "Can you provide proof of your eligibility to work in the U.S. upon hire?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "Yes"}
+      - id: ic_h1b
+        kind: legal
+        field: {label: "Do you currently hold an H-1B visa?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", marketer: "Yes"}
+      - id: ic_sponsor_future
+        kind: legal
+        field: {label: "Will you require employer sponsorship to continue working in the U.S. in the future?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "No", marketer: "Yes"}
+      - id: ic_gaps
+        kind: experience
+        field: {label: "Have you had any gaps in employment longer than 6 months in the past 10 years?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "No", csm: "Yes", marketer: "ABSTAIN|No", junior_dev: "ABSTAIN|No"}
+      - id: ic_current_title
+        kind: short_text
+        field: {label: "Current job title", field_type: text}
+        gold: {sysadmin: Senior Systems Engineer, marketer: Senior Content Marketing Manager, sales: National Account Manager,
+               csm: Senior Customer Success Manager, junior_dev: Software Engineer I, assistant: Executive Assistant to the CEO}
+      - id: ic_ts_years
+        kind: experience
+        field: {label: "Years of experience with TypeScript", field_type: select, options: [None, Less than 1 year, 1-2 years, 3-4 years, 5+ years]}
+        gold: {all: "ABSTAIN|None", junior_dev: 1-2 years}
+      - id: ic_cs_degree
+        kind: experience
+        field: {label: "Do you have a degree in Computer Science or a related field?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: "ABSTAIN|No", junior_dev: "Yes", sysadmin: "Yes"}
+      - id: ic_grad_year
+        kind: short_text
+        field: {label: "Graduation year", field_type: text}
+        gold: {sysadmin: "2015", marketer: "2017", sales: "2013", csm: "2015", junior_dev: "2025", assistant: "2015"}
+      - id: ic_remote
+        kind: logistics
+        field: {label: "Are you open to working fully remote?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN, sysadmin: "Yes", junior_dev: "Yes", assistant: "Yes"}
+      - id: ic_terminated
+        kind: trap
+        field: {label: "Have you ever been terminated or asked to resign from a position?", field_type: radio, options: ["Yes", "No"]}
+        gold: {all: ABSTAIN}
+      - id: ic_challenge
+        kind: essay
+        field: {label: "Describe a challenging problem you solved and how you approached it.", field_type: textarea}
+        gold: {all: ESSAY}
+      - id: ic_cover
+        kind: essay
+        field: {label: "Cover letter", field_type: textarea}
+        gold: {all: ESSAY}

@@ -768,6 +768,16 @@
                                 <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-ondevice-utility" onchange="applyOnDeviceTier('utility')"> Use Apple Intelligence for <strong>Utility</strong></label>
                                 <p class="ai-tier-hint" id="ai-ondevice-warn" style="display:none;color:var(--accent-red);margin-top:6px"></p>
                             </div>
+                            <!-- Local AI model (beta): one switch for the on-device NLI model. -->
+                            <div id="ai-nli-block" style="margin:12px 0 4px">
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-nli-beta" onchange="saveNliBeta()"> <strong>Local AI model (beta)</strong></label>
+                                <p class="ai-tier-hint">Fills application forms from your profile without an LLM and scores jobs when no AI endpoint is reachable. Downloads about <span id="ai-nli-size">MODEL_SIZE</span>.</p>
+                                <p class="ai-tier-hint" id="ai-nli-status" style="margin-top:4px"></p>
+                                <div class="btn-row" style="margin-top:6px">
+                                    <button class="btn btn-secondary btn-sm" id="ai-nli-retry" style="display:none" onclick="installNliModel()">Retry download</button>
+                                    <button class="btn btn-secondary btn-sm" id="ai-nli-delete" style="display:none" onclick="deleteNliModel()">Delete model</button>
+                                </div>
+                            </div>
                             <div class="ai-tier-group">
                                 <div class="ai-tier">
                                     <div class="ai-tier-header">

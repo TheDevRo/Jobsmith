@@ -106,6 +106,16 @@ ai:
   #   utility: {model: apple-on-device}
   #   strong:  {model: <your real model>}    # documents stay on the server
   #   scoring_tier: fast
+  # Local AI model (beta; Settings → AI). When enabled, an on-device NLI model
+  # (MODEL_SIZE) is downloaded once to <data folder>/models/nli/ and
+  #   - Apply Assist fills leftover form fields from your profile without an
+  #     LLM (form options, your saved values and date math only; essays still
+  #     go to the LLM and are marked as AI drafts; anything unsure is left blank);
+  #   - job-fit scoring falls back to it when the scoring LLM is unreachable
+  #     ("Scored by the local model (beta)").
+  # This machine only: never synced to other devices.
+  nli_beta:
+    enabled: false
   models:
     # Content tier — tailored resumes, cover letters, job-fit scoring,
     # and AI Edit (Strong mode). Use your highest-quality model.

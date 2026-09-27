@@ -21,6 +21,7 @@ from openai import (
 )
 
 from . import apple_bridge
+from . import nli
 from . import prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -547,6 +548,45 @@ def parse_score_response(
 
 
 async def score_job_fit(
+    job: dict, profile: dict, config: dict
+) -> tuple[float, str, Optional[dict]]:
+    """
+    Score how well a job matches the candidate's profile (0-100).
+    Returns (score, reasoning, match_report); raises ScoringUnavailable when no
+    score can be produced. With the Local AI model (beta) switched on and
+    installed, an unavailable scoring LLM falls back to the local NLI model.
+    """
+    try:
+        return await _score_job_fit_llm(job, profile, config)
+    except (ScoringUnavailable, apple_bridge.BridgeUnavailable) as exc:
+        if not nli.enabled(config):
+            raise
+        result = await _score_job_fit_nli(job, profile, config)
+        if result is None:
+            raise
+        logger.info("score_job_fit: LLM unavailable (%s); scored %r with the local model",
+                    exc, job.get("title", ""))
+        return result
+
+
+async def _score_job_fit_nli(job: dict, profile: dict, config: dict):
+    """(score, reasoning, match_report) from the local model, or None if it can't score this job."""
+    scorer = nli.get_scorer(config)
+    if scorer is None:
+        return None
+    from .nli import fit
+    try:
+        result = await asyncio.to_thread(fit.score, job, profile, scorer)
+    except Exception:  # noqa: BLE001 — fall back to "unscored", never to a fake score
+        logger.exception("Local-model scoring failed for %s", job.get("title", ""))
+        return None
+    if result is None:
+        return None
+    score, reasoning, report = result
+    return score, reasoning, _sanitize_match_report(report)
+
+
+async def _score_job_fit_llm(
     job: dict, profile: dict, config: dict
 ) -> tuple[float, str, Optional[dict]]:
     """

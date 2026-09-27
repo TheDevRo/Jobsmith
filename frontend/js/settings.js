@@ -74,6 +74,7 @@ async function loadSettings() {
         // Apple Intelligence opt-ins mirror "this tier's model is the sentinel".
         applyOnDeviceTiers({ strong: savedStrong, fast: savedFast, utility: savedUtility });
         refreshOnDeviceUI();
+        loadNliStatus();
         const scoringTierSel = document.getElementById('cfg-scoring-tier');
         if (scoringTierSel) scoringTierSel.value = cfg.ai?.scoring_tier || 'strong';
 
@@ -1247,6 +1248,64 @@ async function refreshOnDeviceUI(status) {
             ? (od.reason || 'Apple Intelligence is not available right now.')
             : '';
     }
+}
+
+// ---- Local AI model (beta) ----
+// One switch (ai.nli_beta.enabled). Turning it on makes the backend download the
+// model; the status line polls while that runs. Off = the LLM does everything.
+let _nliPoll = null;
+
+function renderNliStatus(s) {
+    const cb = document.getElementById('cfg-ai-nli-beta');
+    const line = document.getElementById('ai-nli-status');
+    const retry = document.getElementById('ai-nli-retry');
+    const del = document.getElementById('ai-nli-delete');
+    if (!cb || !line || !s) return;
+    cb.checked = !!s.enabled;
+    const size = document.getElementById('ai-nli-size');
+    if (size && s.size_bytes) size.textContent = Math.round(s.size_bytes / 1e6) + ' MB';
+    const text = {
+        off: s.installed ? 'Off. The model is still downloaded.' : '',
+        not_installed: 'Not installed. Using the LLM until it downloads.',
+        downloading: 'Downloading ' + Math.round((s.progress || 0) * 100) + '%… Using the LLM until it finishes.',
+        ready: 'Ready. Runs on this computer.',
+        error: 'Error: ' + (s.error || 'download failed') + '. Using the LLM for now.',
+    }[s.state] || '';
+    line.textContent = text;
+    line.style.color = s.state === 'error' ? 'var(--accent-red)' : '';
+    line.style.display = text ? '' : 'none';
+    if (retry) retry.style.display = (s.enabled && (s.state === 'error' || s.state === 'not_installed')) ? '' : 'none';
+    if (del) del.style.display = (s.installed && s.state !== 'downloading') ? '' : 'none';
+    clearTimeout(_nliPoll);
+    if (s.state === 'downloading') _nliPoll = setTimeout(loadNliStatus, 1500);
+}
+
+async function loadNliStatus() {
+    try { renderNliStatus(await api('/api/ai/nli/status')); } catch (e) { /* non-fatal */ }
+}
+
+async function saveNliBeta() {
+    const cb = document.getElementById('cfg-ai-nli-beta');
+    try {
+        renderNliStatus(await api('/api/settings/nli-beta', {
+            method: 'PUT', body: JSON.stringify({ enabled: !!(cb && cb.checked) }),
+        }));
+    } catch (e) {
+        toast('Failed to update the Local AI model setting', 'error');
+        loadNliStatus();
+    }
+}
+
+async function installNliModel() {
+    try { renderNliStatus(await api('/api/ai/nli/install', { method: 'POST' })); }
+    catch (e) { toast('Could not start the download', 'error'); }
+}
+
+async function deleteNliModel() {
+    try {
+        renderNliStatus(await api('/api/ai/nli/model', { method: 'DELETE' }));
+        toast('Local AI model deleted', 'success');
+    } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
 }
 
 async function loadAiModels({ preselect = {}, persistConnection = false } = {}) {
