@@ -52,8 +52,19 @@ public struct DocumentStore {
         try FileManager.default.createDirectory(at: localDir, withIntermediateDirectories: true)
         let ext = ref["ext"] ?? ""
         let dest = localDir.appendingPathComponent(ext.isEmpty ? basename : "\(basename).\(ext)")
-        let data = try Data(contentsOf: blobURL(ref))
-        try data.write(to: dest, options: .atomic)
+        let fm = FileManager.default
+        let src = blobURL(ref)
+        // Unchanged since the last import: skip the copy (every sync used to
+        // rewrite every document).
+        if fm.contentsEqual(atPath: src.path, andPath: dest.path) { return dest }
+        let tmp = dest.appendingPathExtension("tmp")
+        try? fm.removeItem(at: tmp)
+        try fm.copyItem(at: src, to: tmp)  // streamed; no whole-file Data in memory
+        if fm.fileExists(atPath: dest.path) {
+            _ = try fm.replaceItemAt(dest, withItemAt: tmp)
+        } else {
+            try fm.moveItem(at: tmp, to: dest)
+        }
         return dest
     }
 }

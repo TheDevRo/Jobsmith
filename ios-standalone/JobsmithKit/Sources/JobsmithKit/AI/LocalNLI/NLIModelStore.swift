@@ -122,16 +122,9 @@ public final class NLIModelStore: ObservableObject {
                     self?.state = .downloading(min(1, (base + fraction * Double(file.size)) / all))
                 }
                 if isZip {
-                    let staging = dir.appendingPathComponent("unzip", isDirectory: true)
-                    try? fm.removeItem(at: staging)
-                    try fm.unzipItem(at: verified, to: staging)
-                    guard let unzipped = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
-                        .first(where: { $0.pathExtension == "mlmodelc" }) else {
-                        throw NLIDownloadError.badArchive
-                    }
-                    try fm.moveItem(at: unzipped, to: installed)
-                    try? fm.removeItem(at: staging)
-                    try? fm.removeItem(at: verified)
+                    // Off the main actor: unpacking ~400 MB takes seconds, and a blocked
+                    // main thread gets the app killed if it is backgrounded meanwhile.
+                    try await Task.detached { try Self.unpack(verified, in: dir, to: installed) }.value
                 } else {
                     try fm.moveItem(at: verified, to: installed)
                 }
@@ -197,7 +190,7 @@ public final class NLIModelStore: ObservableObject {
         }
 
         let size = (try? fm.attributesOfItem(atPath: dest.path)[.size] as? NSNumber)?.int64Value ?? -1
-        let digest = try Self.sha256(dest)
+        let digest = try await Task.detached { try Self.sha256(dest) }.value  // off the main actor
         guard size == file.size, digest == file.sha256 else {
             try? fm.removeItem(at: dest)
             throw NLIDownloadError.checksum(file.name)
@@ -205,12 +198,33 @@ public final class NLIModelStore: ObservableObject {
         return dest
     }
 
-    static func sha256(_ url: URL) throws -> String {
+    nonisolated static func sha256(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        while true {
+            let more = try autoreleasepool { () -> Bool in  // don't pile up 400 chunks before the loop ends
+                guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
+                hasher.update(data: chunk)
+                return true
+            }
+            if !more { break }
+        }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated private static func unpack(_ zip: URL, in dir: URL, to installed: URL) throws {
+        let fm = FileManager.default
+        let staging = dir.appendingPathComponent("unzip", isDirectory: true)
+        try? fm.removeItem(at: staging)
+        try fm.unzipItem(at: zip, to: staging)
+        guard let unzipped = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
+            .first(where: { $0.pathExtension == "mlmodelc" }) else {
+            throw NLIDownloadError.badArchive
+        }
+        try fm.moveItem(at: unzipped, to: installed)
+        try? fm.removeItem(at: staging)
+        try? fm.removeItem(at: zip)
     }
 
     static func describe(_ error: Error) -> String {

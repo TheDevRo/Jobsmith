@@ -75,18 +75,27 @@ public struct SearchRunStore: Sendable {
     /// runs are retired here rather than handed back to a caller that would only
     /// have to re-check them.
     public func activeRun() throws -> SearchRun? {
-        try db.writer.write { dbc -> SearchRun? in
-            guard let row = try Row.fetchOne(
-                dbc, sql: "SELECT * FROM search_runs WHERE state != 'complete' ORDER BY startedAt DESC LIMIT 1"),
-                  let run = Self.decode(row) else { return nil }
+        try db.writer.write { dbc in try Self.activeRun(dbc) }
+    }
 
-            if Date().timeIntervalSince(run.startedAt) > Self.maxAge || run.isFinished {
-                try dbc.execute(sql: "UPDATE search_runs SET state = 'complete' WHERE id = ?",
-                                arguments: [run.id])
-                return nil
-            }
-            return run
+    /// `activeRun()` for main-actor callers: suspends instead of blocking while
+    /// another write (e.g. a sync import) holds the database. Blocking the main
+    /// thread there got the app killed by the scene-update watchdog.
+    public func loadActiveRun() async throws -> SearchRun? {
+        try await db.writer.write { dbc in try Self.activeRun(dbc) }
+    }
+
+    private static func activeRun(_ dbc: Database) throws -> SearchRun? {
+        guard let row = try Row.fetchOne(
+            dbc, sql: "SELECT * FROM search_runs WHERE state != 'complete' ORDER BY startedAt DESC LIMIT 1"),
+              let run = Self.decode(row) else { return nil }
+
+        if Date().timeIntervalSince(run.startedAt) > Self.maxAge || run.isFinished {
+            try dbc.execute(sql: "UPDATE search_runs SET state = 'complete' WHERE id = ?",
+                            arguments: [run.id])
+            return nil
         }
+        return run
     }
 
     /// Strike a source off the run — it reached a terminal state (finished,

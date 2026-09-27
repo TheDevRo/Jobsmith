@@ -652,6 +652,16 @@ public final class SyncEngine {
         let winners = SyncMerge.winners(logs)
         var stats = ImportStats()
         let store = store(folder)
+        // Copy synced documents into place BEFORE taking the write lock: the
+        // copies are file I/O (and can wait on iCloud), and holding the
+        // database meanwhile stalls every other reader/writer — including the
+        // main thread, which got the app killed by the scene-update watchdog.
+        var docPaths: [String: [String: String]] = [:]  // application id -> path column -> local path
+        if let store {
+            for (key, rec) in winners where key.entity == "application" && !rec.deleted {
+                docPaths[key.id] = Self.materializeDocs(key.id, rec.data ?? [:], store)
+            }
+        }
 
         try db.writer.write { dbc in
             try ensureTables(dbc)
@@ -673,7 +683,7 @@ public final class SyncEngine {
                 }
             }
             for (key, rec) in winners where key.entity == "application" && !rec.deleted {
-                do { try applyApplication(dbc, key.id, rec.data ?? [:], store); stats.upserts += 1 }
+                do { try applyApplication(dbc, key.id, rec.data ?? [:], docPaths[key.id] ?? [:]); stats.upserts += 1 }
                 catch is DeferError { deferred.insert("application:\(key.id)"); stats.deferred += 1 }
             }
             // Outcome history last — an event needs its application to exist.
@@ -815,7 +825,7 @@ public final class SyncEngine {
     }
 
     private func applyApplication(_ dbc: Database, _ id: String, _ canonData: [String: JSONValue],
-                                  _ store: DocumentStore?) throws {
+                                  _ docPaths: [String: String]) throws {
         guard let jobRef = canonData["job_ref"]?.stringValue, let jobId = try resolveJobId(dbc, jobRef) else {
             throw DeferError()
         }
@@ -839,18 +849,23 @@ public final class SyncEngine {
                             arguments: StatementArguments([id, jobId] + args))
         }
 
-        if let store {
-            for (refKey, pathCol) in SyncEngine.appDocs {
-                guard case .object(let refObj)? = canonData[refKey] else { continue }
-                var ref: [String: String] = [:]
-                for (k, v) in refObj { if case .string(let s) = v { ref[k] = s } }
-                let base = "\(id)_" + refKey.replacingOccurrences(of: "_doc", with: "")
-                if let local = try store.materialize(ref, basename: base) {
-                    try dbc.execute(sql: "UPDATE applications SET \(pathCol) = ? WHERE id = ?",
-                                    arguments: [local.path, id])
-                }
-            }
+        for (pathCol, path) in docPaths {
+            try dbc.execute(sql: "UPDATE applications SET \(pathCol) = ? WHERE id = ?", arguments: [path, id])
         }
+    }
+
+    /// The application's synced documents copied to local files: path column -> local path.
+    private static func materializeDocs(_ id: String, _ canonData: [String: JSONValue],
+                                        _ store: DocumentStore) -> [String: String] {
+        var out: [String: String] = [:]
+        for (refKey, pathCol) in SyncEngine.appDocs {
+            guard case .object(let refObj)? = canonData[refKey] else { continue }
+            var ref: [String: String] = [:]
+            for (k, v) in refObj { if case .string(let s) = v { ref[k] = s } }
+            let base = "\(id)_" + refKey.replacingOccurrences(of: "_doc", with: "")
+            if let local = try? store.materialize(ref, basename: base) { out[pathCol] = local.path }
+        }
+        return out
     }
 
     /// An event is only tombstoned when its application went away; the id is

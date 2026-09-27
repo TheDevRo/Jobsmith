@@ -998,3 +998,30 @@ final class DigestRankerTests: XCTestCase {
         }
     }
 }
+
+/// Documents are copied outside the import's database write, and an unchanged
+/// document is not rewritten on every sync.
+final class DocumentStoreMaterializeTests: XCTestCase {
+    func testMaterializeCopiesThenSkipsUnchangedAndRestoresTampered() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DocumentStore(storeDir: root.appendingPathComponent("documents"),
+                                  localDir: root.appendingPathComponent("local"))
+        try FileManager.default.createDirectory(at: store.storeDir, withIntermediateDirectories: true)
+        let src = root.appendingPathComponent("resume.pdf")
+        try Data("resume v1".utf8).write(to: src)
+        let ref = try store.put(src)
+
+        let dest = try XCTUnwrap(try store.materialize(ref, basename: "app1_resume"))
+        XCTAssertEqual(try Data(contentsOf: dest), Data("resume v1".utf8))
+        let modified = try FileManager.default.attributesOfItem(atPath: dest.path)[.modificationDate] as? Date
+
+        Thread.sleep(forTimeInterval: 1.1)
+        _ = try store.materialize(ref, basename: "app1_resume")  // unchanged: no rewrite
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: dest.path)[.modificationDate] as? Date, modified)
+
+        try Data("edited locally".utf8).write(to: dest)  // differs from the blob: restored
+        _ = try store.materialize(ref, basename: "app1_resume")
+        XCTAssertEqual(try Data(contentsOf: dest), Data("resume v1".utf8))
+    }
+}

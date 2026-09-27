@@ -944,7 +944,7 @@ final class AppModel {
     @discardableResult
     func resumeInterruptedSearch() async -> Bool {
         guard !isFetching else { return false }
-        guard let run = try? searchRunStore.activeRun(), !run.isFinished else { return false }
+        guard let run = try? await searchRunStore.loadActiveRun(), !run.isFinished else { return false }
         activityStore.log("search_resumed",
                           "Resuming \(run.remainingSources.count) source(s) from the last search")
         await runSearch(run)
