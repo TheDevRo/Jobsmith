@@ -46,11 +46,12 @@ struct JobDetailView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Eyebrow(text: "Why this score")
-                            if reasoning.hasPrefix(LocalNLI.reasoningPrefix) {
-                                Label("Local model", systemImage: "cpu")
+                            if let source = ScoreSource.of(matchReport: job.matchReport, reasoning: reasoning) {
+                                Label(source.label, systemImage: source.systemImage)
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                    .accessibilityLabel("Scored by the local model")
+                                    .lineLimit(1)
+                                    .accessibilityLabel("Scored by \(source.label)")
                             }
                         }
                         Text(reasoning)

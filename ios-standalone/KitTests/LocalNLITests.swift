@@ -434,6 +434,41 @@ final class LocalNLIScoringTests: XCTestCase {
         }
     }
 
+    private final class Answering: AIEngine, @unchecked Sendable {
+        func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
+            #"{"score": 70, "reasoning": "Solid fit."}"#
+        }
+        func listModels(config: AIConfig) async throws -> [String] { [] }
+    }
+
+    /// Every score records what produced it, so the job can say so.
+    func testScoresRecordTheirSource() async throws {
+        func source(_ r: FitResult) -> ScoreSource? { ScoreSource.of(matchReport: r.matchReportJSON, reasoning: r.reasoning) }
+        var endpoint = AppConfig(); endpoint.ai.fastModel = "qwen3.5-9b"
+        let viaEndpoint = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                         config: endpoint, engine: Answering())
+        XCTAssertEqual(source(viaEndpoint), .endpoint("qwen3.5-9b"))
+        XCTAssertEqual(source(viaEndpoint)?.label, "qwen3.5-9b")
+
+        var apple = AppConfig(); apple.ai.fastModel = AIConfig.onDeviceModelID
+        let viaApple = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                      config: apple, engine: Answering())
+        XCTAssertEqual(source(viaApple), .appleIntelligence)
+
+        var local = on; local.ai.nliScoringPreferLocal = true
+        let viaLocal = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                      config: local, engine: Answering(), nli: { _ in Half() })
+        XCTAssertEqual(source(viaLocal), .localModel)
+        XCTAssertEqual(source(viaLocal)?.label, "Local match model")
+        // The match report's own fields survive the tag.
+        let report = try JSONSerialization.jsonObject(with: Data(viaLocal.matchReportJSON!.utf8)) as! [String: Any]
+        XCTAssertNotNil(report["matched_skills"])
+
+        // Scores saved before sources were recorded: local ones still show, others show nothing.
+        XCTAssertEqual(ScoreSource.of(matchReport: nil, reasoning: LocalNLI.reasoningPrefix + ": meets 1 of 2"), .localModel)
+        XCTAssertNil(ScoreSource.of(matchReport: #"{"matched_skills":[]}"#, reasoning: "Great fit"))
+    }
+
     func testPreferLocalScoresWithoutCallingTheLLM() async throws {
         var config = on
         config.ai.nliScoringPreferLocal = true

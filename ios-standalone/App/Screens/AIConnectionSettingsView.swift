@@ -275,7 +275,7 @@ struct AIConnectionSettingsView: View {
                         Text(fallbackLabel).tag("")
                     }
                     if onDeviceAvailable {
-                        Text("Apple On-Device").tag(AIConfig.onDeviceModelID)
+                        Text("Apple Intelligence").tag(AIConfig.onDeviceModelID)
                     }
                     ForEach(endpointOptions(current: selection.wrappedValue), id: \.self) { name in
                         Text(name).tag(name)
@@ -302,7 +302,7 @@ struct AIConnectionSettingsView: View {
     /// onDisappear flush), and turning it on starts the one-time download.
     private var localModelSection: some View {
         Section {
-            Toggle("Local AI model (beta)", isOn: Binding(
+            Toggle("Local match model (beta)", isOn: Binding(
                 get: { model.config.ai.nliBetaEnabled },
                 set: { on in
                     model.saveConfig { $0.ai.nliBetaEnabled = on }
@@ -334,9 +334,9 @@ struct AIConnectionSettingsView: View {
                 Button("Delete model", role: .destructive) { Task { await localModel.delete() } }
             }
         } header: {
-            Eyebrow(text: "Local AI model")
+            Eyebrow(text: "Local match model")
         } footer: {
-            Text("An on-device model that fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, with “Use it for all job scoring”. Scores it produces are labeled “Local model”. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, with “Use it for all job scoring”. Every score is labeled with what produced it: “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
         }
     }
 

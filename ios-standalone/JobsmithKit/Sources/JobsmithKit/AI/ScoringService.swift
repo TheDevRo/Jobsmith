@@ -14,6 +14,80 @@ public struct FitResult: Equatable, Sendable {
     }
 }
 
+/// Which engine produced a fit score, shown on the job so the local match model,
+/// Apple Intelligence and an endpoint model are never confused. Stored as
+/// `scored_by` inside the match report JSON (synced as-is; the desktop ignores it).
+public enum ScoreSource: Equatable, Sendable {
+    case localModel, appleIntelligence, endpoint(String)
+
+    var tag: String {
+        switch self {
+        case .localModel: return "local_model"
+        case .appleIntelligence: return "apple_intelligence"
+        case .endpoint(let model): return "endpoint:\(model)"
+        }
+    }
+
+    init?(tag: String) {
+        switch tag {
+        case "local_model": self = .localModel
+        case "apple_intelligence": self = .appleIntelligence
+        default:
+            guard tag.hasPrefix("endpoint:") else { return nil }
+            self = .endpoint(String(tag.dropFirst("endpoint:".count)))
+        }
+    }
+
+    /// The source of a stored score; nil for scores saved before sources were recorded
+    /// (except local-model scores, recognisable by their reasoning line).
+    public static func of(matchReport: String?, reasoning: String?) -> ScoreSource? {
+        if let data = matchReport?.data(using: .utf8),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let tag = obj["scored_by"] as? String, let source = ScoreSource(tag: tag) {
+            return source
+        }
+        return reasoning?.hasPrefix(LocalNLI.reasoningPrefix) == true ? .localModel : nil
+    }
+
+    /// Which engine an LLM call on `tier` goes to.
+    static func llm(_ ai: AIConfig, _ tier: ModelTier) -> ScoreSource {
+        ai.usesOnDevice(for: tier) ? .appleIntelligence : .endpoint(ai.model(for: tier))
+    }
+
+    public var label: String {
+        switch self {
+        case .localModel: return "Local match model"
+        case .appleIntelligence: return "Apple Intelligence"
+        // "local-model" is the placeholder id sent when no model is named; don't let it
+        // read like the local match model.
+        case .endpoint(let model): return model.isEmpty || model == "local-model" ? "AI endpoint" : model
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .localModel: return "checklist"
+        case .appleIntelligence: return "apple.logo"
+        case .endpoint: return "server.rack"
+        }
+    }
+}
+
+extension FitResult {
+    /// This result with `source` recorded in its match report.
+    func scored(by source: ScoreSource) -> FitResult {
+        var report: [String: Any] = [:]
+        if let data = matchReportJSON?.data(using: .utf8),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { report = obj }
+        report["scored_by"] = source.tag
+        var out = self
+        if let json = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) {
+            out.matchReportJSON = String(data: json, encoding: .utf8)
+        }
+        return out
+    }
+}
+
 /// Why a job could not be scored. Distinct from a low score: callers must not
 /// persist a fit score when one of these is thrown, or a dead endpoint would
 /// permanently brand every unscored job as a `0` (indistinguishable from a real
@@ -83,7 +157,7 @@ public enum ScoringService {
         do {
             return try await Task.detached(priority: .utility) {
                 try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
-            }.value
+            }.value?.scored(by: .localModel)
         } catch {
             NSLog("Local-model scoring failed for \(job.title): \(error)")
             return nil
@@ -140,6 +214,7 @@ public enum ScoringService {
                     return FitResult(score: score,
                                      reasoning: data["reasoning"] as? String ?? "",
                                      matchReportJSON: ScoreResponseParser.sanitizedMatchReportJSON(data))
+                        .scored(by: .llm(config.ai, retry.tier))
                 }
             } catch let retryError where TransientNetwork.isTransient(retryError) {
                 throw ScoringError.interrupted(String(describing: retryError))
@@ -157,6 +232,7 @@ public enum ScoringService {
             return FitResult(score: parsed.score,
                              reasoning: parsed.reasoning,
                              matchReportJSON: parsed.matchReportJSON)
+                .scored(by: .llm(config.ai, request.tier))
         }
         throw ScoringError.unparseableResponse(String(text.prefix(200)))
     }
