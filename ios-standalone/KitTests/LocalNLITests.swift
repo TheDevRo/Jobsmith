@@ -453,21 +453,31 @@ final class LocalNLIScoringTests: XCTestCase {
         XCTAssertGreaterThan(engine.calls, 0)
     }
 
-    func testLongProfilesAreScoredInPieces() throws {
-        final class Long: NLIScorer, @unchecked Sendable {
+    /// One premise per job (20 model runs, not ~200), trimmed to the token budget: roles stay,
+    /// then as many skills and summary words as fit. Mirrors the desktop test.
+    func testLongProfilesGetOneCompactPremise() throws {
+        final class Words: NLIScorer, @unchecked Sendable {
             var seen: [String] = []
-            func countTokens(_ pair: NLIPair) -> Int? { 900 }
+            func countTokens(_ pair: NLIPair) -> Int? {
+                (pair.premise + " " + pair.hypothesis).split(whereSeparator: \.isWhitespace).count
+            }
             func probs(_ pairs: [NLIPair]) throws -> [[Double]] {
                 seen += pairs.map(\.premise)
-                return pairs.map { $0.premise.hasPrefix("The candidate worked as") ? [0.9, 0.1, 0] : [0.2, 0.8, 0] }
+                return pairs.map { _ in [0.9, 0.1, 0] }
             }
         }
-        let long = Long()
-        let result = try XCTUnwrap(LocalNLI.fitScore(job: JobFixtures.dataEngineer, profile: JobFixtures.profile, nli: long))
-        let all = LocalNLI.profilePieces(JobFixtures.profile)
-        XCTAssertFalse(long.seen.contains(all[0]))
-        XCTAssertEqual(Set(long.seen), Set(all.dropFirst()))
-        XCTAssertEqual(result.score, 90, accuracy: 0.001)  // best piece per line
+        var long = JobFixtures.profile
+        long.summary = String(repeating: "word ", count: 400)
+        long.skills = (0..<300).map { "skill\($0)" }
+        let words = Words()
+        _ = try XCTUnwrap(LocalNLI.fitScore(job: JobFixtures.dataEngineer, profile: long, nli: words))
+        XCTAssertEqual(Set(words.seen).count, 1)
+        XCTAssertEqual(words.seen.count, LocalNLI.requirementLines(JobFixtures.dataEngineer.description).count)
+        let prem = try XCTUnwrap(words.seen.first)
+        XCTAssertLessThanOrEqual(prem.split(whereSeparator: \.isWhitespace).count, LocalNLI.premiseTokens)
+        XCTAssertTrue(prem.contains("Data Engineer at Acme"))
+        let short = LocalNLI.premise(JobFixtures.profile) { words.countTokens(NLIPair($0, "")) }
+        XCTAssertTrue(short.contains("Data engineer.") && short.contains("Python, SQL"))
     }
 
     func testRequirementLinesMatchTheBench() {

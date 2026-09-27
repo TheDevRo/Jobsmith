@@ -369,21 +369,26 @@ def test_scoring_stays_unavailable(monkeypatch, cfg, scorer, job):
         asyncio.run(ai_engine.score_job_fit(job, PROFILE, cfg))
 
 
-def test_long_profiles_are_scored_in_pieces():
+def test_long_profiles_get_one_compact_premise():
+    """One premise per job (20 model runs, not ~200), trimmed to the token budget: roles stay,
+    then as many skills and summary words as fit."""
     seen = []
+    long = dict(PROFILE, summary="word " * 400, skills=[f"skill{i}" for i in range(300)])
 
-    class Long(FakeNLI):
+    class Words(FakeNLI):
         def count_tokens(self, p, h):
-            return 900
+            return len((p + " " + h).split())
 
         def entail(self, pairs):
             seen.extend(p for p, _ in pairs)
-            return [0.9 if p.startswith("The candidate worked as") else 0.2 for p, _ in pairs]
-    score, _, report = fit.score(JOB, PROFILE, Long())
-    whole, *pieces = fit.profile_pieces(PROFILE)
-    assert whole not in seen and set(seen) == set(pieces)
-    assert score == pytest.approx(90)  # best piece per line
-    assert len(report["matched_skills"]) == 3
+            return [0.9 for _ in pairs]
+    fit.score(JOB, long, Words())
+    assert len(set(seen)) == 1 and len(seen) == len(fit.req_lines(JOB["description"]))
+    prem = seen[0]
+    assert len(prem.split()) <= fit.PREMISE_TOKENS
+    assert all(r["title"] in prem for r in PROFILE["experience"] if r.get("title"))
+    short = fit.premise(PROFILE, Words().count_tokens)  # a short profile is kept whole
+    assert PROFILE["summary"].split()[-1] in short and all(s in short for s in PROFILE["skills"])
 
 
 def test_req_lines_matches_the_bench():
