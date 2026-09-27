@@ -5,7 +5,7 @@ import ZIPFoundation
 /// Where the Local AI model lives and what it is. Files are downloaded from a
 /// model-only GitHub release (not an app release), pinned by size + SHA-256,
 /// into Application Support (never the App Group: the Share extension must not
-/// see or load a 450 MB model).
+/// see or load a ~400 MB model).
 public enum NLIModel {
     public struct File: Sendable {
         public let name: String
