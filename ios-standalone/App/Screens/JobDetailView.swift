@@ -107,6 +107,12 @@ struct JobDetailView: View {
                 }
                 .disabled(job.url.isEmpty)
             }
+            let planned = ScoreSource.planned(config: model.config)
+            Label("Scores with: \(planned.label)", systemImage: planned.systemImage)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
             if job.status == "review" || job.status == "applied" {
                 NavigationLink {
                     DocumentReviewView(jobId: job.id)

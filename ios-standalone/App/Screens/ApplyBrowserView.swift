@@ -121,7 +121,7 @@ struct ApplyBrowserView: View {
             didStart = true
             controller.start(url: url,
                              cookies: isLinkedIn ? storedLinkedInCookies : [])
-            showStatus("Load the form, then tap Autofill.", autoHideAfter: 6)
+            showStatus("Load the form, then tap Autofill. \(fillsWith)", autoHideAfter: 6)
         }
         .onDisappear {
             // A mapping run left in flight would keep burning an LLM round
@@ -394,6 +394,13 @@ struct ApplyBrowserView: View {
 
     // MARK: - Autofill flow
 
+    /// "Fills with: <engine> (essays: <model>)" — the same routing `FieldMapper` uses.
+    private var fillsWith: String {
+        let plan = ScoreSource.plannedFill(config: model.config)
+        let essays = plan.essays.map { " (essays: \($0.label))" } ?? ""
+        return "Fills with: \(plan.fields.label)\(essays)."
+    }
+
     private func autofill() {
         busy = true
         showStatus("Scanning form…")
@@ -406,7 +413,7 @@ struct ApplyBrowserView: View {
                                + "behind a login, or not a web form.", autoHideAfter: 10)
                     return
                 }
-                showStatus("Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")…")
+                showStatus("Mapping \(snap.fields.count) field\(snap.fields.count == 1 ? "" : "s")… \(fillsWith)")
                 let mapping = await model.mapApplyFields(snap.fields, job: job)
                 try Task.checkCancellation()
                 var items = Self.buildFillItems(descriptors: snap.fields, values: mapping.values,

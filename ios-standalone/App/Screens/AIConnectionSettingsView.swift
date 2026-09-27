@@ -57,7 +57,8 @@ struct AIConnectionSettingsView: View {
     /// if the server no longer reports it (so the picker isn't blank).
     private func endpointOptions(current: String) -> [String] {
         var names = availableModels
-        if !current.isEmpty, current != AIConfig.onDeviceModelID, !names.contains(current) {
+        if !current.isEmpty, current != AIConfig.onDeviceModelID, current != AIConfig.localMatchModelID,
+           !names.contains(current) {
             names.insert(current, at: 0)
         }
         return names
@@ -67,6 +68,12 @@ struct AIConnectionSettingsView: View {
     private func whereRuns(_ tier: ModelTier) -> String {
         var ai = model.config.ai
         ai.strongModel = strongModel; ai.fastModel = fastModel; ai.utilityModel = utilityModel
+        if tier == .fast, ai.usesLocalMatchModel {
+            let writer = ScoreSource.llm(ai, .fast).label
+            return localModel.state == .ready
+                ? "→ Scores jobs on your device with the Local match model. Jobs it can't judge, AI form-fill and essays use your Resume model · \(writer)."
+                : "→ Scoring uses your Resume model · \(writer) until the Local match model finishes downloading."
+        }
         if ai.usesOnDevice(for: tier) {
             return "→ Runs on your device: private, offline, free. A small model, so quality is below a good server model."
         }
@@ -93,6 +100,14 @@ struct AIConnectionSettingsView: View {
             batchScoringSection
         }
         .navigationTitle("AI connection")
+        .onChange(of: fastModel) { _, new in
+            // Picking the local match model switches it on and starts the download.
+            // (Not on load: re-opening this screen must not restart a deleted download.)
+            guard new == AIConfig.localMatchModelID,
+                  model.config.ai.fastModel != new || !model.config.ai.nliBetaEnabled else { return }
+            model.saveConfig { $0.ai.nliBetaEnabled = true; $0.ai.fastModel = new }
+            if localModel.state != .ready { localModel.install() }
+        }
         .onAppear {
             hasAppeared = true
             baseURL = model.config.ai.baseURL
@@ -269,7 +284,8 @@ struct AIConnectionSettingsView: View {
                              fallbackLabel: String? = nil,
                              title: String, blurb: String) -> some View {
         Section {
-            if hasPickableModels {
+            // The fast tier always has a pickable option: the local match model.
+            if hasPickableModels || tier == .fast {
                 Picker("Model", selection: selection) {
                     if let fallbackLabel {
                         Text(fallbackLabel).tag("")
@@ -277,12 +293,16 @@ struct AIConnectionSettingsView: View {
                     if onDeviceAvailable {
                         Text("Apple Intelligence").tag(AIConfig.onDeviceModelID)
                     }
+                    if tier == .fast {
+                        Text("Local match model").tag(AIConfig.localMatchModelID)
+                    }
                     ForEach(endpointOptions(current: selection.wrappedValue), id: \.self) { name in
                         Text(name).tag(name)
                     }
                 }
                 .accessibilityLabel("\(title) model")
-            } else {
+            }
+            if !hasPickableModels, selection.wrappedValue != AIConfig.localMatchModelID {
                 TextField(fallbackLabel ?? "Model name", text: selection)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -305,16 +325,13 @@ struct AIConnectionSettingsView: View {
             Toggle("Local match model (beta)", isOn: Binding(
                 get: { model.config.ai.nliBetaEnabled },
                 set: { on in
-                    model.saveConfig { $0.ai.nliBetaEnabled = on }
+                    // Off also un-picks it for scoring, back to "Same as Resume model".
+                    if !on, fastModel == AIConfig.localMatchModelID { fastModel = "" }
+                    let fast = fastModel
+                    model.saveConfig { $0.ai.nliBetaEnabled = on; if !on { $0.ai.fastModel = fast } }
                     if on { localModel.install() } else { localModel.cancel() }
                 }
             ))
-            if model.config.ai.nliBetaEnabled {
-                Toggle("Use it for all job scoring", isOn: Binding(
-                    get: { model.config.ai.nliScoringPreferLocal },
-                    set: { on in model.saveConfig { $0.ai.nliScoringPreferLocal = on } }
-                ))
-            }
             HStack {
                 Text("Model")
                 Spacer()
@@ -336,7 +353,7 @@ struct AIConnectionSettingsView: View {
         } header: {
             Eyebrow(text: "Local match model")
         } footer: {
-            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, with “Use it for all job scoring”. Every score is labeled with what produced it: “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, when you pick “Local match model” for Scoring & form-fill above. Every score is labeled with what produced it: “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
         }
     }
 

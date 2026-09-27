@@ -737,6 +737,8 @@ final class AppModel {
         // probing HTTP here would wrongly veto background scoring whenever the
         // phone is away from the LAN, which is precisely when on-device shines.
         if config.ai.usesOnDevice(for: .fast) && AppleOnDeviceEngine.isAvailable { return true }
+        // Same for the local match model when it's picked for scoring and installed.
+        if ScoreSource.planned(config: config) == .localModel { return true }
         let engine = aiEngine
         let aiConfig = config.ai
         return await withTaskGroup(of: Bool?.self) { group in

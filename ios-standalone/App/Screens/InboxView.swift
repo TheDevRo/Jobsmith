@@ -149,9 +149,9 @@ struct InboxView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 if unscoredCount > scoreCap {
-                    Text("One AI call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(unscoredCount)” scores every unscored job. You can Stop anytime.")
+                    Text("Scores with: \(ScoreSource.planned(config: model.config).label). One call per job. “Score \(boundedCount)” respects your cap of \(scoreCap); “Score all \(unscoredCount)” scores every unscored job. You can Stop anytime.")
                 } else {
-                    Text("One AI call per job. You can Stop anytime.")
+                    Text("Scores with: \(ScoreSource.planned(config: model.config).label). One call per job. You can Stop anytime.")
                 }
             }
         }
