@@ -72,7 +72,9 @@ struct AIConnectionSettingsView: View {
             let writer = ScoreSource.llm(ai, .fast).label
             return localModel.state == .ready
                 ? "→ Scores jobs on your device with the Local match model. Jobs it can't judge, AI form-fill and essays use your Resume model · \(writer)."
-                : "→ Scoring uses your Resume model · \(writer) until the Local match model finishes downloading."
+                : localModel.isDownloading
+                    ? "→ Scoring uses your Resume model · \(writer) until the Local match model finishes downloading."
+                    : "→ Scoring uses your Resume model · \(writer) — the Local match model isn't downloaded. Download it under Local match model below."
         }
         if ai.usesOnDevice(for: tier) {
             return "→ Runs on your device: private, offline, free. A small model, so quality is below a good server model."
