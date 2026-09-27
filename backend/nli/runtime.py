@@ -68,7 +68,7 @@ class OnnxNLI:
 
 
 def _providers() -> list[str]:
-    # ponytail: CPU only. CoreML was measured slower/unsupported for this int8 graph (see NLI_BETA_PROGRESS.md).
+    # ponytail: CPU only. CoreML was measured slower/unsupported for this int8 graph (the CoreML EP ran about a third of the graph and was 3.3x slower).
     return ["CPUExecutionProvider"]
 
 

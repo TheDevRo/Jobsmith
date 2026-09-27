@@ -1,6 +1,6 @@
 """Extractive pass 4 for Apply Assist (Local AI model beta).
 
-Ported from the ~/jobsmith-extractive prototype. Fields left after passes 1-3 are
+Ported from the extractive Apply Assist prototype. Fields left after passes 1-3 are
 answered from the profile only: a form option, a verbatim profile value, or a
 date computation, chosen by an NLI model behind a confidence gate. Essays still
 go to the LLM and come back flagged as AI drafts. Anything else is left blank.

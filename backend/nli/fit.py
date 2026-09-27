@@ -1,6 +1,6 @@
 """Job-fit score from the local NLI model, used when the scoring LLM is unavailable.
 
-Method (laya-bench `profile_eval.py flat`): keyword-bearing requirement lines from the
+Method (the NLI scoring bench's equal-weight mode): keyword-bearing requirement lines from the
 posting, each judged "is it met?" against the profile, equal weights; score = mean P(met).
 """
 from __future__ import annotations

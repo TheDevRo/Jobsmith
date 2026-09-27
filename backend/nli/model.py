@@ -22,7 +22,7 @@ from ..paths import project_root
 logger = logging.getLogger(__name__)
 
 # DeBERTa-v3-large-mnli-fever-anli-ling-wanli (MoritzLaurer), int8 weights: the public fp32 ONNX export
-# (Xenova/..., revision a70e12f8) quantized with ~/jobsmith-extractive/eval/quantize_onnx.py (8-bit MatMul
+# (Xenova/..., revision a70e12f8) quantized with scripts/build_nli_model.py (8-bit MatMul
 # blocks + int8 embedding; the public int8 exports fail the parity check). Pinned by SHA-256.
 REVISION = "deberta-v3-large-wanli-w8-565e4c99"
 # File name (the same under the download URL and on disk) -> (size, sha256)

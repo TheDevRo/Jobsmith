@@ -1,6 +1,4 @@
 # Six full UserProfile fixtures (synthetic people; example.com contact details).
-# Expanded from ~/laya-bench/profiles.py. The bench's "user" profile is the real
-# user's data, so it is replaced here by a synthetic systems engineer.
 # Deliberate variation:
 #   marketer   - needs visa sponsorship (H-1B), disability status left blank
 #   sales      - declines every EEO question
