@@ -21,25 +21,27 @@ from ..paths import project_root
 
 logger = logging.getLogger(__name__)
 
-# int8 ONNX export of MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli, pinned by revision + SHA-256.
-REPO = "Xenova/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
-REVISION = "a70e12f8244efae07cf6fdfa935df30e3ac4a060"
-# Published file path in the repo -> (local name, size, sha256)
+# DeBERTa-v3-large-mnli-fever-anli-ling-wanli (MoritzLaurer), int8 weights: the public fp32 ONNX export
+# (Xenova/..., revision a70e12f8) quantized with ~/jobsmith-extractive/eval/quantize_onnx.py (8-bit MatMul
+# blocks + int8 embedding; the public int8 exports fail the parity check). Pinned by SHA-256.
+REVISION = "deberta-v3-large-wanli-w8-565e4c99"
+# File name (the same under the download URL and on disk) -> (size, sha256)
 FILES = {
-    "onnx/model_int8.onnx": ("model.onnx", 537593227,
-                             "f130521ee1b0db8b9be865efc6d1ab41009a51711e176dae5eb1053556de6e3a"),
-    "tokenizer.json": ("tokenizer.json", 8648889, "TOKENIZER_SHA"),
+    "model.onnx": (682207964, "565e4c99314132407a7beb19a6995065eb9053b77fce03b20acbcbb688bc33f5"),
+    "tokenizer.json": (8648889, "7aa118770f066a74530d161c7d0b994d0629cc0ff3a0df213f184192773f960a"),
 }
-SIZE_BYTES = sum(size for _, size, _ in FILES.values())
-# Override for a mirror (or a local file server in tests): files are fetched from <base>/<path>.
-DEFAULT_BASE_URL = f"https://huggingface.co/{REPO}/resolve/{REVISION}"
+SIZE_BYTES = sum(size for size, _ in FILES.values())
+# Where the two files are hosted: <base>/model.onnx and <base>/tokenizer.json. Not public yet (hosting is the
+# owner's call), so it is unset by default; JOBSMITH_NLI_MODEL_URL overrides it (a mirror, or tests).
+DEFAULT_BASE_URL = ""
+NOT_HOSTED = "The Local AI model is not available for download yet (no download location is set)"
 
 _lock = threading.Lock()
 _job: dict = {"thread": None, "done": 0, "error": None}
 
 
 def base_url() -> str:
-    return os.environ.get("JOBSMITH_NLI_MODEL_URL", DEFAULT_BASE_URL).rstrip("/")
+    return (os.environ.get("JOBSMITH_NLI_MODEL_URL") or DEFAULT_BASE_URL).rstrip("/")
 
 
 def model_dir() -> Path:
@@ -48,7 +50,7 @@ def model_dir() -> Path:
 
 def installed() -> bool:
     d = model_dir()
-    return all((d / name).is_file() for name, _, _ in FILES.values())
+    return all((d / name).is_file() for name in FILES)
 
 
 def status() -> dict:
@@ -90,12 +92,14 @@ def delete() -> dict:
 def _download_all() -> None:
     d = model_dir()
     try:
+        if not base_url():
+            raise RuntimeError(NOT_HOSTED)
         d.mkdir(parents=True, exist_ok=True)
-        for path, (name, size, sha) in FILES.items():
+        for name, (size, sha) in FILES.items():
             if (d / name).is_file():
                 _add(size)
                 continue
-            _download(f"{base_url()}/{path}", d / name, size, sha)
+            _download(f"{base_url()}/{name}", d / name, size, sha)
         logger.info("NLI model installed at %s", d)
     except Exception as exc:  # noqa: BLE001 — reported through status(), retried by install()
         logger.warning("NLI model download failed: %s", exc)

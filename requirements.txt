@@ -22,3 +22,7 @@ lxml>=6.1.1
 python-dotenv>=1.2.2
 pypdf>=6.15.0
 python-multipart>=0.0.32
+# Local AI model (beta, off by default): NLI inference without PyTorch. Imported only when the
+# Settings switch is on (backend/nli/runtime.py).
+onnxruntime>=1.30.0
+tokenizers>=0.23.2

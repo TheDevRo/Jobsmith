@@ -107,7 +107,7 @@ ai:
   #   strong:  {model: <your real model>}    # documents stay on the server
   #   scoring_tier: fast
   # Local AI model (beta; Settings → AI). When enabled, an on-device NLI model
-  # (MODEL_SIZE) is downloaded once to <data folder>/models/nli/ and
+  # (about 690 MB) is downloaded once to <data folder>/models/nli/ and
   #   - Apply Assist fills leftover form fields from your profile without an
   #     LLM (form options, your saved values and date math only; essays still
   #     go to the LLM and are marked as AI drafts; anything unsure is left blank);

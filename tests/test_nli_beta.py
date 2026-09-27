@@ -413,11 +413,10 @@ class _Files(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def model_server(tmp_path, monkeypatch):
     model, tok = b"M" * 300_000, b'{"tok": 1}'
-    _Files.files = {"onnx/model_int8.onnx": model, "tokenizer.json": tok}
+    _Files.files = {"model.onnx": model, "tokenizer.json": tok}
     _Files.fail_after, _Files.ranges = None, []
-    monkeypatch.setattr(M, "FILES", {
-        "onnx/model_int8.onnx": ("model.onnx", len(model), hashlib.sha256(model).hexdigest()),
-        "tokenizer.json": ("tokenizer.json", len(tok), hashlib.sha256(tok).hexdigest())})
+    monkeypatch.setattr(M, "FILES", {"model.onnx": (len(model), hashlib.sha256(model).hexdigest()),
+                                     "tokenizer.json": (len(tok), hashlib.sha256(tok).hexdigest())})
     monkeypatch.setattr(M, "SIZE_BYTES", len(model) + len(tok))
     monkeypatch.setenv("JOBSMITH_HOME", str(tmp_path))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Files)
@@ -447,8 +446,7 @@ def test_download_install_delete_reinstall(model_server):
 
 
 def test_checksum_mismatch_is_rejected(model_server, monkeypatch):
-    name, size, _ = M.FILES["onnx/model_int8.onnx"]
-    monkeypatch.setitem(M.FILES, "onnx/model_int8.onnx", (name, size, "0" * 64))
+    monkeypatch.setitem(M.FILES, "model.onnx", (M.FILES["model.onnx"][0], "0" * 64))
     M.install()
     s = _wait()
     assert s["state"] == "error" and "checksum" in s["error"]
@@ -467,7 +465,15 @@ def test_network_failure_leaves_no_model_then_resumes(model_server):
     M.install()  # the Retry button
     assert _wait()["state"] == "ready"
     assert model_server.ranges and model_server.ranges[0] >= 100_000  # resumed, not restarted
-    assert (M.model_dir() / "model.onnx").read_bytes() == model_server.files["onnx/model_int8.onnx"]
+    assert (M.model_dir() / "model.onnx").read_bytes() == model_server.files["model.onnx"]
+
+
+def test_no_download_location_is_a_clear_retryable_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("JOBSMITH_HOME", str(tmp_path))
+    monkeypatch.delenv("JOBSMITH_NLI_MODEL_URL", raising=False)
+    M.install()
+    s = _wait()
+    assert s["state"] == "error" and s["error"] == M.NOT_HOSTED and not M.installed()
 
 
 def test_status_api(model_server, tmp_path, monkeypatch):

@@ -14,7 +14,7 @@ PRD: `~/jobsmith-extractive/NLI_BETA_PRD.md`. Branch `feat/nli-beta` (worktree `
 - Tests: `tests/test_nli_beta.py` (25) incl. off-mode subprocess import check, gold-set invariant, download flow.
 
 ## Next
-- Pick the ONNX file (parity), pin SHAs, measure eval/latency, build sidecar, Docker, iOS Kit tests, smoke.
+- Build sidecar (size delta, start off/on), Docker, iOS Kit tests, manual smoke in an isolated JOBSMITH_HOME.
 
 ## Decisions / departures
 - `FieldValue.source`: existing values only (extractive fills `profile`, essays `llm_generated` with
@@ -29,9 +29,26 @@ PRD: `~/jobsmith-extractive/NLI_BETA_PRD.md`. Branch `feat/nli-beta` (worktree `
 - Fit scoring with no requirement lines (or a local-model error) stays `ScoringUnavailable` (unscored, retried
   later) rather than inventing a neutral 50.
 
+- Model: no public export passes parity (public int8 exports: 72-73% same decisions; q4 96.75%; fp16 99.35%
+  but 872 MB; fp32 100% but 1.74 GB). Shipped a local build: ~/jobsmith-extractive/eval/quantize_onnx.py on the
+  public fp32 Xenova export (a70e12f8): 8-bit MatMul blocks (accuracy_level 4) + int8 embedding, 682 MB,
+  sha256 565e4c99..., deterministic. Total download 691 MB (PRD estimated ~450 MB). Table:
+  ~/jobsmith-extractive/results/onnx_parity.md.
+- CPU execution provider only: CoreML takes 1416/3791 nodes in 196 partitions and is 3.3x slower.
+
 ## Blockers
-- (none yet)
+- Hosting: the shipped model is a local build, so it needs a download location the owner approves
+  (`DEFAULT_BASE_URL` in backend/nli/model.py is empty; status then says so and Retry is offered).
+  Alternative with no hosting: point FILES at the public fp32 export (1.74 GB, 100% parity, slower).
 
 ## Measured numbers
+- Port check: in-app pipeline replaying the prototype's PyTorch probabilities = held-out 101 correct / 5 misfills,
+  overall 211 / 8, 0 hallucinations (identical to p2fix_extractive).
+- ONNX vs PyTorch (631 pairs, 462 fields): mean |dP| 0.0041, max 0.109, 100% same fill/skip and value.
+- Real-model eval (`eval.run_eval --run app`, shipped ONNX, NLI only): held-out 101 / 5, overall 211 / 8,
+  0 hallucinations; latency per form median 0.55 s, max 1.16 s. With qwen3.5-9b-mtp essays: same numbers,
+  25/42 essays filled + flagged, latency median 1.22 s, max 7.46 s.
+- Fit scoring latency (240 = 6 gold profiles x 40 bench postings): median 1.78 s, p90 3.15 s, max 3.82 s;
+  model load 1.3 s.
 - Baseline full pytest on the branch before changes: 1014 passed (one earlier run had 5 order-dependent
   `test_api_auth.py` failures that did not reproduce: pre-existing flake).
