@@ -307,6 +307,7 @@ class LLMClient:
             chunk_raws = await asyncio.gather(*(_call_chunk(c) for c in chunks))
 
             mapped_ids: set[str] = set()
+            llm_by_field = {f.field_id: f for f in llm_fields}
             skipped_malformed: list[str] = []
             for raw in chunk_raws:
                 raw_list = raw if isinstance(raw, list) else []
@@ -315,7 +316,7 @@ class LLMClient:
                         skipped_malformed.append(repr(item)[:80])
                         continue
                     try:
-                        fv = FieldValue(**item)
+                        fv = _snap_to_options(FieldValue(**item), llm_by_field.get(item.get("field_id")))
                         llm_results.append(fv)
                         mapped_ids.add(fv.field_id)
                     except Exception as _parse_exc:
@@ -392,6 +393,27 @@ class LLMClient:
 # "auto_apply_field_map" and "auto_apply_answer") so they can be edited
 # from Settings → Prompts.
 # ---------------------------------------------------------------------------
+
+
+def _snap_to_options(fv: "FieldValue", field: "FieldDescriptor | None") -> "FieldValue":
+    """Force an LLM answer for a choice field onto one of the field's options.
+
+    The model sometimes returns text the widget can't select ("Prefer not to
+    answer" on a Yes/No radio). Map it with best_option (comma-separated parts
+    for multi-select checkboxes); if it doesn't map, skip rather than fill.
+    """
+    from .field_matcher import best_option
+
+    if not field or not field.options or not fv.value or fv.action == "skip" or fv.value in field.options:
+        return fv
+    mapped = best_option(fv.value, field.options)
+    if mapped is None and "," in fv.value:
+        parts = [best_option(p.strip(), field.options) for p in fv.value.split(",") if p.strip()]
+        mapped = ", ".join(parts) if parts and all(parts) else None
+    if mapped is None:
+        logger.info("LLM value %r for %s is not an option; skipping", fv.value[:60], fv.field_id)
+        return fv.model_copy(update={"value": "", "action": "skip", "confidence": 0.0, "source": "skip"})
+    return fv.model_copy(update={"value": mapped})
 
 
 def _build_field_map_user(

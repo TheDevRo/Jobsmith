@@ -64,13 +64,18 @@ public enum ProfileFieldMatcher {
         ("canada", ["ca"]),
     ]
 
+    /// EEO forms word gender either way ("Male" vs "Man").
+    static let genderAliases: [String: [String]] = [
+        "male": ["man"], "female": ["woman"], "man": ["male"], "woman": ["female"],
+    ]
+
     /// Degree strings ("BS Computer Science") → the education-level buckets
     /// ATS dropdowns actually offer ("Bachelor's Degree").
     static let degreeLevels: [(re: NSRegularExpression, expansions: [String])] = [
         (regex(#"\b(ph\.?d|doctor)"#), ["phd", "doctorate", "doctoral degree"]),
         (regex(#"\bmba\b"#), ["mba", "master's degree", "masters"]),
-        (regex(#"\b(ms|m\.?s\.?c?|ma|m\.a|master)\b"#), ["master's degree", "masters", "master"]),
-        (regex(#"\b(bs|b\.?s\.?c?|ba|b\.a|bachelor)\b"#), ["bachelor's degree", "bachelors", "bachelor"]),
+        (regex(#"\b(ms|m\.?s\.?c?|ma|m\.a|mfa|meng|msn|mph|mpa|master)\b"#), ["master's degree", "masters", "master"]),
+        (regex(#"\b(bs|b\.?s\.?c?|ba|b\.a|bba|bsba|bfa|beng|bsn|bachelor)\b"#), ["bachelor's degree", "bachelors", "bachelor"]),
         (regex(#"\b(associate|a\.?a\.?s?)\b"#), ["associate's degree", "associate degree", "associate"]),
     ]
 
@@ -120,6 +125,7 @@ public enum ProfileFieldMatcher {
                 out.append(canonical)
             }
         }
+        out.append(contentsOf: genderAliases[v] ?? [])
         for (re, expansions) in degreeLevels where searches(re, v) {
             out.append(contentsOf: expansions)
             break
@@ -154,10 +160,37 @@ public enum ProfileFieldMatcher {
         return 0
     }
 
+    /// "3-5 years" → (3, 5), "10+" → (10, inf), "Less than 1 year" → (0, 0.99), "2" → (2, 2).
+    /// Mirrors Python's `_numeric_range`.
+    static func numericRange(_ opt: String) -> (lo: Double, hi: Double)? {
+        let t = Rx.replaceAll(#"\s+"#, in: opt.lowercased().replacingOccurrences(of: ",", with: ""), with: " ")
+            .trimmingCharacters(in: .whitespaces)  // not norm(): it drops "-"
+        let num = #"(\d+(?:\.\d+)?)"#
+        func d(_ g: [String?], _ i: Int) -> Double? { g[i].flatMap { Double($0) } }
+        if let g = Rx.first(num + #"\s*(?:-|to|–)\s*"# + num, in: t), let a = d(g, 1), let b = d(g, 2) { return (a, b) }
+        if let g = Rx.first(num + #"\s*(?:\+|or more|and (?:above|up|over)|plus)"#, in: t), let a = d(g, 1) {
+            return (a, .infinity)
+        }
+        if let g = Rx.first(#"(?:more than|over|greater than|at least)\s*"# + num, in: t), let a = d(g, 1) {
+            return t.contains("at least") ? (a, .infinity) : (a + 0.01, .infinity)
+        }
+        if let g = Rx.first(#"(?:less than|under|fewer than)\s*"# + num, in: t), let a = d(g, 1) { return (0, a - 0.01) }
+        if let g = Rx.first("^" + num + #"(?:\s*\w+)?$"#, in: t), let a = d(g, 1) { return (a, a) }
+        return nil
+    }
+
     /// Pick the option text that best matches `value`, or nil.
     public static func bestOption(value: String, options: [String],
                                   threshold: Int = 55) -> String? {
         guard !value.isEmpty, !options.isEmpty else { return nil }
+        // A bare number against numeric-range options is compared numerically
+        // (token overlap maps 9 onto "6-9" but 4 onto nothing).
+        if let g = Rx.first(#"^\s*(\d+(?:\.\d+)?)\s*$"#, in: value), let n = g[1].flatMap({ Double($0) }) {
+            let ranges = options.map { ($0, numericRange($0)) }
+            if ranges.contains(where: { $0.1 != nil }) {
+                return ranges.first(where: { $0.1.map { $0.lo <= n && n <= $0.hi } ?? false })?.0
+            }
+        }
         let candidates = expandCandidates(value)
         var best: String?
         var bestScore = 0
@@ -231,7 +264,15 @@ public enum ProfileFieldMatcher {
             }
             return nil
         }
-        var total = 0
+        // Count calendar months (end month inclusive) so overlapping roles
+        // count once, then floor the total — mirrors Python.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = df.timeZone
+        func monthIndex(_ d: Date) -> Int {
+            let c = cal.dateComponents([.year, .month], from: d)
+            return (c.year ?? 0) * 12 + (c.month ?? 1) - 1
+        }
+        var months = Set<Int>()
         for exp in p.experience {
             guard let start = parse(exp.startDate) else { continue }
             let end: Date
@@ -242,10 +283,10 @@ public enum ProfileFieldMatcher {
             } else {
                 continue
             }
-            let days = Int(floor(end.timeIntervalSince(start) / 86_400))
-            total += max(0, days / 365)
+            let a = monthIndex(start), b = monthIndex(end) + 1
+            if b > a { months.formUnion(a..<b) }
         }
-        return total
+        return months.count / 12
     }
 
     typealias Getter = @Sendable (Profile, FieldDescriptor, String) -> String
@@ -318,7 +359,8 @@ public enum ProfileFieldMatcher {
     /// `_hispanic`. Empty when unset, so the EEO decline fallback kicks in.
     static let hispanic: Getter = { p, _, _ in
         let r = norm(p.raceEthnicity)
-        if r.isEmpty { return "" }
+        if r.isEmpty || declineHints.contains(where: { r.contains($0) }) { return "" }
+        if Rx.first(#"\b(not|non)\b.{0,3}(hispanic|latin)"#, in: r) != nil { return "No" }
         return (r.contains("hispanic") || r.contains("latin")) ? "Yes" : "No"
     }
 
@@ -455,7 +497,10 @@ public enum ProfileFieldMatcher {
              yearsExperienceGetter,
              // Skill-specific ("years of experience with Python") must not be
              // answered with total career years — leave those to the LLM.
-             negative: #"\b(with|using)\b|experience in (?!years)\w"#),
+             // "years of customer success experience" names a skill, not a career total.
+             negative: #"\b(with|using)\b|experience in (?!years)\w"#
+                 + #"|years of (?!(?:professional|work|relevant|total|overall|paid|full time|industry) experience)"#
+                 + #"(?:\w+ ){1,4}experience"#),
         rule("current_company", #"\b(current (employer|company)|most recent (employer|company)|present employer|company name|employer name)\b"#,
              currentCompany),
         rule("current_title", #"\b((current|most recent|present) (job )?(title|role|position)|job title)\b"#,

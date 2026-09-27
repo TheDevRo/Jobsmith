@@ -126,7 +126,10 @@ class UserProfile(BaseModel):
                     pass
             return None
 
-        total = 0
+        # Count calendar months (end month inclusive) so overlapping roles are
+        # counted once, then floor the total — flooring each role separately
+        # and summing undercounts (e.g. 11 years reported as 9).
+        months: set[int] = set()
         for exp in self.experience:
             try:
                 start = _parse(exp.start_date)
@@ -138,10 +141,10 @@ class UserProfile(BaseModel):
                     end = _parse(exp.end_date)
                     if end is None:
                         continue
-                total += max(0, (end - start).days // 365)
+                months.update(range(start.year * 12 + start.month - 1, end.year * 12 + end.month))
             except Exception:
                 pass
-        return total
+        return len(months) // 12
 
     def to_text(self) -> str:
         """Flat text representation suitable for LLM prompts."""

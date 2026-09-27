@@ -256,3 +256,72 @@ class TestBestOption:
 
     def test_exact_beats_fuzzy(self):
         assert best_option("2 weeks", ["Immediately", "2 weeks", "1 month"]) == "2 weeks"
+
+
+# ---------------------------------------------------------------------------
+# Pass-2 regressions (found by the extractive Apply Assist eval, 2026-09-26)
+# ---------------------------------------------------------------------------
+
+class TestPass2Regressions:
+    def test_years_merge_overlaps_and_floor_once(self):
+        p = _profile(experience=[
+            {"title": "A", "company": "X", "start_date": "2015-01", "end_date": "2020-06"},
+            {"title": "B", "company": "Y", "start_date": "2020-01", "end_date": "2026-01"},  # overlaps A
+            {"title": "C", "company": "Z", "start_date": "2010-03", "end_date": "2012-02"},
+        ])
+        # 2010-03..2012-02 = 24 months, 2015-01..2026-01 = 133 months → 157 months = 13 years
+        assert p.years_of_experience() == 13
+
+    def test_skill_years_question_not_answered_with_total(self):
+        for label in ("How many years of customer success experience do you have?",
+                      "How many years of B2B sales experience do you have?"):
+            assert _match(_fd(label, "number")) is None, label
+
+    def test_generic_years_still_answered(self):
+        for label in ("How many years of professional experience do you have?",
+                      "Years of work experience", "How many years of experience do you have?"):
+            assert _match(_fd(label, "number")) is not None, label
+
+    def test_numeric_value_maps_to_range(self):
+        opts = ["0-2 years", "3-5 years", "6-9 years", "10+ years"]
+        assert best_option("4", opts) == "3-5 years"
+        assert best_option("9", opts) == "6-9 years"
+        assert best_option("11", opts) == "10+ years"
+        assert best_option("1", ["Less than 2 years", "2-4", "More than 4"]) == "Less than 2 years"
+        assert best_option("4", ["Less than 2 years", "2-4", "More than 4"]) == "2-4"
+        assert best_option("5", ["Less than 2 years", "2-4", "More than 4"]) == "More than 4"
+
+    def test_hispanic_declined_uses_decline_option(self):
+        fv = _match(_fd("Are you Hispanic or Latino?", "select",
+                        options=["Yes", "No", "Decline to self-identify"]),
+                    _profile(race_ethnicity="Decline to self-identify"))
+        assert fv.value == "Decline to self-identify"
+
+    def test_not_hispanic_is_no(self):
+        fv = _match(_fd("Are you Hispanic or Latino?", "select", options=["Yes", "No"]),
+                    _profile(race_ethnicity="Not Hispanic or Latino"))
+        assert fv.value == "No"
+
+    def test_gender_synonyms(self):
+        fv = _match(_fd("Gender", "select", options=["Man", "Woman", "Non-binary", "Prefer not to say"]))
+        assert fv.value == "Woman"
+        fv = _match(_fd("Gender", "select", options=["Man", "Woman", "Prefer not to say"]), _profile(gender="Male"))
+        assert fv.value == "Man"
+
+    def test_bba_is_bachelors(self):
+        fv = _match(_fd("Highest level of education", "select",
+                        options=["High School", "Associate's Degree", "Bachelor's Degree", "Master's Degree"]),
+                    _profile(education=[{"degree": "BBA Marketing", "school": "State U", "year": "2012"}]))
+        assert fv is not None and fv.value == "Bachelor's Degree"
+
+
+class TestSnapToOptions:
+    def test_llm_value_outside_options_is_mapped_or_skipped(self):
+        from backend.auto_apply.llm_client import _snap_to_options
+        from backend.auto_apply.models import FieldValue
+        f = _fd("Willing to relocate?", "radio", options=["Yes", "No"])
+        fv = lambda v: FieldValue(field_id="f", value=v, action="select", confidence=0.9, source="llm_generated")
+        assert _snap_to_options(fv("yes"), f).value == "Yes"
+        skipped = _snap_to_options(fv("Prefer not to answer"), f)
+        assert skipped.action == "skip" and skipped.value == ""
+        assert _snap_to_options(fv("Yes"), None).value == "Yes"  # unknown field: untouched

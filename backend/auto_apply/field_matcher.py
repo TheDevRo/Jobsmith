@@ -70,13 +70,16 @@ _COUNTRY_ALIASES = {
     "canada": ["ca"],
 }
 
+# EEO forms word gender either way ("Male" vs "Man").
+_GENDER_ALIASES = {"male": ["man"], "female": ["woman"], "man": ["male"], "woman": ["female"]}
+
 # Degree strings ("BS Computer Science") → the education-level buckets ATS
 # dropdowns actually offer ("Bachelor's Degree").
 _DEGREE_LEVELS: list[tuple[str, list[str]]] = [
     (r"\b(ph\.?d|doctor)", ["phd", "doctorate", "doctoral degree"]),
     (r"\bmba\b", ["mba", "master's degree", "masters"]),
-    (r"\b(ms|m\.?s\.?c?|ma|m\.a|master)\b", ["master's degree", "masters", "master"]),
-    (r"\b(bs|b\.?s\.?c?|ba|b\.a|bachelor)\b", ["bachelor's degree", "bachelors", "bachelor"]),
+    (r"\b(ms|m\.?s\.?c?|ma|m\.a|mfa|meng|msn|mph|mpa|master)\b", ["master's degree", "masters", "master"]),
+    (r"\b(bs|b\.?s\.?c?|ba|b\.a|bba|bsba|bfa|beng|bsn|bachelor)\b", ["bachelor's degree", "bachelors", "bachelor"]),
     (r"\b(associate|a\.?a\.?s?)\b", ["associate's degree", "associate degree", "associate"]),
 ]
 
@@ -109,6 +112,7 @@ def _expand_candidates(value: str) -> list[str]:
             out.extend(aliases)
         elif v in aliases:
             out.append(canonical)
+    out.extend(_GENDER_ALIASES.get(v, []))
     for pattern, expansions in _DEGREE_LEVELS:
         if re.search(pattern, v):
             out.extend(expansions)
@@ -146,10 +150,35 @@ def _option_score(want: str, opt: str) -> int:
     return 0
 
 
+def _numeric_range(opt: str) -> Optional[tuple[float, float]]:
+    """"3-5 years" → (3, 5), "10+" → (10, inf), "Less than 1 year" → (0, 0.99), "2" → (2, 2)."""
+    t = re.sub(r"\s+", " ", (opt or "").lower().replace(",", "")).strip()  # not _norm: it drops "-"
+    if m := re.search(r"(\d+(?:\.\d+)?)\s*(?:-|to|–)\s*(\d+(?:\.\d+)?)", t):
+        return float(m[1]), float(m[2])
+    if m := re.search(r"(\d+(?:\.\d+)?)\s*(?:\+|or more|and (?:above|up|over)|plus)", t):
+        return float(m[1]), float("inf")
+    if m := re.search(r"(?:more than|over|greater than|at least)\s*(\d+(?:\.\d+)?)", t):
+        n = float(m[1])
+        return (n, float("inf")) if "at least" in t else (n + 0.01, float("inf"))
+    if m := re.search(r"(?:less than|under|fewer than)\s*(\d+(?:\.\d+)?)", t):
+        return 0.0, float(m[1]) - 0.01
+    if m := re.fullmatch(r"(\d+(?:\.\d+)?)(?:\s*\w+)?", t):
+        return float(m[1]), float(m[1])
+    return None
+
+
 def best_option(value: str, options: list[str], threshold: int = 55) -> Optional[str]:
     """Pick the option text that best matches *value*, or None."""
     if not value or not options:
         return None
+    # A bare number against numeric-range options ("0-2 years", "5+") is
+    # compared numerically: token overlap would map 9 onto "6-9" but also
+    # 3 onto "3-5" only by accident, and 4 onto nothing.
+    num = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*", value)
+    ranges = [(o, _numeric_range(o)) for o in options]
+    if num and any(r for _, r in ranges):
+        n = float(num[1])
+        return next((o for o, r in ranges if r and r[0] <= n <= r[1]), None)
     best, best_score = None, 0
     for opt in options:
         if _PLACEHOLDER_RE.match(_norm(opt) or ""):
@@ -303,8 +332,10 @@ def _skills(p: UserProfile, f: FieldDescriptor, hay: str) -> str:
 
 def _hispanic(p: UserProfile, f: FieldDescriptor, hay: str) -> str:
     r = _norm(p.race_ethnicity)
-    if not r:
+    if not r or any(h in r for h in _DECLINE_HINTS):
         return ""  # EEO decline fallback kicks in
+    if re.search(r"\b(not|non)\b.{0,3}(hispanic|latin)", r):
+        return "No"
     return "Yes" if ("hispanic" in r or "latin" in r) else "No"
 
 
@@ -435,7 +466,11 @@ _RULES: list[_Rule] = [
           _years_experience,
           # Skill-specific ("years of experience with Python") must not be
           # answered with total career years — leave those to the LLM.
-          negative=r"\b(with|using)\b|experience in (?!years)\w"),
+          negative=r"\b(with|using)\b|experience in (?!years)\w"
+                   # "years of customer success experience" / "how many years of
+                   # B2B sales experience" name a skill, not a career total.
+                   r"|years of (?!(?:professional|work|relevant|total|overall|paid|full time|industry) experience)"
+                   r"(?:\w+ ){1,4}experience"),
     _Rule("current_company", r"\b(current (employer|company)|most recent (employer|company)|present employer|company name|employer name)\b",
           _current_company),
     _Rule("current_title", r"\b((current|most recent|present) (job )?(title|role|position)|job title)\b",

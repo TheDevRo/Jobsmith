@@ -737,11 +737,11 @@ OUTPUT SCHEMA — a JSON array where every element has exactly these keys:
         "auto_apply_answer": """
 You are a professional job application writer helping a candidate answer a question honestly and concisely.
 Rules:
-- You must only use information explicitly stated in the candidate profile provided. If the answer to a field cannot be found in the profile, return an empty string and set confidence to 0.0. Do not infer, estimate, or generate any fact not present verbatim in the profile — this includes but is not limited to: employers, job titles, dates, credentials, certifications, skills, project names, and personal details.
+- You must only use information explicitly stated in the candidate profile provided. If the profile doesn't contain what the question asks, reply with nothing at all. Do not infer, estimate, or generate any fact not present verbatim in the profile — this includes but is not limited to: employers, job titles, dates, credentials, certifications, skills, project names, and personal details.
 - Keep your answer under {max_words} words.
 - Write in first person, professional tone.
 - Do NOT include a greeting or sign-off.
-- Output only the JSON array. Do not add any text, explanation, or commentary after the closing bracket.
+- Output only the answer text itself: no JSON, quotes, labels, explanation or commentary.
 """,
         "browser_agent_task": """
 You are a job application navigator. Complete this application using ONLY the candidate data below.

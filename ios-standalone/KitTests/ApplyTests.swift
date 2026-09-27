@@ -516,3 +516,54 @@ final class FieldMapperTests: XCTestCase {
         XCTAssertEqual(minimal.source, "profile")
     }
 }
+
+/// Pass-2 regressions found by the extractive Apply Assist eval (2026-09-26);
+/// mirrors tests/auto_apply/test_field_matcher.py::TestPass2Regressions.
+final class ProfileFieldMatcherPass2Tests: XCTestCase {
+    private func m(_ p: Profile, _ f: FieldDescriptor) -> FieldValue? {
+        ProfileFieldMatcher.matchProfileFields(profile: p, fields: [f])[f.fieldId]
+    }
+
+    func testYearsMergeOverlapsAndFloorOnce() {
+        let p = Profile(experience: [
+            WorkExperience(title: "A", company: "X", startDate: "2015-01", endDate: "2020-06"),
+            WorkExperience(title: "B", company: "Y", startDate: "2020-01", endDate: "2026-01"),
+            WorkExperience(title: "C", company: "Z", startDate: "2010-03", endDate: "2012-02"),
+        ])
+        XCTAssertEqual(ProfileFieldMatcher.yearsOfExperience(p), 13)
+    }
+
+    func testSkillYearsQuestionLeftAlone() {
+        let p = ApplyFixtures.profile()
+        XCTAssertNil(m(p, FieldDescriptor(fieldId: "y", label: "How many years of customer success experience do you have?",
+                                          fieldType: "number")))
+        XCTAssertNotNil(m(p, FieldDescriptor(fieldId: "y", label: "How many years of professional experience do you have?",
+                                             fieldType: "number")))
+    }
+
+    func testNumericValueMapsToRange() {
+        let opts = ["0-2 years", "3-5 years", "6-9 years", "10+ years"]
+        XCTAssertEqual(ProfileFieldMatcher.bestOption(value: "4", options: opts), "3-5 years")
+        XCTAssertEqual(ProfileFieldMatcher.bestOption(value: "9", options: opts), "6-9 years")
+        XCTAssertEqual(ProfileFieldMatcher.bestOption(value: "11", options: opts), "10+ years")
+        XCTAssertEqual(ProfileFieldMatcher.bestOption(value: "5", options: ["Less than 2 years", "2-4", "More than 4"]),
+                       "More than 4")
+    }
+
+    func testHispanicDeclineAndNegation() {
+        let f = FieldDescriptor(fieldId: "h", label: "Are you Hispanic or Latino?", fieldType: "select",
+                                options: ["Yes", "No", "Decline to self-identify"])
+        XCTAssertEqual(m(Profile(raceEthnicity: "Decline to self-identify"), f)?.value, "Decline to self-identify")
+        XCTAssertEqual(m(Profile(raceEthnicity: "Not Hispanic or Latino"), f)?.value, "No")
+    }
+
+    func testGenderSynonymsAndBBA() {
+        let g = FieldDescriptor(fieldId: "g", label: "Gender", fieldType: "select",
+                                options: ["Man", "Woman", "Prefer not to say"])
+        XCTAssertEqual(m(Profile(gender: "Male"), g)?.value, "Man")
+        let e = FieldDescriptor(fieldId: "e", label: "Highest level of education", fieldType: "select",
+                                options: ["High School", "Bachelor's Degree", "Master's Degree"])
+        XCTAssertEqual(m(Profile(education: [Education(degree: "BBA Marketing", school: "State U", year: "2012")]), e)?.value,
+                       "Bachelor's Degree")
+    }
+}
