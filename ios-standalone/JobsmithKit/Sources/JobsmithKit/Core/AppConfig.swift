@@ -203,6 +203,11 @@ public struct AIConfig: Codable, Equatable, Sendable {
     public var scoreAllCap: Int
     /// The user's saved connections, switchable from the AI settings screen.
     public var savedEndpoints: [SavedEndpoint]
+    /// "Local AI model (beta)": Apply Assist answers leftover fields from the
+    /// profile with an on-device NLI model, and scoring falls back to it when the
+    /// scoring LLM is unavailable. Device-local (the model lives on this device),
+    /// so it is not in the settings-sync registry. See `LocalNLI`.
+    public var nliBetaEnabled: Bool
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
@@ -210,7 +215,8 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 temperature: Double = 0.7, maxTokens: Int = 16384,
                 preferOnDeviceForLightTasks: Bool = false,
                 scoreAllCap: Int = 25,
-                savedEndpoints: [SavedEndpoint] = []) {
+                savedEndpoints: [SavedEndpoint] = [],
+                nliBetaEnabled: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
@@ -218,6 +224,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         self.preferOnDeviceForLightTasks = preferOnDeviceForLightTasks
         self.scoreAllCap = scoreAllCap
         self.savedEndpoints = savedEndpoints
+        self.nliBetaEnabled = nliBetaEnabled
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -237,6 +244,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         preferOnDeviceForLightTasks = try c.decodeIfPresent(Bool.self, forKey: .preferOnDeviceForLightTasks) ?? false
         scoreAllCap = try c.decodeIfPresent(Int.self, forKey: .scoreAllCap) ?? d.scoreAllCap
         savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
+        nliBetaEnabled = c.lenient(Bool.self, .nliBetaEnabled, false)
         migrateLegacyOnDeviceRouting()
     }
 
@@ -315,7 +323,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
-        case savedEndpoints
+        case savedEndpoints, nliBetaEnabled
     }
 }
 

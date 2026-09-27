@@ -14,15 +14,22 @@ import Foundation
 ///   2.   LLM chunks of 25 through the "auto_apply_field_map" template;
 ///        malformed items skipped, omitted fields gap-filled as skip.
 ///   3.   Merge preserving the original field order.
+///
+/// With the Local AI model (beta) on and installed, phase 2 is answered
+/// extractively instead (`Extractive.fill`); any failure there falls back to
+/// the LLM chunks.
 public struct FieldMapper: Sendable {
     let engine: any AIEngine
     let bank: AnswerBankMatcher
     let chunkSize: Int
+    let nli: LocalNLI.Provider
 
-    public init(engine: any AIEngine, bank: AnswerBankMatcher, chunkSize: Int = 25) {
+    public init(engine: any AIEngine, bank: AnswerBankMatcher, chunkSize: Int = 25,
+                nli: @escaping LocalNLI.Provider = LocalNLI.live) {
         self.engine = engine
         self.bank = bank
         self.chunkSize = chunkSize
+        self.nli = nli
     }
 
     /// Upload fields that clearly want something other than a resume/cover
@@ -137,9 +144,12 @@ public struct FieldMapper: Sendable {
         }
 
         // --- Phase 2: LLM call(s) for remaining fields (chunked, skipped if none) ---
-        var llmResults: [FieldValue] = []
+        // Local AI model (beta) on and ready: answer them extractively instead.
+        let nliResults = llmFields.isEmpty || !LocalNLI.enabled(config) ? nil
+            : await extractivePass(fields: llmFields, profile: profile, job: job, config: config)
+        var llmResults: [FieldValue] = nliResults ?? []
         var llmError: String?
-        if !llmFields.isEmpty {
+        if !llmFields.isEmpty && nliResults == nil {
             let system = PromptRegistry.template("auto_apply_field_map", config: config)
             let answerBank = bank.allSnippets()
 
@@ -224,6 +234,44 @@ public struct FieldMapper: Sendable {
             }
         }
         return Outcome(values: out, llmError: llmError)
+    }
+
+    // ------------------------------------------------------------------
+    // Local AI model (beta)
+    // ------------------------------------------------------------------
+
+    /// Pass 4 via the local NLI model; nil (use the LLM) when it isn't ready or fails.
+    func extractivePass(fields: [FieldDescriptor], profile: Profile, job: ApplyJobContext,
+                        config: AppConfig) async -> [FieldValue]? {
+        guard let scorer = await nli(config) else {
+            NSLog("FieldMapper: Local AI model not ready; using the LLM")
+            return nil
+        }
+        let engine = self.engine
+        do {
+            return try await Extractive.fill(profile: profile, fields: fields, bank: bank.allSnippets(),
+                                             nli: scorer, today: .init(Date())) { field in
+                await Self.essayAnswer(field: field, profile: profile, job: job, config: config, engine: engine)
+            }
+        } catch {
+            NSLog("FieldMapper: local model failed (\(error)); falling back to the LLM")
+            return nil
+        }
+    }
+
+    /// One free-text answer from the configured LLM (port of LLMClient.generate_answer);
+    /// nil when it can't be reached. The profile text carries no EEO answers.
+    static func essayAnswer(field: FieldDescriptor, profile: Profile, job: ApplyJobContext,
+                            config: AppConfig, engine: any AIEngine) async -> String? {
+        let system = PromptRegistry.render("auto_apply_answer", ["max_words": "80"], config: config)
+        let question = field.label.isEmpty ? field.name : field.label
+        let user = "CANDIDATE PROFILE:\n\(profileText(profile))\n\n"
+            + "JOB: \(job.title) at \(job.company)\n\n"
+            + "QUESTION: \(question)\n\nANSWER:"
+        return try? await engine.complete(
+            CompletionRequest(system: system, user: user, tier: .fast,
+                              temperature: config.ai.temperature, maxTokens: 512),
+            config: config.ai)
     }
 
     // ------------------------------------------------------------------

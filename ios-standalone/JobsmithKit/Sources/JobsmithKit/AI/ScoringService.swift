@@ -53,7 +53,33 @@ public enum ScoringError: Error, LocalizedError {
 /// Python original it never invents a `0` — an unreachable engine or an
 /// unsalvageable response throws `ScoringError`.
 public enum ScoringService {
+    /// With the Local AI model (beta) on and installed, an unreachable scoring
+    /// LLM falls back to the local NLI model; otherwise the error stands.
     public static func score(job: Job, profile: Profile, config: AppConfig,
+                             engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
+        do {
+            return try await scoreWithLLM(job: job, profile: profile, config: config, engine: engine)
+        } catch ScoringError.engineUnavailable(let detail) {
+            guard LocalNLI.enabled(config), let scorer = await nli(config) else {
+                throw ScoringError.engineUnavailable(detail)
+            }
+            do {
+                let result = try await Task.detached(priority: .utility) {
+                    try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
+                }.value
+                // Nothing to judge stays unscored (retried later), never a made-up score.
+                guard let result else { throw ScoringError.engineUnavailable(detail) }
+                return result
+            } catch let error as ScoringError {
+                throw error
+            } catch {
+                NSLog("Local-model scoring failed for \(job.title): \(error)")
+                throw ScoringError.engineUnavailable(detail)
+            }
+        }
+    }
+
+    static func scoreWithLLM(job: Job, profile: Profile, config: AppConfig,
                              engine: AIEngine) async throws -> FitResult {
         let prompt = PromptRegistry.render("score_job_fit", [
             "job_title": job.title,
