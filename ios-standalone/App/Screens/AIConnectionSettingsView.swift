@@ -29,6 +29,7 @@ struct AIConnectionSettingsView: View {
     /// defaults over the real endpoint, key and models. Only an instance that
     /// actually appeared (and so loaded from config) may save.
     @State private var hasAppeared = false
+    @ObservedObject private var localModel = NLIModelStore.shared
 
     private var availableModels: [String] { status?.models ?? [] }
     private var onDeviceAvailable: Bool { AppleOnDeviceEngine.isAvailable }
@@ -88,6 +89,7 @@ struct AIConnectionSettingsView: View {
             tierSection(tier: .utility, selection: $utilityModel, fallbackLabel: "Same as Scoring model",
                         title: "Quick helpers",
                         blurb: "Salary-title lookup and picking which résumé sections to include. The lightest calls.")
+            localModelSection
             batchScoringSection
         }
         .navigationTitle("AI connection")
@@ -293,6 +295,51 @@ struct AIConnectionSettingsView: View {
                 Text(blurb)
                 Text(whereRuns(tier)).fontWeight(.medium)
             }
+        }
+    }
+
+    /// "Local AI model (beta)": saved immediately like the batch cap (no
+    /// onDisappear flush), and turning it on starts the one-time download.
+    private var localModelSection: some View {
+        Section {
+            Toggle("Local AI model (beta)", isOn: Binding(
+                get: { model.config.ai.nliBetaEnabled },
+                set: { on in
+                    model.saveConfig { $0.ai.nliBetaEnabled = on }
+                    if on { localModel.install() } else { localModel.cancel() }
+                }
+            ))
+            HStack {
+                Text("Model")
+                Spacer()
+                Text(localModelStatus).foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            if case .failed(let message) = localModel.state {
+                Text(message).font(.footnote).foregroundStyle(.red)
+            }
+            if model.config.ai.nliBetaEnabled, !localModel.isDownloading, localModel.state != .ready {
+                Button(localModel.state == .notInstalled ? "Download model" : "Retry download") { localModel.install() }
+            }
+            if localModel.isDownloading {
+                Button("Stop download") { localModel.cancel() }
+            }
+            if localModel.state == .ready {
+                Button("Delete model", role: .destructive) { Task { await localModel.delete() } }
+            }
+        } header: {
+            Eyebrow(text: "Local AI model")
+        } footer: {
+            Text("An on-device model that fills application forms only from your profile (options, profile values, years of experience), and scores jobs when your AI endpoint can't be reached. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+        }
+    }
+
+    private var localModelStatus: String {
+        switch localModel.state {
+        case .notInstalled: return model.config.ai.nliBetaEnabled ? "Not downloaded" : "Off"
+        case .downloading(let p): return "Downloading \(Int(p * 100))%"
+        case .ready: return model.config.ai.nliBetaEnabled ? "Ready" : "Downloaded (off)"
+        case .failed: return "Download failed"
         }
     }
 
