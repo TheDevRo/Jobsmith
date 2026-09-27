@@ -16,11 +16,11 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
         let t0 = Date()
         tokenizer = try DebertaTokenizer(contentsOf: directory.appendingPathComponent(NLIModel.tokenizerFile))
         let config = MLModelConfiguration()
-        // GPU (CPU fallback). One input length, so the GPU never re-specializes the graph (the
-        // old enumerated-length model cost ~6-18 s per length change there, so it ran on the CPU);
-        // the Neural Engine path was ~10x slower for this large model. fp32 compute: on an M3 Pro
-        // GPU it ran 64 ms/pair vs 232 ms for fp16, same accuracy.
-        config.computeUnits = .cpuAndGPU
+        // CPU only. On an iPhone 15 Pro (A17) the GPU path aborts inside Metal's graph compiler
+        // on the first prediction (TestFlight build 44) — an abort the app can't catch — though it
+        // runs on an M-series Mac GPU. fp16 on the CPU: 174 ms/pair on an M3 Pro, loads in 0.1 s;
+        // the Neural Engine was slower (509 ms) and can't run fp32 at all.
+        config.computeUnits = .cpuOnly
         model = try MLModel(contentsOf: directory.appendingPathComponent(NLIModel.modelDirName), configuration: config)
         NSLog("Local AI model loaded in %.1fs", Date().timeIntervalSince(t0))
     }
