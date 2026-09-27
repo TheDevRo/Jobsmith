@@ -1,7 +1,7 @@
 import CoreML
 import Foundation
 
-/// The Core ML NLI scorer (DeBERTa-v3-large, int8 weights). Input `input_ids`
+/// The Core ML NLI scorer (DeBERTa-v3-large, int8 weights, fp32 compute). Input `input_ids`
 /// is one of the enumerated lengths below, [PAD]-filled; the attention mask is
 /// derived inside the model (ids != 0). Output `logits`: entailment, neutral,
 /// contradiction.
@@ -15,8 +15,10 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
         let t0 = Date()
         tokenizer = try DebertaTokenizer(contentsOf: directory.appendingPathComponent(NLIModel.tokenizerFile))
         let config = MLModelConfiguration()
-        // The Neural Engine path measured ~10x slower for this large model.
-        config.computeUnits = .cpuAndGPU
+        // CPU only. Measured on an M-series Mac: the GPU re-specializes the graph on every
+        // input-length change (~6-18 s each, several GB), and the Neural Engine path was
+        // ~10x slower for this large model. CPU: no switch cost, ~90 ms/pair at 64 tokens.
+        config.computeUnits = .cpuOnly
         model = try MLModel(contentsOf: directory.appendingPathComponent(NLIModel.modelDirName), configuration: config)
         NSLog("Local AI model loaded in %.1fs", Date().timeIntervalSince(t0))
     }

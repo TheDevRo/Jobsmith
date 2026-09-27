@@ -9,6 +9,7 @@ import ZIPFoundation
 /// Env-gated extras (pass as TEST_RUNNER_<name> to xcodebuild):
 ///   NLI_TOKENIZER=<path to tokenizer.json>  token ids vs Python on every gold pair
 ///   NLI_REAL_DOWNLOAD=1                     downloads the hosted model, then smoke + latency
+///   NLI_BASE_URL=<url>                      (with the above) download from here instead of the release
 
 // MARK: - Fakes and gold fixtures
 
@@ -465,7 +466,7 @@ final class LocalNLIModelFileTests: XCTestCase {
     @MainActor
     func testRealDownloadLoadAndLatency() async throws {
         guard env("NLI_REAL_DOWNLOAD") != nil else { throw XCTSkip("set TEST_RUNNER_NLI_REAL_DOWNLOAD=1") }
-        let store = NLIModelStore.shared
+        let store = env("NLI_BASE_URL").flatMap(URL.init(string:)).map { NLIModelStore(baseURL: $0) } ?? .shared
         let t0 = Date()
         store.install()
         while store.isDownloading { try await Task.sleep(for: .milliseconds(500)) }

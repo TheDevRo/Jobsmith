@@ -16,9 +16,10 @@ public enum NLIModel {
     /// DeBERTa-v3-large-mnli-fever-anli-ling-wanli (MoritzLaurer), Core ML, int8
     /// weights, compiled (.mlmodelc) and zipped. Built by the conversion script
     /// in the model notes; the tokenizer is the same file the desktop uses.
-    static let revision = "deberta-v3-large-wanli-coreml-w8-PENDING"
+    static let revision = "deberta-v3-large-wanli-coreml-w8-fp32"
     public static let files = [
-        File(name: "nli-deberta-v3-large-w8.mlmodelc.zip", size: 0, sha256: "PENDING"),
+        File(name: "nli-deberta-v3-large-w8.mlmodelc.zip", size: 391_586_483,
+             sha256: "632725ce1b8a0150a6e5a4d6527ebda7f053795b6040cb7ffef6c4bfb1fb08c7"),
         File(name: "tokenizer.json", size: 8_648_889,
              sha256: "7aa118770f066a74530d161c7d0b994d0629cc0ff3a0df213f184192773f960a"),
     ]
