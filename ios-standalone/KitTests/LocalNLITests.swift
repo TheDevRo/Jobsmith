@@ -453,30 +453,34 @@ final class LocalNLIScoringTests: XCTestCase {
         XCTAssertGreaterThan(engine.calls, 0)
     }
 
-    /// One premise per job (20 model runs, not ~200), trimmed to the token budget: roles stay,
-    /// then as many skills and summary words as fit. Mirrors the desktop test.
-    func testLongProfilesGetOneCompactPremise() throws {
+    /// One model run per requirement line; each premise keeps the roles and puts the skills and
+    /// summary sentences that match its line first, within the fixed pair length. Mirrors the desktop test.
+    func testLongProfilesGetAPremisePerLineThatFits() throws {
         final class Words: NLIScorer, @unchecked Sendable {
-            var seen: [String] = []
+            var seen: [NLIPair] = []
             func countTokens(_ pair: NLIPair) -> Int? {
                 (pair.premise + " " + pair.hypothesis).split(whereSeparator: \.isWhitespace).count
             }
             func probs(_ pairs: [NLIPair]) throws -> [[Double]] {
-                seen += pairs.map(\.premise)
+                seen += pairs
                 return pairs.map { _ in [0.9, 0.1, 0] }
             }
         }
         var long = JobFixtures.profile
-        long.summary = String(repeating: "word ", count: 400)
-        long.skills = (0..<300).map { "skill\($0)" }
+        long.summary = (0..<200).map { "Filler sentence \($0)." }.joined(separator: " ") + " I love Airflow pipelines."
+        long.skills = (0..<300).map { "skill\($0)" } + ["Airflow"]
         let words = Words()
         _ = try XCTUnwrap(LocalNLI.fitScore(job: JobFixtures.dataEngineer, profile: long, nli: words))
-        XCTAssertEqual(Set(words.seen).count, 1)
-        XCTAssertEqual(words.seen.count, LocalNLI.requirementLines(JobFixtures.dataEngineer.description).count)
-        let prem = try XCTUnwrap(words.seen.first)
-        XCTAssertLessThanOrEqual(prem.split(whereSeparator: \.isWhitespace).count, LocalNLI.premiseTokens)
-        XCTAssertTrue(prem.contains("Data Engineer at Acme"))
-        let short = LocalNLI.premise(JobFixtures.profile) { words.countTokens(NLIPair($0, "")) }
+        let lines = LocalNLI.requirementLines(JobFixtures.dataEngineer.description)
+        XCTAssertEqual(words.seen.map(\.hypothesis), lines.map(LocalNLI.hypothesis))
+        for pair in words.seen {
+            XCTAssertLessThanOrEqual(try XCTUnwrap(words.countTokens(pair)), LocalNLI.maxPairTokens)
+            XCTAssertTrue(pair.premise.contains("Data Engineer at Acme"))
+        }
+        let airflow = words.seen[try XCTUnwrap(lines.firstIndex(of: "Experience with Airflow is a plus"))].premise
+        XCTAssertTrue(airflow.contains("skills: Airflow, skill0") && airflow.contains("I love Airflow pipelines."))
+        XCTAssertFalse(words.seen[0].premise.contains("skills: Airflow"))  // other lines keep profile order
+        let short = LocalNLI.linePremises(JobFixtures.profile, lines: lines) { words.countTokens($0) }[0]
         XCTAssertTrue(short.contains("Data engineer.") && short.contains("Python, SQL"))
     }
 
@@ -484,6 +488,28 @@ final class LocalNLIScoringTests: XCTestCase {
         XCTAssertEqual(LocalNLI.requirementLines(JobFixtures.dataEngineer.description), [
             "5+ years of experience with Python and SQL", "Bachelor's degree in Computer Science or similar",
             "Experience with Airflow is a plus"])
+    }
+
+    /// Same requirement lines and premises as the desktop over the gold profiles
+    /// (Fixtures/nli_line_premises.json, written by tests/test_nli_beta.py).
+    func testLinePremisesMatchPython() throws {
+        let file = try PremiseFixture.load()
+        XCTAssertEqual(file.max_pair_tokens, LocalNLI.maxPairTokens)
+        XCTAssertEqual(file.cases.count, Gold.profileKeys.count * file.jobs.count)
+        for c in file.cases {
+            let lines = LocalNLI.requirementLines(file.jobs[c.job])
+            XCTAssertEqual(lines, c.lines, "\(c.profile) job \(c.job)")
+            let prems = LocalNLI.linePremises(try XCTUnwrap(Gold.file.profiles[c.profile]), lines: lines) { _ in nil }
+            XCTAssertEqual(prems, c.premises, "\(c.profile) job \(c.job)")
+        }
+    }
+}
+
+enum PremiseFixture {
+    struct Case: Decodable { let profile: String; let job: Int; let lines: [String]; let premises: [String] }
+    struct File: Decodable { let jobs: [String]; let max_pair_tokens: Int; let cases: [Case] }
+    static func load() throws -> File {
+        try JSONDecoder().decode(File.self, from: Fixtures.data("nli_line_premises", "json"))
     }
 }
 
@@ -556,6 +582,20 @@ final class LocalNLIModelFileTests: XCTestCase {
         _ = try LocalNLI.fitScore(job: JobFixtures.dataEngineer, profile: Gold.file.profiles["sysadmin"]!, nli: scorer)
         print(String(format: "Simulator latency (CPU): per form median %.2fs max %.2fs; job score %.2fs",
                      formTimes.sorted()[formTimes.count / 2], formTimes.max()!, Date().timeIntervalSince(t2)))
+
+        // Per job and per pair on the premise-fixture jobs (full-length 256-token premises).
+        let jobs = try PremiseFixture.load().jobs
+        var pairs = 0
+        let t3 = Date()
+        for (i, d) in jobs.enumerated() {
+            pairs += LocalNLI.requirementLines(d).count
+            _ = try LocalNLI.fitScore(job: Job(from: NormalizedJob(source: "demo", externalId: "fx-\(i)", title: "Fixture",
+                                                                   company: "Fixture", location: "Remote", description: d)),
+                                      profile: Gold.file.profiles["sysadmin"]!, nli: scorer)
+        }
+        let el = Date().timeIntervalSince(t3)
+        print(String(format: "Simulator fit latency: %.2fs/job, %.0f ms/pair (%d jobs, %d pairs)",
+                     el / Double(jobs.count), 1000 * el / Double(pairs), jobs.count, pairs))
     }
 }
 

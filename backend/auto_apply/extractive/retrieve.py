@@ -67,9 +67,13 @@ def question_text(f: FieldDescriptor) -> str:
 def top_facts(field: FieldDescriptor, facts: list[Fact], k: int = 5, sensitive: bool = False) -> list[tuple[Fact, float]]:
     """Top-k (fact, score) with score > 0. Sensitive questions only see explicit profile answers."""
     pool = [f for f in facts if not sensitive or f.category in EXPLICIT]
+    return rank(question_text(field), pool, k)
+
+
+def rank(q: str, pool: list[Fact], k: int = 5) -> list[tuple[Fact, float]]:
+    """Top-k (fact, score) with score > 0 for the query text q."""
     if not pool:
         return []
-    q = question_text(field)
     q_tok = Counter(tokens(q))
     df = Counter(t for f in pool for t in set(tokens(f.text)))
     n = len(pool)

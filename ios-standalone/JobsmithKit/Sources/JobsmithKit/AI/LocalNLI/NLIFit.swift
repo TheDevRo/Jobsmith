@@ -22,47 +22,72 @@ extension LocalNLI {
         return Array(lines.filter { Extractive.search(keywordRe, $0) }.prefix(maxLines))
     }
 
-    /// The profile premise is kept to this many tokens so premise + requirement line fits the
-    /// model's 256-token input: 20 model runs per job. Splitting a long profile into pieces
-    /// meant ~200 runs per job — over a minute on a phone, cut off by iOS mid-batch — and the
-    /// NLI bench that validated this method used one compact premise too.
-    static let premiseTokens = 190
+    /// Premise + hypothesis are kept within this many tokens: the fixed input length of the
+    /// on-device model (one model run per requirement line, no per-shape recompiles on the GPU).
+    static let maxPairTokens = 256
+    static let unitSplitRe = Extractive.rx(#"(?<=[.!?])\s+|\s*[\n•]+\s*"#)
 
-    /// One compact premise: roles, education, certifications, then as many skills and summary
-    /// words as fit. Mirrors `backend/nli/fit.py::premise`.
-    static func premise(_ p: Profile, countTokens: (String) -> Int?) -> String {
-        let skills = p.skills
+    static func hypothesis(_ line: String) -> String { "The candidate meets this job requirement: \(line)" }
+
+    /// (items that share words with `line`, best first; the rest in profile order).
+    static func splitRelevant(_ line: String, _ items: [String]) -> (hits: [String], rest: [String]) {
+        let pool = items.enumerated().map { Extractive.Fact(key: String($0.offset), text: $0.element, value: $0.element, category: "") }
+        let hits = Extractive.rank(line, pool, k: items.count).map(\.0.value)
+        return (hits, items.filter { !hits.contains($0) })
+    }
+
+    /// One premise per requirement line: roles, education and certifications always; then the
+    /// skills and the summary sentences / role bullets that match the line; then the other
+    /// skills and sentences, while premise + hypothesis fit `maxPairTokens`. The compact
+    /// premise alone lost the long profiles' detail; per-line relevance keeps what each line
+    /// needs. Mirrors `backend/nli/fit.py::line_premises`.
+    static func linePremises(_ p: Profile, lines: [String], countTokens: (NLIPair) -> Int?) -> [String] {
         let roles = p.experience.filter { !$0.title.isEmpty }
             .map { "\($0.title) at \($0.company), \($0.startDate)-\($0.endDate.isEmpty ? "present" : $0.endDate)" }
         let edu = p.education.filter { !$0.degree.isEmpty }
             .map { "\($0.degree) \($0.school)".trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: ", ")
         let certs = p.certifications.joined(separator: ", ")
-        let words = p.summary.split(whereSeparator: \.isWhitespace).map(String.init)
-        func size(_ text: String) -> Int { countTokens(text) ?? text.count / 4 }
-        func build(_ nSkills: Int, _ nWords: Int) -> String {
-            ("The candidate's skills: \(skills.prefix(nSkills).joined(separator: ", ")). "
-             + "Experience: \(roles.joined(separator: "; ")). Education: \(edu). Certifications: \(certs). "
-             + words.prefix(nWords).joined(separator: " ")).trimmingCharacters(in: .whitespaces)
+        var units = Extractive.split(p.summary, unitSplitRe)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.unicodeScalars.count > 2 }
+        for r in p.experience {
+            for b in r.bullets where !b.isEmpty {
+                var t = Substring(b)
+                while t.hasSuffix(".") { t = t.dropLast() }
+                units.append("At \(r.company): \(t).")
+            }
+        }
+        func size(_ prem: String, _ hyp: String) -> Int {
+            countTokens(NLIPair(prem, hyp)) ?? (prem.count + hyp.count) / 4 + 3
         }
         func most(_ hi: Int, _ fits: (Int) -> Bool) -> Int {  // largest n in 0...hi with fits(n)
             var lo = 0, hi = hi
             while lo < hi { let mid = (lo + hi + 1) / 2; if fits(mid) { lo = mid } else { hi = mid - 1 } }
             return lo
         }
-        var nSkills = skills.count
-        if size(build(nSkills, 0)) > premiseTokens {  // even without the summary: trim the skills list
-            nSkills = most(skills.count) { size(build($0, 0)) <= premiseTokens }
+        return lines.map { line in
+            let hyp = hypothesis(line)
+            let sk = splitRelevant(line, p.skills), un = splitRelevant(line, units)
+            func build(_ n: [Int]) -> String {  // matching skills, matching sentences, other skills, other sentences
+                let skills = sk.hits.prefix(n[0]) + sk.rest.prefix(n[2])
+                let sentences = un.hits.prefix(n[1]) + un.rest.prefix(n[3])
+                return ("The candidate's skills: \(skills.joined(separator: ", ")). "
+                        + "Experience: \(roles.joined(separator: "; ")). Education: \(edu). Certifications: \(certs). "
+                        + sentences.joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            var n = [0, 0, 0, 0]
+            for (i, hi) in [sk.hits.count, un.hits.count, sk.rest.count, un.rest.count].enumerated() {
+                n[i] = most(hi) { k in var m = n; m[i] = k; return size(build(m), hyp) <= maxPairTokens }
+            }
+            return build(n)
         }
-        return build(nSkills, most(words.count) { size(build(nSkills, $0)) <= premiseTokens })
     }
 
     /// The fit result, or nil when the posting has no requirement lines to judge.
     public static func fitScore(job: Job, profile: Profile, nli: any NLIScorer) throws -> FitResult? {
         let lines = requirementLines(job.description)
         guard !lines.isEmpty else { return nil }
-        let hyps = lines.map { "The candidate meets this job requirement: \($0)" }
-        let prem = premise(profile) { nli.countTokens(NLIPair($0, "")) }
-        let met = try nli.entail(hyps.map { NLIPair(prem, $0) })
+        let prems = linePremises(profile, lines: lines) { nli.countTokens($0) }
+        let met = try nli.entail(zip(prems, lines).map { NLIPair($0, hypothesis($1)) })
         let score = (1000 * met.reduce(0, +) / Double(met.count)).rounded() / 10
         let yes = zip(lines, met).filter { $0.1 > 0.5 }.map(\.0)
         let no = zip(lines, met).filter { $0.1 <= 0.5 }.map(\.0)

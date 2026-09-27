@@ -369,26 +369,59 @@ def test_scoring_stays_unavailable(monkeypatch, cfg, scorer, job):
         asyncio.run(ai_engine.score_job_fit(job, PROFILE, cfg))
 
 
-def test_long_profiles_get_one_compact_premise():
-    """One premise per job (20 model runs, not ~200), trimmed to the token budget: roles stay,
-    then as many skills and summary words as fit."""
-    seen = []
-    long = dict(PROFILE, summary="word " * 400, skills=[f"skill{i}" for i in range(300)])
+def test_long_profiles_get_a_premise_per_line_that_fits():
+    """One model run per requirement line; each premise keeps the roles and puts the skills and
+    summary sentences that match its line first, within the fixed pair length."""
+    pairs = []
+    long = dict(PROFILE, summary=" ".join(f"Filler sentence {i}." for i in range(200)) + " I love Airflow pipelines.",
+                skills=[f"skill{i}" for i in range(300)] + ["Airflow"])
 
     class Words(FakeNLI):
         def count_tokens(self, p, h):
             return len((p + " " + h).split())
 
-        def entail(self, pairs):
-            seen.extend(p for p, _ in pairs)
-            return [0.9 for _ in pairs]
+        def entail(self, ps):
+            pairs.extend(ps)
+            return [0.9 for _ in ps]
     fit.score(JOB, long, Words())
-    assert len(set(seen)) == 1 and len(seen) == len(fit.req_lines(JOB["description"]))
-    prem = seen[0]
-    assert len(prem.split()) <= fit.PREMISE_TOKENS
-    assert all(r["title"] in prem for r in PROFILE["experience"] if r.get("title"))
-    short = fit.premise(PROFILE, Words().count_tokens)  # a short profile is kept whole
+    lines = fit.req_lines(JOB["description"])
+    assert [h for _, h in pairs] == [fit.hypothesis(line) for line in lines]
+    for p, h in pairs:
+        assert Words().count_tokens(p, h) <= fit.MAX_PAIR_TOKENS
+        assert all(r["title"] in p for r in PROFILE["experience"] if r.get("title"))
+    airflow = pairs[lines.index("Experience with Airflow is a plus")][0]
+    assert "skills: Airflow, skill0" in airflow and "I love Airflow pipelines." in airflow
+    assert "Airflow" not in pairs[0][0].split("skills: ")[1][:40]  # other lines keep profile order
+    short = fit.line_premises(PROFILE, lines, Words().count_tokens)[0]  # a short profile is kept whole
     assert PROFILE["summary"].split()[-1] in short and all(s in short for s in PROFILE["skills"])
+
+
+PREMISE_FIXTURE = ROOT / "ios-standalone" / "KitTests" / "Fixtures" / "nli_line_premises.json"
+PREMISE_JOBS = [
+    JOB["description"],
+    "Customer Success Manager, mid-market SaaS.\n\u2022 3+ years of experience in customer success or account "
+    "management\n\u2022 Proven ability to drive renewals and reduce churn\n\u2022 Experience with Salesforce and "
+    "Gainsight preferred\n\u2022 Excellent written and verbal communication skills required",
+    "Systems Administrator. Must have 5+ years administering Linux and Windows servers. Knowledge of Active "
+    "Directory, VMware and PowerShell scripting. CompTIA Security+ certification preferred. Bachelor's degree or "
+    "equivalent experience.",
+]
+
+
+def test_line_premises_match_the_swift_fixture():
+    """Desktop and iOS build the same premise per requirement line: this fixture (Python's output over the
+    gold profiles, default length estimate) is replayed by the Swift twin (LocalNLITests). Regenerate with
+    JOBSMITH_REGEN_FIXTURES=1 after an intended change."""
+    import json
+    import os
+    profiles = yaml.safe_load((GOLD / "profiles.yaml").read_text())
+    cases = [{"profile": k, "job": j, "lines": fit.req_lines(d), "premises": fit.line_premises(profiles[k], fit.req_lines(d))}
+             for k in sorted(profiles) for j, d in enumerate(PREMISE_JOBS)]
+    got = {"jobs": PREMISE_JOBS, "max_pair_tokens": fit.MAX_PAIR_TOKENS, "cases": cases}
+    if os.environ.get("JOBSMITH_REGEN_FIXTURES"):
+        PREMISE_FIXTURE.write_text(json.dumps(got, indent=1, ensure_ascii=False) + "\n")
+    assert json.loads(PREMISE_FIXTURE.read_text()) == got
+    assert any(len(set(c["premises"])) > 1 for c in cases)  # premises really differ per line somewhere
 
 
 def test_req_lines_matches_the_bench():

@@ -2,11 +2,12 @@ import CoreML
 import Foundation
 
 /// The Core ML NLI scorer (DeBERTa-v3-large, int8 weights, fp32 compute). Input `input_ids`
-/// is one of the enumerated lengths below, [PAD]-filled; the attention mask is
-/// derived inside the model (ids != 0). Output `logits`: entailment, neutral,
-/// contradiction.
+/// has one fixed length, [PAD]-filled (longer pairs are truncated premise-first); the
+/// attention mask is derived inside the model (ids != 0). Output `logits`: entailment,
+/// neutral, contradiction.
 public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
-    static let lengths = [64, 128, 256, 512]
+    /// Fit premises are built to fit it (`LocalNLI.maxPairTokens`); Apply Assist pairs are shorter.
+    static let length = LocalNLI.maxPairTokens
     private let model: MLModel
     private let tokenizer: DebertaTokenizer
     private let lock = NSLock()  // one prediction at a time
@@ -15,10 +16,11 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
         let t0 = Date()
         tokenizer = try DebertaTokenizer(contentsOf: directory.appendingPathComponent(NLIModel.tokenizerFile))
         let config = MLModelConfiguration()
-        // CPU only. Measured on an M-series Mac: the GPU re-specializes the graph on every
-        // input-length change (~6-18 s each, several GB), and the Neural Engine path was
-        // ~10x slower for this large model. CPU: no switch cost, ~90 ms/pair at 64 tokens.
-        config.computeUnits = .cpuOnly
+        // GPU (CPU fallback). One input length, so the GPU never re-specializes the graph (the
+        // old enumerated-length model cost ~6-18 s per length change there, so it ran on the CPU);
+        // the Neural Engine path was ~10x slower for this large model. fp32 compute: on an M3 Pro
+        // GPU it ran 64 ms/pair vs 232 ms for fp16, same accuracy.
+        config.computeUnits = .cpuAndGPU
         model = try MLModel(contentsOf: directory.appendingPathComponent(NLIModel.modelDirName), configuration: config)
         NSLog("Local AI model loaded in %.1fs", Date().timeIntervalSince(t0))
     }
@@ -27,8 +29,8 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return try pairs.map { pair in
-            let ids = tokenizer.encodePair(pair.premise, pair.hypothesis, maxLength: Self.lengths.last!)
-            let length = Self.lengths.first { $0 >= ids.count }!
+            let ids = tokenizer.encodePair(pair.premise, pair.hypothesis, maxLength: Self.length)
+            let length = Self.length
             let input = try MLMultiArray(shape: [1, NSNumber(value: length)], dataType: .int32)
             let ptr = input.dataPointer.bindMemory(to: Int32.self, capacity: length)
             for i in 0..<length { ptr[i] = i < ids.count ? ids[i] : 0 }

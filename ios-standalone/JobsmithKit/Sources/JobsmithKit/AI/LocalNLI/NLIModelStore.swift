@@ -14,17 +14,18 @@ public enum NLIModel {
     }
 
     /// DeBERTa-v3-large-mnli-fever-anli-ling-wanli (MoritzLaurer), Core ML, int8
-    /// weights, compiled (.mlmodelc) and zipped. Built by the conversion script
-    /// in the model notes; the tokenizer is the same file the desktop uses.
-    static let revision = "deberta-v3-large-wanli-coreml-w8-fp32"
+    /// weights, fp32 compute, one fixed input length (256 tokens, for the GPU),
+    /// compiled (.mlmodelc) and zipped. Built by the conversion script in the model
+    /// notes; the tokenizer is the same file the desktop uses.
+    static let revision = "deberta-v3-large-wanli-coreml-w8-fp32-256"
     public static let files = [
-        File(name: "nli-deberta-v3-large-w8.mlmodelc.zip", size: 391_586_483,
-             sha256: "632725ce1b8a0150a6e5a4d6527ebda7f053795b6040cb7ffef6c4bfb1fb08c7"),
+        File(name: "nli-deberta-v3-large-w8-fp32-256.mlmodelc.zip", size: 390_921_438,
+             sha256: "89a749044d834bb3143a801dea813fd4cb1d3bd1555c40f90e781dea6a8486f3"),
         File(name: "tokenizer.json", size: 8_648_889,
              sha256: "7aa118770f066a74530d161c7d0b994d0629cc0ff3a0df213f184192773f960a"),
     ]
     public static let sizeBytes = files.reduce(0) { $0 + $1.size }
-    public static let baseURL = URL(string: "https://github.com/TheDevRo/Jobsmith/releases/download/nli-model-v1")!
+    public static let baseURL = URL(string: "https://github.com/TheDevRo/Jobsmith/releases/download/nli-model-v2")!
     static let modelDirName = "NLI.mlmodelc"
     static let tokenizerFile = "tokenizer.json"
 
@@ -131,6 +132,11 @@ public final class NLIModelStore: ObservableObject {
             }
             done += file.size
             state = .downloading(Double(done) / Double(max(1, total)))
+        }
+        // A new revision replaces the old one: drop earlier revisions (~400 MB each).
+        for old in (try? fm.contentsOfDirectory(at: NLIModel.root, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent != NLIModel.revision {
+            try? fm.removeItem(at: old)
         }
     }
 

@@ -65,9 +65,12 @@ extension Extractive {
 
     /// Top-k (fact, score) with score > 0. Sensitive questions only see explicit profile answers.
     static func topFacts(_ field: FieldDescriptor, _ facts: [Fact], k: Int = 5, sensitive: Bool = false) -> [(Fact, Double)] {
-        let pool = facts.filter { !sensitive || explicit.contains($0.category) }
+        rank(questionText(field), facts.filter { !sensitive || explicit.contains($0.category) }, k: k)
+    }
+
+    /// Top-k (fact, score) with score > 0 for the query text q.
+    static func rank(_ q: String, _ pool: [Fact], k: Int = 5) -> [(Fact, Double)] {
         guard !pool.isEmpty else { return [] }
-        let q = questionText(field)
         var seen = Set<String>()
         let qTokens = tokens(q).filter { seen.insert($0).inserted }  // Counter keys, first-seen order
         var df: [String: Int] = [:]
