@@ -455,7 +455,7 @@ final class LocalNLIScoringTests: XCTestCase {
                                                       config: apple, engine: Answering())
         XCTAssertEqual(source(viaApple), .appleIntelligence)
 
-        var local = on; local.ai.nliScoringPreferLocal = true
+        var local = on; local.ai.fastModel = AIConfig.localMatchModelID
         let viaLocal = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
                                                       config: local, engine: Answering(), nli: { _ in Half() })
         XCTAssertEqual(source(viaLocal), .localModel)
@@ -471,7 +471,7 @@ final class LocalNLIScoringTests: XCTestCase {
 
     func testPreferLocalScoresWithoutCallingTheLLM() async throws {
         var config = on
-        config.ai.nliScoringPreferLocal = true
+        config.ai.fastModel = AIConfig.localMatchModelID
         let engine = Failing(AIEngineError.unreachable("should not be called"))
         let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
                                                     config: config, engine: engine, nli: { _ in Half() })
@@ -481,11 +481,113 @@ final class LocalNLIScoringTests: XCTestCase {
 
     func testPreferLocalIsIgnoredWhileTheSwitchIsOff() async {
         var config = AppConfig()
-        config.ai.nliScoringPreferLocal = true
+        config.ai.fastModel = AIConfig.localMatchModelID
         let engine = Failing(AIEngineError.unreachable("down"))
         _ = try? await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
                                             config: config, engine: engine, nli: { _ in Half() })
         XCTAssertGreaterThan(engine.calls, 0)
+    }
+
+    // MARK: - "Local match model" as the fast-tier pick
+
+    /// Records the model each request would carry to an endpoint, and whether it would go on-device.
+    private final class Recording: AIEngine, @unchecked Sendable {
+        var models: [String] = []
+        var onDevice: [Bool] = []
+        func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
+            models.append(config.endpointModel(for: req.tier)); models.append(config.model(for: req.tier))
+            onDevice.append(config.usesOnDevice(for: req.tier))
+            return #"{"score": 70, "reasoning": "Solid fit."}"#
+        }
+        func listModels(config: AIConfig) async throws -> [String] { [] }
+    }
+
+    private var picked: AppConfig {
+        var c = on; c.ai.fastModel = AIConfig.localMatchModelID; c.ai.strongModel = "big-writer"; return c
+    }
+
+    func testSentinelNeverResolvesAsAModel() {
+        for strong in ["big-writer", "", AIConfig.onDeviceModelID] {
+            for utility in ["", "tiny"] {
+                var ai = AIConfig(utilityModel: utility, fastModel: AIConfig.localMatchModelID, strongModel: strong)
+                for tier in ModelTier.allCases {
+                    XCTAssertNotEqual(ai.model(for: tier), AIConfig.localMatchModelID)
+                    XCTAssertNotEqual(ai.endpointModel(for: tier), AIConfig.localMatchModelID)
+                }
+                XCTAssertEqual(ai.model(for: .fast), strong.isEmpty ? "local-model" : strong, "fast falls through to strong")
+                XCTAssertEqual(ai.usesOnDevice(for: .fast), strong == AIConfig.onDeviceModelID)
+                ai.apply(.init(name: "x", baseURL: "http://y/v1", apiKey: "", fastModel: "other"))
+                XCTAssertEqual(ai.fastModel, AIConfig.localMatchModelID, "an endpoint switch keeps the pick")
+            }
+        }
+    }
+
+    /// Scoring when the local model can't, essays, field mapping: all go to the strong model.
+    func testEveryFastCallFallsThroughToTheStrongModel() async throws {
+        let engine = Recording()
+        let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                    config: picked, engine: engine, nli: { _ in nil })
+        XCTAssertEqual(ScoreSource.of(matchReport: result.matchReportJSON, reasoning: result.reasoning), .endpoint("big-writer"))
+
+        let field = FieldDescriptor(fieldId: "q", label: "Why us?")
+        _ = await FieldMapper.essayAnswer(field: field, profile: JobFixtures.profile,
+                                          job: ApplyJobContext(jobId: "j", title: "t", company: "c"),
+                                          config: picked, engine: engine)
+        let mapper = FieldMapper(engine: engine, bank: AnswerBankMatcher(store: AnswerBankStore(try AppDatabase.inMemory())),
+                                 nli: { _ in nil })
+        _ = try? await mapper.completeJSON(system: "s", user: "u", config: picked, maxRetries: 1)
+        XCTAssertGreaterThanOrEqual(engine.onDevice.count, 3)
+        XCTAssertEqual(Set(engine.models), ["big-writer"])
+        XCTAssertFalse(engine.onDevice.contains(true))
+    }
+
+    func testPickedModelScoresFirstAndNeverCallsTheLLM() async throws {
+        let engine = Recording()
+        let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                    config: picked, engine: engine, nli: { _ in Half() })
+        XCTAssertEqual(ScoreSource.of(matchReport: result.matchReportJSON, reasoning: result.reasoning), .localModel)
+        XCTAssertTrue(engine.models.isEmpty)
+    }
+
+    func testPlannedSourceMatchesRouting() {
+        XCTAssertEqual(ScoreSource.planned(config: picked, localReady: true), .localModel)
+        XCTAssertEqual(ScoreSource.planned(config: picked, localReady: false), .endpoint("big-writer"))
+        var off = picked; off.ai.nliBetaEnabled = false
+        XCTAssertEqual(ScoreSource.planned(config: off, localReady: true), .endpoint("big-writer"))
+        var fallbackOnly = on; fallbackOnly.ai.fastModel = "small"
+        XCTAssertEqual(ScoreSource.planned(config: fallbackOnly, localReady: true), .endpoint("small"))
+        var apple = picked; apple.ai.strongModel = AIConfig.onDeviceModelID
+        XCTAssertEqual(ScoreSource.planned(config: apple, localReady: false), .appleIntelligence)
+        XCTAssertEqual(ScoreSource.planned(config: AppConfig(), localReady: true).label, "AI endpoint")
+
+        XCTAssertTrue(ScoreSource.plannedFill(config: picked, localReady: true) == (.localModel, .endpoint("big-writer")))
+        XCTAssertTrue(ScoreSource.plannedFill(config: fallbackOnly, localReady: true) == (.localModel, .endpoint("small")))
+        XCTAssertTrue(ScoreSource.plannedFill(config: picked, localReady: false) == (.endpoint("big-writer"), nil))
+    }
+
+    func testLegacyPreferLocalMigratesToThePick() throws {
+        func decode(_ json: String) throws -> AIConfig { try JSONDecoder().decode(AIConfig.self, from: Data(json.utf8)) }
+        let migrated = try decode(#"{"fastModel": "small", "nliBetaEnabled": true, "nliScoringPreferLocal": true}"#)
+        XCTAssertEqual(migrated.fastModel, AIConfig.localMatchModelID)
+        XCTAssertEqual(try decode(#"{"fastModel": "small", "nliScoringPreferLocal": true}"#).fastModel, "small",
+                       "the old toggle did nothing with the model off")
+        XCTAssertEqual(try decode(#"{"fastModel": "small", "nliBetaEnabled": true}"#).fastModel, "small")
+        let written = String(data: try JSONEncoder().encode(migrated), encoding: .utf8)!
+        XCTAssertFalse(written.contains("nliScoringPreferLocal"))
+        XCTAssertEqual(try decode(written).fastModel, AIConfig.localMatchModelID)
+    }
+
+    func testPickNeverSyncsAndIsNotOverwrittenByImports() {
+        var config: [String: JSONValue] = ["ai": .object(["fastModel": .string(AIConfig.localMatchModelID),
+                                                          "strongModel": .string("big-writer")])]
+        XCTAssertEqual(SettingsSync.deviceLocalModels, AIConfig.sentinelModelIDs)
+        let out = SettingsSync.export(config, enabled: ["ai_connection"])
+        XCTAssertNil(out["ai.models.fast"])
+        XCTAssertNotNil(out["ai.models.strong"])
+        XCTAssertTrue(SettingsSync.isDeviceLocal("ai.models.fast", config: config))
+        SettingsSync.apply(&config, path: "ai.models.fast", value: .string("desktop-model"))
+        guard case .object(let ai)? = config["ai"] else { return XCTFail("no ai section") }
+        XCTAssertEqual(ai["fastModel"], .string(AIConfig.localMatchModelID))
     }
 
     /// One model run per requirement line; each premise keeps the roles and puts the skills and

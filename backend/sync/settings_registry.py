@@ -202,8 +202,8 @@ REGISTRY: tuple[Setting, ...] = (
                  "ai.models.strong.model (object may hold future per-tier params) — apply must "
                  "write .model via base-overlay so sibling keys survive. iOS: flat ai.strongModel."),
     Setting("ai.models.fast", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.fastModel",
-            note="See ai.models.strong. iOS may hold the 'apple-on-device' sentinel here — iOS "
-                 "MUST NOT export that value (skip the row) so it never lands on desktop."),
+            note="See ai.models.strong. iOS may hold the 'apple-on-device' or 'local-match-model' "
+                 "sentinel here — iOS MUST NOT export either (skip the row) so it never lands on desktop."),
     Setting("ai.models.utility", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.utilityModel",
             note="See ai.models.fast (same 'apple-on-device' skip rule)."),
     Setting("ai.temperature", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.temperature"),

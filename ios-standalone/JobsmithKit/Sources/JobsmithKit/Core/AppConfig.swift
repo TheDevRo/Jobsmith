@@ -147,6 +147,16 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// model fields as any endpoint model name.
     public static let onDeviceModelID = "apple-on-device"
 
+    /// Sentinel for the fast tier ("Scoring & form-fill") only: score jobs with
+    /// the local NLI model (`LocalNLI`). It is NOT an LLM — the tier chain skips
+    /// it, so every generative `.fast` call (essays, field mapping, retries)
+    /// resolves to the next model down the chain (the strong tier) and the
+    /// sentinel can never reach an engine. Device-local: never synced.
+    public static let localMatchModelID = "local-match-model"
+
+    /// Tier-model sentinels that name no endpoint model.
+    static let sentinelModelIDs: Set<String> = [onDeviceModelID, localMatchModelID]
+
     /// A saved AI connection the user can switch to in one tap: endpoint, key,
     /// and the per-tier model assignments. Models belong to the preset because
     /// they are endpoint-specific — an LM Studio model name means nothing to
@@ -208,10 +218,6 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// scoring LLM is unavailable. Device-local (the model lives on this device),
     /// so it is not in the settings-sync registry. See `LocalNLI`.
     public var nliBetaEnabled: Bool
-    /// With the local model on: score every job with it instead of the LLM
-    /// (the LLM then only scores what the local model can't — a posting with no
-    /// requirement lines). Device-local like `nliBetaEnabled`.
-    public var nliScoringPreferLocal: Bool
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
@@ -220,7 +226,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 preferOnDeviceForLightTasks: Bool = false,
                 scoreAllCap: Int = 25,
                 savedEndpoints: [SavedEndpoint] = [],
-                nliBetaEnabled: Bool = false, nliScoringPreferLocal: Bool = false) {
+                nliBetaEnabled: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
@@ -229,7 +235,6 @@ public struct AIConfig: Codable, Equatable, Sendable {
         self.scoreAllCap = scoreAllCap
         self.savedEndpoints = savedEndpoints
         self.nliBetaEnabled = nliBetaEnabled
-        self.nliScoringPreferLocal = nliScoringPreferLocal
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -250,8 +255,12 @@ public struct AIConfig: Codable, Equatable, Sendable {
         scoreAllCap = try c.decodeIfPresent(Int.self, forKey: .scoreAllCap) ?? d.scoreAllCap
         savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
         nliBetaEnabled = c.lenient(Bool.self, .nliBetaEnabled, false)
-        nliScoringPreferLocal = c.lenient(Bool.self, .nliScoringPreferLocal, false)
         migrateLegacyOnDeviceRouting()
+        // Retired "Use it for all job scoring" toggle → the fast-tier picker choice.
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+        if nliBetaEnabled, legacy.lenient(Bool.self, .nliScoringPreferLocal, false) {
+            fastModel = AIConfig.localMatchModelID
+        }
     }
 
     /// Older builds routed on-device through the engine kind plus a
@@ -277,10 +286,13 @@ public struct AIConfig: Codable, Equatable, Sendable {
 
     /// Model name for a tier, walking the fallback chain
     /// (utility → fast → strong, then any non-empty, then "local-model").
-    /// May return the on-device sentinel.
+    /// May return the on-device sentinel, never the local-match one.
     public func model(for tier: ModelTier) -> String {
         chain(for: tier).first { !$0.isEmpty } ?? "local-model"
     }
+
+    /// Whether the fast tier is set to the local match model (scoring only).
+    public var usesLocalMatchModel: Bool { fastModel == AIConfig.localMatchModelID }
 
     /// Whether this tier resolves to Apple's on-device model.
     public func usesOnDevice(for tier: ModelTier) -> Bool {
@@ -294,23 +306,30 @@ public struct AIConfig: Codable, Equatable, Sendable {
         chain(for: tier).first { !$0.isEmpty && $0 != AIConfig.onDeviceModelID } ?? "local-model"
     }
 
+    /// The LLM models a tier may resolve to, in order. The local-match sentinel
+    /// is dropped here, centrally, so no engine or label ever sees it.
     private func chain(for tier: ModelTier) -> [String] {
+        let models: [String]
         switch tier {
-        case .utility: return [utilityModel, fastModel, strongModel]
-        case .fast: return [fastModel, strongModel]
-        case .strong: return [strongModel, fastModel]
+        case .utility: models = [utilityModel, fastModel, strongModel]
+        case .fast: models = [fastModel, strongModel]
+        case .strong: models = [strongModel, fastModel]
         }
+        return models.filter { $0 != AIConfig.localMatchModelID }
     }
 
-    /// Make `endpoint` the live connection. On-device tier assignments are
-    /// kept: the sentinel routes to the device, not to any endpoint, so the
-    /// user's "score on-device" choice survives an endpoint switch.
+    /// Make `endpoint` the live connection. Sentinel tier assignments
+    /// (on-device, local match model) are kept: they route to the device, not
+    /// to any endpoint, so they survive an endpoint switch.
     public mutating func apply(_ endpoint: SavedEndpoint) {
         baseURL = endpoint.baseURL
         apiKey = endpoint.apiKey
-        if strongModel != AIConfig.onDeviceModelID { strongModel = endpoint.strongModel }
-        if fastModel != AIConfig.onDeviceModelID { fastModel = endpoint.fastModel }
-        if utilityModel != AIConfig.onDeviceModelID { utilityModel = endpoint.utilityModel }
+        func keep(_ current: String, _ new: String) -> String {
+            AIConfig.sentinelModelIDs.contains(current) ? current : new
+        }
+        strongModel = keep(strongModel, endpoint.strongModel)
+        fastModel = keep(fastModel, endpoint.fastModel)
+        utilityModel = keep(utilityModel, endpoint.utilityModel)
     }
 
     /// Snapshot the live connection as a named preset.
@@ -329,8 +348,11 @@ public struct AIConfig: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
-        case savedEndpoints, nliBetaEnabled, nliScoringPreferLocal
+        case savedEndpoints, nliBetaEnabled
     }
+
+    /// Keys still read (never written) so old configs migrate.
+    private enum LegacyKeys: String, CodingKey { case nliScoringPreferLocal }
 }
 
 public enum ModelTier: String, Codable, Sendable, CaseIterable {

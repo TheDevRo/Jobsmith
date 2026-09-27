@@ -50,8 +50,29 @@ public enum ScoreSource: Equatable, Sendable {
     }
 
     /// Which engine an LLM call on `tier` goes to.
-    static func llm(_ ai: AIConfig, _ tier: ModelTier) -> ScoreSource {
+    public static func llm(_ ai: AIConfig, _ tier: ModelTier) -> ScoreSource {
         ai.usesOnDevice(for: tier) ? .appleIntelligence : .endpoint(ai.model(for: tier))
+    }
+
+    /// Which engine WILL score a job, shown before scoring. Mirrors
+    /// `ScoringService.score`: the local model when it is picked for the fast
+    /// tier, switched on and installed, else the fast-tier LLM (which resolves
+    /// to the strong model when the local model is picked).
+    public static func planned(config: AppConfig, localReady: Bool = NLIModel.isInstalled) -> ScoreSource {
+        localReady && prefersLocal(config) ? .localModel : .llm(config.ai, .fast)
+    }
+
+    /// Which engines WILL fill an Apply Assist form: leftover fields, and — when
+    /// the local model answers those — the essay questions it hands to the LLM.
+    /// Mirrors `FieldMapper`'s extractive pass.
+    public static func plannedFill(config: AppConfig, localReady: Bool = NLIModel.isInstalled)
+        -> (fields: ScoreSource, essays: ScoreSource?) {
+        let llm = ScoreSource.llm(config.ai, .fast)
+        return localReady && LocalNLI.enabled(config) ? (.localModel, llm) : (llm, nil)
+    }
+
+    static func prefersLocal(_ config: AppConfig) -> Bool {
+        LocalNLI.enabled(config) && config.ai.usesLocalMatchModel
     }
 
     public var label: String {
@@ -130,19 +151,20 @@ public enum ScoringService {
     /// With the Local AI model (beta) on and installed, it scores the job when
     /// the scoring LLM fails for any reason — unreachable or misconfigured
     /// endpoint, rate/usage limit, refusal, unreadable reply — or first, when
-    /// `nliScoringPreferLocal` is set. The one exception is a cancelled task
+    /// it is picked as the fast-tier model (the LLM, i.e. the strong model, then
+    /// scores only what it can't). The one exception is a cancelled task
     /// (the app being suspended, or Stop): that still pauses the batch.
     public static func score(job: Job, profile: Profile, config: AppConfig,
                              engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
         let local = LocalNLI.enabled(config)
-        if local, config.ai.nliScoringPreferLocal,
-           let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
+        let preferLocal = ScoreSource.prefersLocal(config)
+        if preferLocal, let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
             return result
         }
         do {
             return try await scoreWithLLM(job: job, profile: profile, config: config, engine: engine)
         } catch {
-            if Task.isCancelled || !local || config.ai.nliScoringPreferLocal { throw error }
+            if Task.isCancelled || !local || preferLocal { throw error }
             if let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
                 return result
             }

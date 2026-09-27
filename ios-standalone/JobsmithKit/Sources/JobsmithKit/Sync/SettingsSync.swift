@@ -96,7 +96,7 @@ public enum SettingsSync {
         .init("ai.models.strong", category: "ai_connection", ios: "ai.strongModel",
               note: "Value = model-id string. Do NOT export when it equals the 'apple-on-device' sentinel — skip the row so it never lands on desktop."),
         .init("ai.models.fast", category: "ai_connection", ios: "ai.fastModel",
-              note: "Same 'apple-on-device' skip rule as ai.models.strong."),
+              note: "Same 'apple-on-device' skip rule as ai.models.strong; also 'local-match-model'."),
         .init("ai.models.utility", category: "ai_connection", ios: "ai.utilityModel",
               note: "Same 'apple-on-device' skip rule."),
         .init("ai.temperature", category: "ai_connection", ios: "ai.temperature"),
@@ -126,9 +126,12 @@ public enum SettingsSync {
 
     // MARK: - lookups + parity
 
-    /// The `ios` config keypath that routes a tier to Apple's on-device model.
-    /// A tier holding this sentinel is NEVER exported (it's meaningless off-device).
-    static let onDeviceModelSentinel = "apple-on-device"
+    /// Tier-model values that route to this device (Apple's on-device model,
+    /// the local match model). A tier holding one is NEVER exported — it's
+    /// meaningless off-device, and the desktop would send it to its endpoint.
+    /// Literal (not `AIConfig.sentinelModelIDs`): this file also compiles
+    /// standalone in the cross-language sync tool. A Kit test pins them equal.
+    static let deviceLocalModels: Set<String> = ["apple-on-device", "local-match-model"]
 
     /// Sorted canonical ids of every registry row (the `prompts.*` wildcard
     /// verbatim). The registry-parity test asserts this equals the Python
@@ -236,10 +239,10 @@ public enum SettingsSync {
                 continue
             }
             guard let iosPath = e.ios, let raw = getIOS(config, iosPath) else { continue }
-            // Never let a tier routed to Apple's on-device model (or an empty
-            // fallback slot) land on another device.
+            // Never let a tier routed to this device (or an empty fallback
+            // slot) land on another device.
             if e.canonical.hasPrefix("ai.models.") {
-                if case .string(let s) = raw, s == onDeviceModelSentinel || s.isEmpty { continue }
+                if case .string(let s) = raw, deviceLocalModels.contains(s) || s.isEmpty { continue }
             }
             out[e.canonical] = ["value": normalizeEnum(e.canonical, raw)]
         }
@@ -284,7 +287,7 @@ public enum SettingsSync {
         guard path.hasPrefix("ai.models."),
               let e = byCanonical[path], let iosPath = e.ios,
               case .string(let current)? = getIOS(config, iosPath) else { return false }
-        return current == onDeviceModelSentinel
+        return deviceLocalModels.contains(current)
     }
 
     /// True when this device models `path` in its config (so the engine tracks it
