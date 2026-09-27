@@ -53,29 +53,40 @@ public enum ScoringError: Error, LocalizedError {
 /// Python original it never invents a `0` — an unreachable engine or an
 /// unsalvageable response throws `ScoringError`.
 public enum ScoringService {
-    /// With the Local AI model (beta) on and installed, an unreachable scoring
-    /// LLM falls back to the local NLI model; otherwise the error stands.
+    /// With the Local AI model (beta) on and installed, it scores the job when
+    /// the scoring LLM fails for any reason — unreachable or misconfigured
+    /// endpoint, rate/usage limit, refusal, unreadable reply — or first, when
+    /// `nliScoringPreferLocal` is set. The one exception is a cancelled task
+    /// (the app being suspended, or Stop): that still pauses the batch.
     public static func score(job: Job, profile: Profile, config: AppConfig,
                              engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
+        let local = LocalNLI.enabled(config)
+        if local, config.ai.nliScoringPreferLocal,
+           let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
+            return result
+        }
         do {
             return try await scoreWithLLM(job: job, profile: profile, config: config, engine: engine)
-        } catch ScoringError.engineUnavailable(let detail) {
-            guard LocalNLI.enabled(config), let scorer = await nli(config) else {
-                throw ScoringError.engineUnavailable(detail)
-            }
-            do {
-                let result = try await Task.detached(priority: .utility) {
-                    try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
-                }.value
-                // Nothing to judge stays unscored (retried later), never a made-up score.
-                guard let result else { throw ScoringError.engineUnavailable(detail) }
+        } catch {
+            if Task.isCancelled || !local || config.ai.nliScoringPreferLocal { throw error }
+            if let result = await localScore(job: job, profile: profile, config: config, nli: nli) {
                 return result
-            } catch let error as ScoringError {
-                throw error
-            } catch {
-                NSLog("Local-model scoring failed for \(job.title): \(error)")
-                throw ScoringError.engineUnavailable(detail)
             }
+            throw error
+        }
+    }
+
+    /// nil = not installed, won't load, errored, or nothing to judge (stays unscored).
+    private static func localScore(job: Job, profile: Profile, config: AppConfig,
+                                   nli: LocalNLI.Provider) async -> FitResult? {
+        guard let scorer = await nli(config) else { return nil }
+        do {
+            return try await Task.detached(priority: .utility) {
+                try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
+            }.value
+        } catch {
+            NSLog("Local-model scoring failed for \(job.title): \(error)")
+            return nil
         }
     }
 

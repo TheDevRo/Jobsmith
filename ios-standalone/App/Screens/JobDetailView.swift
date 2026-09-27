@@ -44,7 +44,15 @@ struct JobDetailView: View {
 
                 if let reasoning = job.fitReasoning, !reasoning.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Eyebrow(text: "Why this score")
+                        HStack {
+                            Eyebrow(text: "Why this score")
+                            if reasoning.hasPrefix(LocalNLI.reasoningPrefix) {
+                                Label("Local model", systemImage: "cpu")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("Scored by the local model")
+                            }
+                        }
                         Text(reasoning)
                             .font(.callout)
                             .foregroundStyle(.secondary)

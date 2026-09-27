@@ -309,6 +309,12 @@ struct AIConnectionSettingsView: View {
                     if on { localModel.install() } else { localModel.cancel() }
                 }
             ))
+            if model.config.ai.nliBetaEnabled {
+                Toggle("Use it for all job scoring", isOn: Binding(
+                    get: { model.config.ai.nliScoringPreferLocal },
+                    set: { on in model.saveConfig { $0.ai.nliScoringPreferLocal = on } }
+                ))
+            }
             HStack {
                 Text("Model")
                 Spacer()
@@ -330,7 +336,7 @@ struct AIConnectionSettingsView: View {
         } header: {
             Eyebrow(text: "Local AI model")
         } footer: {
-            Text("An on-device model that fills application forms only from your profile (options, profile values, years of experience), and scores jobs when your AI endpoint can't be reached. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+            Text("An on-device model that fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, with “Use it for all job scoring”. Scores it produces are labeled “Local model”. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
         }
     }
 

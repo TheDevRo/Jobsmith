@@ -208,6 +208,10 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// scoring LLM is unavailable. Device-local (the model lives on this device),
     /// so it is not in the settings-sync registry. See `LocalNLI`.
     public var nliBetaEnabled: Bool
+    /// With the local model on: score every job with it instead of the LLM
+    /// (the LLM then only scores what the local model can't — a posting with no
+    /// requirement lines). Device-local like `nliBetaEnabled`.
+    public var nliScoringPreferLocal: Bool
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
@@ -216,7 +220,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 preferOnDeviceForLightTasks: Bool = false,
                 scoreAllCap: Int = 25,
                 savedEndpoints: [SavedEndpoint] = [],
-                nliBetaEnabled: Bool = false) {
+                nliBetaEnabled: Bool = false, nliScoringPreferLocal: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
@@ -225,6 +229,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         self.scoreAllCap = scoreAllCap
         self.savedEndpoints = savedEndpoints
         self.nliBetaEnabled = nliBetaEnabled
+        self.nliScoringPreferLocal = nliScoringPreferLocal
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -245,6 +250,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         scoreAllCap = try c.decodeIfPresent(Int.self, forKey: .scoreAllCap) ?? d.scoreAllCap
         savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
         nliBetaEnabled = c.lenient(Bool.self, .nliBetaEnabled, false)
+        nliScoringPreferLocal = c.lenient(Bool.self, .nliScoringPreferLocal, false)
         migrateLegacyOnDeviceRouting()
     }
 
@@ -323,7 +329,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
-        case savedEndpoints, nliBetaEnabled
+        case savedEndpoints, nliBetaEnabled, nliScoringPreferLocal
     }
 }
 

@@ -393,21 +393,64 @@ final class LocalNLIScoringTests: XCTestCase {
         }
     }
 
-    func testTransientErrorsStillPauseInsteadOfFallingBack() async {
-        final class Interrupted: AIEngine, @unchecked Sendable {
-            func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
-                throw AIEngineError.interrupted("suspended")
-            }
-            func listModels(config: AIConfig) async throws -> [String] { [] }
+    private final class Failing: AIEngine, @unchecked Sendable {
+        let error: Error
+        var calls = 0
+        init(_ error: Error) { self.error = error }
+        func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String { calls += 1; throw error }
+        func listModels(config: AIConfig) async throws -> [String] { [] }
+    }
+
+    /// A wrong endpoint, a usage limit, a bad key or a garbled reply all fall back.
+    func testAnyLLMFailureFallsBackToTheLocalModel() async throws {
+        let errors: [Error] = [
+            AIEngineError.interrupted("host not reachable"),        // wrong/out-of-reach endpoint
+            AIEngineError.unreachable("Connection refused"),
+            AIEngineError.httpStatus(429, "usage limit reached"),
+            AIEngineError.httpStatus(401, "bad key"),
+            AIEngineError.invalidBaseURL("htp:/nope"),
+            AIEngineError.refused("guardrail"),
+        ]
+        for error in errors {
+            let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                        config: on, engine: Failing(error), nli: { _ in Half() })
+            XCTAssertTrue(result.reasoning.hasPrefix(LocalNLI.reasoningPrefix), "\(error)")
         }
-        do {
-            _ = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
-                                               config: on, engine: Interrupted(), nli: { _ in FakeNLI(fixed: 1) })
-            XCTFail("expected interrupted")
-        } catch ScoringError.interrupted {
-        } catch {
-            XCTFail("\(error)")
+    }
+
+    /// The app being suspended (or Stop) cancels the task: that still pauses.
+    func testCancelledTaskStillPausesInsteadOfFallingBack() async {
+        let task = Task { () -> Result<FitResult, Error> in
+            await Task.yield()
+            do {
+                return .success(try await ScoringService.score(
+                    job: JobFixtures.dataEngineer, profile: JobFixtures.profile, config: self.on,
+                    engine: Failing(AIEngineError.interrupted("suspended")), nli: { _ in Half() }))
+            } catch { return .failure(error) }
         }
+        task.cancel()
+        guard case .failure(ScoringError.interrupted) = await task.value else {
+            return XCTFail("a cancelled scoring task must pause, not fall back")
+        }
+    }
+
+    func testPreferLocalScoresWithoutCallingTheLLM() async throws {
+        var config = on
+        config.ai.nliScoringPreferLocal = true
+        let engine = Failing(AIEngineError.unreachable("should not be called"))
+        let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                                    config: config, engine: engine, nli: { _ in Half() })
+        XCTAssertTrue(result.reasoning.hasPrefix(LocalNLI.reasoningPrefix))
+        XCTAssertEqual(engine.calls, 0)
+    }
+
+    func testPreferLocalIsIgnoredWhileTheSwitchIsOff() async {
+        var config = AppConfig()
+        config.ai.nliScoringPreferLocal = true
+        let engine = Failing(AIEngineError.unreachable("down"))
+        _ = try? await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
+                                            config: config, engine: engine, nli: { _ in Half() })
+        XCTAssertGreaterThan(engine.calls, 0)
     }
 
     func testLongProfilesAreScoredInPieces() throws {
