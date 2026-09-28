@@ -36,20 +36,43 @@ public enum NLIModel {
 
     static var directory: URL { root.appendingPathComponent(revision, isDirectory: true) }
 
-    public static var isInstalled: Bool {
-        let fm = FileManager.default
-        return fm.fileExists(atPath: directory.appendingPathComponent(modelDirName).path)
-            && fm.fileExists(atPath: directory.appendingPathComponent(tokenizerFile).path)
+    public static var isInstalled: Bool { spec.isInstalled }
+
+    static var spec: LocalModelSpec {
+        LocalModelSpec(root: root, revision: revision, files: files, baseURL: baseURL, modelDirName: modelDirName,
+                       unload: { await NLIRuntime.shared.unload() })
     }
 }
 
-/// Download / verify / resume / delete for the Local AI model, observed by the
-/// Settings screen. A download that drops keeps its resume data, so Retry
+/// One downloadable on-device model, as the store needs it: where its revisions live, what it
+/// downloads, and the installed name of its zipped Core ML model.
+public struct LocalModelSpec: Sendable {
+    let root: URL
+    let revision: String
+    let files: [NLIModel.File]
+    let baseURL: URL
+    let modelDirName: String
+    /// Drops the loaded model before its files are deleted.
+    let unload: @Sendable () async -> Void
+
+    var directory: URL { root.appendingPathComponent(revision, isDirectory: true) }
+
+    /// Installed name of a downloaded file: a zip unpacks to `modelDirName`.
+    func installedName(_ file: NLIModel.File) -> String { file.name.hasSuffix(".zip") ? modelDirName : file.name }
+
+    var isInstalled: Bool {
+        files.allSatisfy { FileManager.default.fileExists(atPath: directory.appendingPathComponent(installedName($0)).path) }
+    }
+}
+
+/// Download / verify / resume / delete for an on-device model (the Local AI model, or
+/// Quick match via `quickMatch`), observed by the Settings screen. A download that drops keeps its resume data, so Retry
 /// continues where it stopped. The model directory only ever receives verified
 /// files: each download is size- and SHA-256-checked before it is moved in.
 @MainActor
 public final class NLIModelStore: ObservableObject {
     public static let shared = NLIModelStore()
+    public static let quickMatch = NLIModelStore(model: QuickMatchModel.spec)
 
     public enum State: Equatable, Sendable {
         case notInstalled
@@ -63,12 +86,26 @@ public final class NLIModelStore: ObservableObject {
     private let session: URLSession
     private let baseURL: URL
     private let files: [NLIModel.File]
+    private let makeSpec: @Sendable () -> LocalModelSpec  // re-read each time: tests move the root
+    private var model: LocalModelSpec { makeSpec() }
 
-    public init(session: URLSession = .shared, baseURL: URL = NLIModel.baseURL, files: [NLIModel.File] = NLIModel.files) {
+    public convenience init(session: URLSession = .shared, baseURL: URL? = nil, files: [NLIModel.File]? = nil) {
+        self.init(session: session, baseURL: baseURL, files: files, model: NLIModel.spec)
+    }
+
+    init(session: URLSession = .shared, baseURL: URL? = nil, files: [NLIModel.File]? = nil,
+         model: @autoclosure @escaping @Sendable () -> LocalModelSpec) {
         self.session = session
-        self.baseURL = baseURL
-        self.files = files
-        state = NLIModel.isInstalled ? .ready : .notInstalled
+        makeSpec = model
+        let spec = model()
+        self.baseURL = baseURL ?? spec.baseURL
+        self.files = files ?? spec.files
+        state = spec.isInstalled ? .ready : .notInstalled
+    }
+
+    private var isInstalled: Bool {
+        let m = model
+        return files.allSatisfy { FileManager.default.fileExists(atPath: m.directory.appendingPathComponent(m.installedName($0)).path) }
     }
 
     public var isDownloading: Bool { job != nil }
@@ -76,7 +113,7 @@ public final class NLIModelStore: ObservableObject {
     /// Start (or resume) the download. No-op while running or when installed.
     public func install() {
         guard job == nil else { return }
-        guard !NLIModel.isInstalled else { state = .ready; return }
+        guard !isInstalled else { state = .ready; return }
         state = .downloading(0)
         job = Task { [weak self] in
             guard let self else { return }
@@ -84,7 +121,7 @@ public final class NLIModelStore: ObservableObject {
                 try await self.downloadAll()
                 self.state = .ready
             } catch is CancellationError {
-                self.state = NLIModel.isInstalled ? .ready : .notInstalled
+                self.state = self.isInstalled ? .ready : .notInstalled
             } catch {
                 self.state = .failed(Self.describe(error))
             }
@@ -99,16 +136,17 @@ public final class NLIModelStore: ObservableObject {
     public func delete() async {
         job?.cancel()
         await job?.value
-        await NLIRuntime.shared.unload()
-        try? FileManager.default.removeItem(at: NLIModel.root)
+        await model.unload()
+        try? FileManager.default.removeItem(at: model.root)
         state = .notInstalled
     }
 
     private func downloadAll() async throws {
-        let dir = NLIModel.directory
+        let spec = model
+        let dir = spec.directory
         let fm = FileManager.default
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        var root = NLIModel.root
+        var root = spec.root
         var noBackup = URLResourceValues()
         noBackup.isExcludedFromBackup = true  // re-downloadable; keep it out of iCloud backups
         try? root.setResourceValues(noBackup)
@@ -116,7 +154,7 @@ public final class NLIModelStore: ObservableObject {
         var done: Int64 = 0
         for file in files {
             let isZip = file.name.hasSuffix(".zip")
-            let installed = dir.appendingPathComponent(isZip ? NLIModel.modelDirName : file.name)
+            let installed = dir.appendingPathComponent(spec.installedName(file))
             if !fm.fileExists(atPath: installed.path) {
                 let base = Double(done), all = Double(max(1, total))
                 let verified = try await download(file, into: dir) { [weak self] fraction in
@@ -134,8 +172,8 @@ public final class NLIModelStore: ObservableObject {
             state = .downloading(Double(done) / Double(max(1, total)))
         }
         // A new revision replaces the old one: drop earlier revisions (~400 MB each).
-        for old in (try? fm.contentsOfDirectory(at: NLIModel.root, includingPropertiesForKeys: nil)) ?? []
-        where old.lastPathComponent != NLIModel.revision {
+        for old in (try? fm.contentsOfDirectory(at: spec.root, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent != spec.revision {
             try? fm.removeItem(at: old)
         }
     }

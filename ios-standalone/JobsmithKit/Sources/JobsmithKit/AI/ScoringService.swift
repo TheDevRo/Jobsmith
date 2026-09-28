@@ -18,10 +18,11 @@ public struct FitResult: Equatable, Sendable {
 /// Apple Intelligence and an endpoint model are never confused. Stored as
 /// `scored_by` inside the match report JSON (synced as-is; the desktop ignores it).
 public enum ScoreSource: Equatable, Sendable {
-    case localModel, appleIntelligence, endpoint(String)
+    case quickMatch, localModel, appleIntelligence, endpoint(String)
 
     var tag: String {
         switch self {
+        case .quickMatch: return "triage"
         case .localModel: return "local_model"
         case .appleIntelligence: return "apple_intelligence"
         case .endpoint(let model): return "endpoint:\(model)"
@@ -30,6 +31,7 @@ public enum ScoreSource: Equatable, Sendable {
 
     init?(tag: String) {
         switch tag {
+        case "triage": self = .quickMatch
         case "local_model": self = .localModel
         case "apple_intelligence": self = .appleIntelligence
         default:
@@ -55,11 +57,14 @@ public enum ScoreSource: Equatable, Sendable {
     }
 
     /// Which engine WILL score a job, shown before scoring. Mirrors
-    /// `ScoringService.score`: the local model when it is picked for the fast
-    /// tier, switched on and installed, else the fast-tier LLM (which resolves
-    /// to the strong model when the local model is picked).
-    public static func planned(config: AppConfig, localReady: Bool = NLIModel.isInstalled) -> ScoreSource {
-        localReady && prefersLocal(config) ? .localModel : .llm(config.ai, .fast)
+    /// `ScoringService.score`: when the local match model is picked for the fast
+    /// tier and switched on, Quick match if it is installed, else the NLI model if
+    /// that is; otherwise the fast-tier LLM (which resolves to the strong model
+    /// when the local model is picked).
+    public static func planned(config: AppConfig, localReady: Bool = NLIModel.isInstalled,
+                               quickReady: Bool = QuickMatchModel.isInstalled) -> ScoreSource {
+        guard prefersLocal(config) else { return .llm(config.ai, .fast) }
+        return quickReady ? .quickMatch : localReady ? .localModel : .llm(config.ai, .fast)
     }
 
     /// Which engines WILL fill an Apply Assist form: leftover fields, and — when
@@ -84,6 +89,7 @@ public enum ScoreSource: Equatable, Sendable {
 
     public var label: String {
         switch self {
+        case .quickMatch: return "Quick match"
         case .localModel: return "Local match model"
         case .appleIntelligence: return "Apple Intelligence"
         // "local-model" is the placeholder id sent when no model is named; don't let it
@@ -94,6 +100,7 @@ public enum ScoreSource: Equatable, Sendable {
 
     public var systemImage: String {
         switch self {
+        case .quickMatch: return "bolt"
         case .localModel: return "checklist"
         case .appleIntelligence: return "apple.logo"
         case .endpoint: return "server.rack"
@@ -108,7 +115,7 @@ extension FitResult {
     /// This result with how long scoring took, shown next to the source ("· 8.2 s").
     func timed(_ seconds: Double) -> FitResult { adding(["score_seconds": (seconds * 10).rounded() / 10]) }
 
-    private func adding(_ fields: [String: Any]) -> FitResult {
+    func adding(_ fields: [String: Any]) -> FitResult {
         var report: [String: Any] = [:]
         if let data = matchReportJSON?.data(using: .utf8),
            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { report = obj }
@@ -171,23 +178,30 @@ public enum ScoringService {
     /// it is picked as the fast-tier model (the LLM, i.e. the strong model, then
     /// scores only what it can't). The one exception is a cancelled task
     /// (the app being suspended, or Stop): that still pauses the batch.
-    public static func score(job: Job, profile: Profile, config: AppConfig,
-                             engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
+    public static func score(job: Job, profile: Profile, config: AppConfig, engine: AIEngine,
+                             nli: LocalNLI.Provider = LocalNLI.live,
+                             quick: QuickMatchProvider = QuickMatchRuntime.live) async throws -> FitResult {
         let start = ContinuousClock.now
-        let result = try await route(job: job, profile: profile, config: config, engine: engine, nli: nli)
+        let result = try await route(job: job, profile: profile, config: config, engine: engine, nli: nli, quick: quick)
         let elapsed = ContinuousClock.now - start
         return result.timed(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
     }
 
-    private static func route(job: Job, profile: Profile, config: AppConfig,
-                              engine: AIEngine, nli: LocalNLI.Provider) async throws -> FitResult {
+    private static func route(job: Job, profile: Profile, config: AppConfig, engine: AIEngine,
+                              nli: LocalNLI.Provider, quick: QuickMatchProvider) async throws -> FitResult {
         let local = LocalNLI.enabled(config)
         let preferLocal = ScoreSource.prefersLocal(config)
         var localMiss: LocalMiss?
         if preferLocal {
+            // Quick match first (every job, no LLM), then the detailed NLI model, then the LLM.
+            let quickMiss: LocalMiss
+            switch await quickScore(job: job, profile: profile, config: config, quick: quick) {
+            case .success(let result): return result
+            case .failure(let miss): quickMiss = miss
+            }
             switch await localScore(job: job, profile: profile, config: config, nli: nli) {
             case .success(let result): return result
-            case .failure(let miss): localMiss = miss
+            case .failure(let miss): localMiss = miss == .notReady && quickMiss != .notReady ? quickMiss : miss
             }
         }
         do {
@@ -219,6 +233,49 @@ public enum ScoringService {
     /// Why the local model produced no score.
     enum LocalMiss: Error, Equatable {
         case notReady, nothingToJudge, failed(String)
+    }
+
+    private static func quickScore(job: Job, profile: Profile, config: AppConfig,
+                                   quick: QuickMatchProvider) async -> Result<FitResult, LocalMiss> {
+        guard let engine = await quick(config) else {
+            if let why = await QuickMatchRuntime.shared.lastLoadError { return .failure(.failed(why)) }
+            return .failure(.notReady)
+        }
+        do {
+            let result = try await Task.detached(priority: .utility) {
+                try engine.fitScore(job: job, profile: profile)
+            }.value
+            guard let result else { return .failure(.nothingToJudge) }
+            return .success(result.scored(by: .quickMatch))
+        } catch {
+            NSLog("Quick match scoring failed for \(job.title): \(error)")
+            return .failure(.failed(error.localizedDescription))
+        }
+    }
+
+    /// "Refine top matches with the detailed model" (`AIConfig.triageRefine`, default off): after
+    /// a scoring run, the NLI model re-scores the top `refineShare` of that run's Quick match
+    /// scores, when it is switched on and installed. Returns the new results to persist.
+    public static let refineShare = 0.15
+
+    public static func refineTop(_ scored: [(job: Job, score: Double)], profile: Profile, config: AppConfig,
+                                 nli: LocalNLI.Provider = LocalNLI.live) async -> [(job: Job, result: FitResult)] {
+        guard config.ai.triageRefine, !scored.isEmpty, let scorer = await nli(config) else { return [] }
+        let top = scored.enumerated().sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
+            .prefix(Int((refineShare * Double(scored.count)).rounded(.up))).map(\.element.job)
+        var out: [(job: Job, result: FitResult)] = []
+        for job in top {
+            if Task.isCancelled { break }
+            let start = ContinuousClock.now
+            let result = try? await Task.detached(priority: .utility) {
+                try LocalNLI.fitScore(job: job, profile: profile, nli: scorer)
+            }.value
+            guard let result = result ?? nil else { continue }
+            let elapsed = ContinuousClock.now - start
+            out.append((job, result.scored(by: .localModel)
+                .timed(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)))
+        }
+        return out
     }
 
     private static func localScore(job: Job, profile: Profile, config: AppConfig,

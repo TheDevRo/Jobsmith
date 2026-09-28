@@ -30,6 +30,7 @@ struct AIConnectionSettingsView: View {
     /// actually appeared (and so loaded from config) may save.
     @State private var hasAppeared = false
     @ObservedObject private var localModel = NLIModelStore.shared
+    @ObservedObject private var quickModel = NLIModelStore.quickMatch
 
     private var availableModels: [String] { status?.models ?? [] }
     private var onDeviceAvailable: Bool { AppleOnDeviceEngine.isAvailable }
@@ -70,6 +71,9 @@ struct AIConnectionSettingsView: View {
         ai.strongModel = strongModel; ai.fastModel = fastModel; ai.utilityModel = utilityModel
         if tier == .fast, ai.usesLocalMatchModel {
             let writer = ScoreSource.llm(ai, .fast).label
+            if quickModel.state == .ready {
+                return "→ Scores every job on your device with Quick match, no AI calls. Jobs it can't judge go to the detailed Local match model when downloaded, else your Resume model · \(writer). AI form-fill and essays use your Resume model."
+            }
             return localModel.state == .ready
                 ? "→ Scores jobs on your device with the Local match model. Jobs it can't judge, AI form-fill and essays use your Resume model · \(writer)."
                 : localModel.isDownloading
@@ -108,6 +112,7 @@ struct AIConnectionSettingsView: View {
             guard new == AIConfig.localMatchModelID,
                   model.config.ai.fastModel != new || !model.config.ai.nliBetaEnabled else { return }
             model.saveConfig { $0.ai.nliBetaEnabled = true; $0.ai.fastModel = new }
+            if quickModel.state != .ready { quickModel.install() }
             if localModel.state != .ready { localModel.install() }
         }
         .onAppear {
@@ -331,7 +336,7 @@ struct AIConnectionSettingsView: View {
                     if !on, fastModel == AIConfig.localMatchModelID { fastModel = "" }
                     let fast = fastModel
                     model.saveConfig { $0.ai.nliBetaEnabled = on; if !on { $0.ai.fastModel = fast } }
-                    if on { localModel.install() } else { localModel.cancel() }
+                    if on { quickModel.install(); localModel.install() } else { quickModel.cancel(); localModel.cancel() }
                 }
             ))
             if model.config.ai.nliBetaEnabled {
@@ -339,6 +344,26 @@ struct AIConnectionSettingsView: View {
                     get: { model.config.ai.nliUseNeuralEngine },
                     set: { on in model.saveConfig { $0.ai.nliUseNeuralEngine = on } }
                 ))
+                Toggle("Refine top matches with the detailed model", isOn: Binding(
+                    get: { model.config.ai.triageRefine },
+                    set: { on in model.saveConfig { $0.ai.triageRefine = on } }
+                ))
+                Toggle("Run Quick match on the Neural Engine (experimental)", isOn: Binding(
+                    get: { model.config.ai.triageUseNeuralEngine },
+                    set: { on in model.saveConfig { $0.ai.triageUseNeuralEngine = on } }
+                ))
+                HStack {
+                    Text("Quick match")
+                    Spacer()
+                    Text(quickModelStatus).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                if case .failed(let message) = quickModel.state {
+                    Text(message).font(.footnote).foregroundStyle(.red)
+                }
+                if !quickModel.isDownloading, quickModel.state != .ready {
+                    Button(quickModel.state == .notInstalled ? "Download Quick match" : "Retry Quick match download") { quickModel.install() }
+                }
             }
             HStack {
                 Text("Model")
@@ -358,10 +383,22 @@ struct AIConnectionSettingsView: View {
             if localModel.state == .ready {
                 Button("Delete model", role: .destructive) { Task { await localModel.delete() } }
             }
+            if quickModel.state == .ready {
+                Button("Delete Quick match", role: .destructive) { Task { await quickModel.delete() } }
+            }
         } header: {
             Eyebrow(text: "Local match model")
         } footer: {
-            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, when you pick “Local match model” for Scoring & form-fill above. Every score is labeled with what produced it: “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, when you pick “Local match model” for Scoring & form-fill above. Every score is labeled with what produced it: “Quick match”, “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. Quick match, a small separate model (\(ByteCountFormatter.string(fromByteCount: QuickMatchModel.sizeBytes, countStyle: .file))), scores every job in a fraction of a second when “Local match model” is picked; “Refine top matches” then re-checks the top 15% of each run with the detailed model. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+        }
+    }
+
+    private var quickModelStatus: String {
+        switch quickModel.state {
+        case .notInstalled: return "Not downloaded"
+        case .downloading(let p): return "Downloading \(Int(p * 100))%"
+        case .ready: return "Ready"
+        case .failed: return "Download failed"
         }
     }
 

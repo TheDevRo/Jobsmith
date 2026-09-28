@@ -222,6 +222,12 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// Core ML falls back to the CPU for anything the Neural Engine can't run). Never the
     /// GPU: it aborts in Metal on an A17. Device-local.
     public var nliUseNeuralEngine: Bool
+    /// "Refine top matches with the detailed model": after a scoring run, the NLI model
+    /// re-scores the top 15% of Quick match scores (`ScoringService.refineTop`). Device-local.
+    public var triageRefine: Bool
+    /// Run Quick match's embedding model on the Neural Engine instead of the CPU (experimental,
+    /// same rules as `nliUseNeuralEngine`). Device-local.
+    public var triageUseNeuralEngine: Bool
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
@@ -230,7 +236,8 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 preferOnDeviceForLightTasks: Bool = false,
                 scoreAllCap: Int = 25,
                 savedEndpoints: [SavedEndpoint] = [],
-                nliBetaEnabled: Bool = false, nliUseNeuralEngine: Bool = false) {
+                nliBetaEnabled: Bool = false, nliUseNeuralEngine: Bool = false,
+                triageRefine: Bool = false, triageUseNeuralEngine: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
@@ -240,6 +247,8 @@ public struct AIConfig: Codable, Equatable, Sendable {
         self.savedEndpoints = savedEndpoints
         self.nliBetaEnabled = nliBetaEnabled
         self.nliUseNeuralEngine = nliUseNeuralEngine
+        self.triageRefine = triageRefine
+        self.triageUseNeuralEngine = triageUseNeuralEngine
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -261,6 +270,8 @@ public struct AIConfig: Codable, Equatable, Sendable {
         savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
         nliBetaEnabled = c.lenient(Bool.self, .nliBetaEnabled, false)
         nliUseNeuralEngine = c.lenient(Bool.self, .nliUseNeuralEngine, false)
+        triageRefine = c.lenient(Bool.self, .triageRefine, false)
+        triageUseNeuralEngine = c.lenient(Bool.self, .triageUseNeuralEngine, false)
         migrateLegacyOnDeviceRouting()
         // Retired "Use it for all job scoring" toggle → the fast-tier picker choice.
         let legacy = try decoder.container(keyedBy: LegacyKeys.self)
@@ -354,7 +365,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
-        case savedEndpoints, nliBetaEnabled, nliUseNeuralEngine
+        case savedEndpoints, nliBetaEnabled, nliUseNeuralEngine, triageRefine, triageUseNeuralEngine
     }
 
     /// Keys still read (never written) so old configs migrate.
