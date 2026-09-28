@@ -29,14 +29,20 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
     public func probs(_ pairs: [NLIPair]) throws -> [[Double]] {
         lock.lock()
         defer { lock.unlock() }
-        return try pairs.map { pair in
-            let ids = tokenizer.encodePair(pair.premise, pair.hypothesis, maxLength: Self.length)
-            let length = Self.length
+        guard !pairs.isEmpty else { return [] }
+        let length = Self.length
+        let inputs: [MLFeatureProvider] = try pairs.map { pair in
+            let ids = tokenizer.encodePair(pair.premise, pair.hypothesis, maxLength: length)
             let input = try MLMultiArray(shape: [1, NSNumber(value: length)], dataType: .int32)
             let ptr = input.dataPointer.bindMemory(to: Int32.self, capacity: length)
             for i in 0..<length { ptr[i] = i < ids.count ? ids[i] : 0 }
-            let out = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["input_ids": input]))
-            guard let logits = out.featureValue(for: "logits")?.multiArrayValue, logits.count == 3 else {
+            return try MLDictionaryFeatureProvider(dictionary: ["input_ids": input])
+        }
+        // One batch call instead of one prediction per pair: on the CPU Core ML spreads a
+        // batch across cores — 81 vs 184 ms/pair for 12 pairs on an M3 Pro, identical output.
+        let outs = try model.predictions(fromBatch: MLArrayBatchProvider(array: inputs))
+        return try (0..<outs.count).map { k in
+            guard let logits = outs.features(at: k).featureValue(for: "logits")?.multiArrayValue, logits.count == 3 else {
                 throw CocoaError(.coderValueNotFound)
             }
             return Self.softmax((0..<3).map { logits[$0].doubleValue })
