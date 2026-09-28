@@ -28,8 +28,10 @@ _CONCURRENCY = 2
 
 async def fetch_jobs(config: dict) -> list[dict]:
     """Fetch jobs from Adzuna for each configured keyword × location."""
-    app_id = config.get("api_keys", {}).get("adzuna_app_id", "")
-    app_key = config.get("api_keys", {}).get("adzuna_app_key", "")
+    from . import real_key
+
+    app_id = real_key(config.get("api_keys", {}).get("adzuna_app_id", ""))
+    app_key = real_key(config.get("api_keys", {}).get("adzuna_app_key", ""))
 
     if not app_id or not app_key:
         logger.info("Adzuna API keys not configured — skipping source")

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jobsmith</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css?v=55">
+    <link rel="stylesheet" href="style.css?v=56">
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -181,7 +181,7 @@
                                             <button class="btn btn-ghost btn-sm" onclick="toggleAllSources(false)">None</button>
                                         </div>
                                         <label class="remote-toggle" style="display:flex;align-items:center;gap:6px;margin-top:10px" title="Override the Settings -> Search default for this fetch run"><input type="checkbox" id="fetch-auto-estimate-toggle" onchange="saveSalaryAutoIngest()"> Auto-estimate salaries on ingest</label>
-                                        <div id="fetch-indeed-hint" class="run-popover-hint">Indeed can take up to 400s (Cloudflare bypass + per-job description enrichment).</div>
+                                        <div id="fetch-indeed-hint" class="run-popover-hint">LinkedIn and Indeed are slow and brittle: they scrape pages built for people, can take minutes (Indeed up to 400s), and break when the site changes or blocks bots. Indeed is off unless you turn it on in Settings &rarr; Job Search.</div>
                                     </div>
                                 </div>
 
@@ -676,7 +676,8 @@
                         </div>
                         <div class="section-card">
                             <h2>LinkedIn Session</h2>
-                            <p class="section-hint">Sign into LinkedIn so auto-apply can access authenticated job pages.</p>
+                            <p class="section-hint">Sign into LinkedIn so auto-apply can access authenticated job pages. LinkedIn searches work without signing in.</p>
+                            <p class="section-hint"><strong>Slow and brittle:</strong> LinkedIn is scraped from pages built for people, so fetches can take minutes and break when LinkedIn changes its pages or rate-limits you.</p>
                             <div class="btn-row">
                                 <button class="btn btn-primary" id="linkedin-login-btn" onclick="linkedinLogin()">Sign in to LinkedIn</button>
                                 <button class="btn btn-secondary btn-sm" id="linkedin-check-btn" style="display:none" onclick="checkLinkedInSessionValidity()">Check Connection</button>
@@ -685,7 +686,9 @@
                             <div id="linkedin-status" class="ai-status" style="margin-top:10px"></div>
                         </div>
                         <div class="section-card">
-                            <h2>Indeed Session</h2>
+                            <h2>Indeed</h2>
+                            <label class="remote-toggle" style="margin-bottom:8px"><input type="checkbox" id="cfg-indeed-enabled"> Include Indeed in fetches</label>
+                            <p class="section-hint"><strong>Off by default. Slow and brittle:</strong> Indeed runs a real browser through Cloudflare, takes up to several minutes per fetch, and breaks when Indeed changes its pages or blocks bots. Needs no key.</p>
                             <p class="section-hint">Sign into Indeed so auto-apply can access authenticated job pages.</p>
                             <div class="btn-row">
                                 <button class="btn btn-primary" id="indeed-login-btn" onclick="indeedLogin()">Connect Indeed Account</button>
@@ -695,15 +698,19 @@
                         </div>
                         <div class="section-card">
                             <h2>Adzuna</h2>
-                            <p class="section-hint">Register at <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">developer.adzuna.com</a> to get a free App ID and App Key.</p>
+                            <p class="section-hint">More listings plus better salary estimates. Free: <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">sign up at developer.adzuna.com</a>, then paste the App ID and App Key here.</p>
                             <div class="form-group"><label>App ID</label><input type="password" id="cfg-adzuna-app-id" placeholder="Your Adzuna App ID" autocomplete="off"></div>
                             <div class="form-group"><label>App Key</label><input type="password" id="cfg-adzuna-app-key" placeholder="Your Adzuna App Key" autocomplete="off"></div>
+                            <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="testSourceKey('adzuna')">Test keys</button></div>
+                            <div id="adzuna-test-status" class="ai-status" style="margin-top:8px"></div>
                         </div>
                         <div class="section-card">
                             <h2>USAJobs</h2>
-                            <p class="section-hint">Free API -- register at <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">developer.usajobs.gov</a></p>
+                            <p class="section-hint">US federal government jobs. Free: <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">request a key at developer.usajobs.gov</a>, then paste it with the email you registered.</p>
                             <div class="form-group"><label>Email (User-Agent)</label><input type="email" id="cfg-usajobs-email" placeholder="your@email.com"></div>
                             <div class="form-group"><label>API Key</label><input type="password" id="cfg-usajobs-key" placeholder="Your USAJobs API key" autocomplete="off"></div>
+                            <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="testSourceKey('usajobs')">Test key</button></div>
+                            <div id="usajobs-test-status" class="ai-status" style="margin-top:8px"></div>
                         </div>
                         <div class="section-card">
                             <h2>Data Management</h2>
@@ -1235,7 +1242,7 @@
                 <div class="ob-step" data-step="1"><span class="ob-dot">2</span><span class="ob-step-label">R&eacute;sum&eacute;</span></div>
                 <div class="ob-step" data-step="2"><span class="ob-dot">3</span><span class="ob-step-label">Profile</span></div>
                 <div class="ob-step" data-step="3"><span class="ob-dot">4</span><span class="ob-step-label">Job Search</span></div>
-                <div class="ob-step" data-step="4"><span class="ob-dot">5</span><span class="ob-step-label">Finish</span></div>
+                <div class="ob-step" data-step="4"><span class="ob-dot">5</span><span class="ob-step-label">Sources</span></div>
                 <div class="ob-step" data-step="5" id="ob-step-review" style="display:none"><span class="ob-dot">6</span><span class="ob-step-label">Review</span></div>
             </div>
 
@@ -1391,7 +1398,7 @@
                 <!-- Step 3: Job search -->
                 <div class="ob-panel" data-panel="3">
                     <h2>What jobs should we look for?</h2>
-                    <p class="ob-lead">These drive the job feed. You can refine them anytime in Settings &rarr; Job Search &mdash; where you can also follow specific companies' job boards (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions.</p>
+                    <p class="ob-lead">These drive the job feed. On the next step Jobsmith suggests companies to follow from these and your profile. You can refine all of it anytime in Settings &rarr; Job Search.</p>
                     <div class="form-group"><label>Keywords <span class="hint">(comma-separated)</span></label><input type="text" id="ob-keywords" placeholder="software engineer, backend developer">
                         <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
                             <button type="button" class="btn btn-secondary btn-sm" onclick="openTitleSuggest('ob-keywords', true)">&#10024; Suggest titles with AI</button>
@@ -1405,20 +1412,48 @@
                     </div>
                 </div>
 
-                <!-- Step 4: Optional -->
+                <!-- Step 4: Sources -->
                 <div class="ob-panel" data-panel="4">
-                    <h2>Optional extras</h2>
-                    <p class="ob-lead">All optional — skip any of these and add them later from Settings.</p>
-                    <div class="section-card" style="margin-bottom:14px">
-                        <h3 style="margin:0 0 10px;font-size:14px">Salary estimator</h3>
-                        <div class="form-row-2">
-                            <div class="form-group"><label>Adzuna App ID</label><input type="password" id="ob-adzuna-app-id" autocomplete="off"></div>
-                            <div class="form-group"><label>Adzuna App Key</label><input type="password" id="ob-adzuna-app-key" autocomplete="off"></div>
-                        </div>
-                        <div class="form-group"><label>BLS API key <span class="hint">(optional)</span></label><input type="password" id="ob-bls-key" autocomplete="off"></div>
+                    <h2>Where jobs come from</h2>
+                    <p class="ob-lead">Nothing to set up here. These sources work now with no account or key:</p>
+                    <div id="ob-ready-sources" class="ob-ready-sources"></div>
+                    <p class="ob-hint" id="ob-slow-note">LinkedIn is slow and brittle: it's scraped from pages built for people, so fetches can take minutes and break when LinkedIn changes. Indeed is the same and stays off unless you turn it on in Settings &rarr; Job Search.</p>
+
+                    <div class="section-card" style="margin:14px 0">
+                        <h3 style="margin:0 0 4px;font-size:14px">Companies to follow</h3>
+                        <p class="ob-hint" style="margin:0 0 10px">Jobsmith pulls openings straight from these companies' own job boards. Picked from your profile, and every one is checked against a live board. Untick any you don't want.</p>
+                        <div id="ob-companies"></div>
                     </div>
+
+                    <details class="section-card ob-more-sources" style="margin-bottom:14px">
+                        <summary style="cursor:pointer;font-size:14px;font-weight:600">More sources with a free API key <span class="hint">(optional)</span></summary>
+                        <div style="margin-top:12px">
+                            <h3 style="margin:0 0 4px;font-size:13px">Adzuna</h3>
+                            <p class="ob-hint" style="margin:0 0 8px">More listings plus better salary estimates. <a href="https://developer.adzuna.com/" target="_blank" rel="noopener">Sign up at developer.adzuna.com</a>, then paste both values.</p>
+                            <div class="form-row-2">
+                                <div class="form-group"><label>Adzuna App ID</label><input type="password" id="ob-adzuna-app-id" autocomplete="off"></div>
+                                <div class="form-group"><label>Adzuna App Key</label><input type="password" id="ob-adzuna-app-key" autocomplete="off"></div>
+                            </div>
+                            <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="obTestSourceKey('adzuna')">Test keys</button></div>
+                            <div id="ob-adzuna-test-status" class="ai-status" style="margin-top:8px"></div>
+
+                            <h3 style="margin:16px 0 4px;font-size:13px">USAJobs</h3>
+                            <p class="ob-hint" style="margin:0 0 8px">US federal government jobs. <a href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">Request a key at developer.usajobs.gov</a>, then paste it with the email you registered.</p>
+                            <div class="form-row-2">
+                                <div class="form-group"><label>Registered email</label><input type="email" id="ob-usajobs-email" autocomplete="off"></div>
+                                <div class="form-group"><label>API key</label><input type="password" id="ob-usajobs-key" autocomplete="off"></div>
+                            </div>
+                            <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="obTestSourceKey('usajobs')">Test key</button></div>
+                            <div id="ob-usajobs-test-status" class="ai-status" style="margin-top:8px"></div>
+
+                            <h3 style="margin:16px 0 4px;font-size:13px">BLS <span class="hint">(salary estimates only)</span></h3>
+                            <p class="ob-hint" style="margin:0 0 8px">Fallback wage data when Adzuna has none. <a href="https://data.bls.gov/registrationEngine/" target="_blank" rel="noopener">Free at data.bls.gov</a>.</p>
+                            <div class="form-group"><label>BLS API key</label><input type="password" id="ob-bls-key" autocomplete="off"></div>
+                        </div>
+                    </details>
+
                     <div class="section-card">
-                        <h3 style="margin:0 0 10px;font-size:14px">Workday credentials <span class="hint">(used for auto-apply on Workday portals)</span></h3>
+                        <h3 style="margin:0 0 10px;font-size:14px">Workday credentials <span class="hint">(optional, used for auto-apply on Workday portals)</span></h3>
                         <div class="form-row-2">
                             <div class="form-group"><label>Workday email</label><input type="text" id="ob-workday-email"></div>
                             <div class="form-group"><label>Workday password</label><input type="password" id="ob-workday-password"></div>
@@ -1426,7 +1461,6 @@
                         <p class="ob-hint" style="margin:8px 0 0">Later found under Settings &rarr; Apply with the mode toggle set to Advanced.</p>
                     </div>
                     <p class="ob-hint">Applying to jobs uses the Jobsmith browser extension &mdash; install it from <strong>Settings &rarr; Apply</strong> once setup is done. The token pairs itself the first time you launch Apply Assist.</p>
-                    <p class="ob-hint">Tip: connect LinkedIn from Settings &rarr; Job Search for the widest job coverage.</p>
                     <p class="ob-hint">Power users: Settings opens in Basic mode with the essentials &mdash; flip the toggle to <strong>Advanced</strong> to expose auto-apply tuning, the AI prompt editor (every prompt Jobsmith sends to your AI is editable), and backend logs.</p>
                 </div>
 
@@ -1474,18 +1508,18 @@
     <!-- The Pipeline stage vocabulary (labels/order/colours) must exist before
          review.js and deck.js render the funnel, the tabs or the board. -->
     <script src="js/pipeline-stages.js?v=1"></script>
-    <script src="js/core.js?v=51"></script>
+    <script src="js/core.js?v=52"></script>
     <script src="js/dashboard.js?v=42"></script>
     <!-- The per-job action registry must define jobActions()/renderJobActions()
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
     <script src="js/jobs.js?v=51"></script>
     <script src="js/review.js?v=43"></script>
-    <script src="js/settings.js?v=48"></script>
+    <script src="js/settings.js?v=49"></script>
     <script src="js/prompts.js?v=2"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=42"></script>
     <script src="js/deck.js?v=14"></script>
-    <script src="js/onboarding.js?v=44"></script>
+    <script src="js/onboarding.js?v=45"></script>
 </body>
 </html>

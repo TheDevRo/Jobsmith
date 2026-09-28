@@ -1142,22 +1142,41 @@ const SOURCE_LABELS = {
     indeed: 'Indeed',
 };
 
+// Defaults when the backend can't say: keyless feeds and watchlists on;
+// keyed sources and Indeed (opt-in) off.
+const _SOURCE_FALLBACK_OFF = new Set(['adzuna', 'usajobs', 'indeed']);
+
 async function loadSources() {
     const container = document.getElementById('source-checkboxes');
-    const fallbackSources = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed'];
-    function renderSources(sources) {
-        container.innerHTML = sources.map(s => `
-            <label><input type="checkbox" value="${s}" checked> ${SOURCE_LABELS[s] || s}</label>
-        `).join('');
+    // Keep what the user ticked earlier this session; only first render
+    // takes the defaults.
+    const prior = {};
+    // A source locked for want of a key has no user choice to keep.
+    container.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => { prior[cb.value] = cb.checked; });
+    function renderSources(details) {
+        container.innerHTML = details.map(d => {
+            const locked = d.kind === 'keyed' && !d.configured;
+            const on = !locked && (d.name in prior ? prior[d.name] : d.default_on);
+            const title = locked
+                ? 'Needs a free API key. Add it in Settings → Job Search.'
+                : (d.note || '');
+            const tag = locked ? ' <span class="source-tag">needs key</span>'
+                : (d.note ? ' <span class="source-tag">slow</span>' : '');
+            return `<label${title ? ` title="${escapeHtml(title)}"` : ''}${locked ? ' class="source-locked"' : ''}><input type="checkbox" value="${escapeHtml(d.name)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''}> ${escapeHtml(SOURCE_LABELS[d.name] || d.name)}${tag}</label>`;
+        }).join('');
     }
-    renderSources(fallbackSources);
+    const fallback = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed']
+        .map(name => ({ name, kind: 'feed', configured: true, default_on: !_SOURCE_FALLBACK_OFF.has(name), note: '' }));
     try {
         const data = await api('/api/sources');
-        if (data.sources) renderSources(data.sources);
+        const details = data.details
+            || (data.sources || []).map(name => ({ name, kind: 'feed', configured: true, default_on: !_SOURCE_FALLBACK_OFF.has(name), note: '' }));
+        renderSources(details.length ? details : fallback);
     } catch (e) {
-        // The fallback list is already rendered and is usable, so this is a
-        // warning, not a dead end — but say so instead of only console.error'ing.
+        // The fallback list is usable, so this is a warning, not a dead end:
+        // say so instead of only console.error'ing.
         console.warn('Failed to load sources from API, using defaults', e);
+        renderSources(fallback);
         const note = document.createElement('p');
         note.className = 'hint source-fallback-note';
         note.textContent = 'Showing the default source list — the backend didn’t respond.';
@@ -1168,13 +1187,13 @@ async function loadSources() {
 function getSelectedSources() {
     const boxes = document.querySelectorAll('#source-checkboxes input[type="checkbox"]');
     const selected = [];
-    boxes.forEach(cb => { if (cb.checked) selected.push(cb.value); });
+    boxes.forEach(cb => { if (cb.checked && !cb.disabled) selected.push(cb.value); });
     return selected;
 }
 
 function toggleAllSources(checked) {
     document.querySelectorAll('#source-checkboxes input[type="checkbox"]')
-        .forEach(cb => { cb.checked = checked; });
+        .forEach(cb => { if (!cb.disabled) cb.checked = checked; });
 }
 
 

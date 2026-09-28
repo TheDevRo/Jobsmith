@@ -313,6 +313,61 @@ def get_source_names() -> list[str]:
     return [name for name, _ in SOURCES]
 
 
+# The example config ships these as key values; they are not real credentials.
+KEY_PLACEHOLDERS = frozenset({"your-app-id", "your-app-key", "your-api-key", "your-email@example.com"})
+
+
+def real_key(value) -> str:
+    """A configured credential, or "" for blanks and the example placeholders."""
+    v = (value or "").strip() if isinstance(value, str) else ""
+    return "" if v in KEY_PLACEHOLDERS else v
+
+
+# Credentials each keyed source needs under api_keys, all required.
+_KEYED_SOURCES = {
+    "adzuna": ("adzuna_app_id", "adzuna_app_key"),
+    "usajobs": ("usajobs_email", "usajobs_api_key"),
+}
+_WATCHLIST_KEYS = {
+    "greenhouse": ("greenhouse_boards", "greenhouse_companies", "lever_companies"),
+    "ashby": ("ashby_boards",),
+    "workable": ("workable_accounts",),
+    "recruitee": ("recruitee_companies",),
+}
+_SLOW_NOTE = "Slow and brittle: scrapes pages built for people, so it can take minutes and breaks when the site changes or blocks bots."
+
+
+def source_details(config: dict) -> list[dict]:
+    """Per-source setup state for the UI, in SOURCES order.
+
+    kind: "feed" (works with no setup), "watchlist" (needs followed companies),
+    "keyed" (needs a free API key), "browser" (Playwright scraper).
+    default_on: whether a fetch should include it unless the user unticks it.
+    Keyed sources are off until their keys are real; Indeed is opt-in.
+    """
+    keys = config.get("api_keys") or {}
+    search = config.get("search") or {}
+    out = []
+    for name, _ in SOURCES:
+        info = {"name": name, "kind": "feed", "configured": True, "default_on": True, "note": ""}
+        if name in _KEYED_SOURCES:
+            configured = all(real_key(keys.get(k)) for k in _KEYED_SOURCES[name])
+            info.update(kind="keyed", configured=configured, default_on=configured)
+        elif name in _WATCHLIST_KEYS:
+            followed = any(
+                s and s != "example-company"
+                for k in _WATCHLIST_KEYS[name] for s in (search.get(k) or [])
+            )
+            info.update(kind="watchlist", configured=followed)
+        elif name == "indeed":
+            enabled = bool((search.get("indeed") or {}).get("enabled", False))
+            info.update(kind="browser", default_on=enabled, note=_SLOW_NOTE)
+        elif name == "linkedin":
+            info["note"] = _SLOW_NOTE
+        out.append(info)
+    return out
+
+
 # Sources that perform authoritative server-side keyword search — their API
 # already constrained results to the query (often with fuzzy/synonym matching,
 # e.g. "SRE" surfacing "Site Reliability Engineer"), so re-applying a strict

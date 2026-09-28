@@ -514,9 +514,10 @@ struct LinkedInSettingsSection: View {
             } header: {
                 Eyebrow(text: "LinkedIn")
             } footer: {
-                Text(isConnected
+                Text((isConnected
                      ? "Jobsmith searches LinkedIn as you. Your session stays in this device's Keychain and is never sent anywhere else — sign out here to remove it."
                      : "Signed in, Jobsmith searches LinkedIn as you — more results, far fewer rate limits. Without an account it falls back to LinkedIn's public pages. Turn LinkedIn off and Jobsmith never contacts it at all.")
+                     + " LinkedIn is slow and brittle: it's read from pages built for people, so fetches take longer and can break when LinkedIn changes them.")
             }
             .sheet(isPresented: $showSignIn) {
                 LinkedInSignInSheet { result in

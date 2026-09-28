@@ -389,9 +389,70 @@ async def operations_status():
 
 @router.get("/api/sources")
 async def list_sources():
-    """Return available job source names."""
-    from ..job_sources import get_source_names
-    return {"sources": get_source_names()}
+    """Return available job source names, plus per-source setup state
+    (see job_sources.source_details) so the UI can default the fetch picker
+    to what will actually return jobs."""
+    from ..job_sources import get_source_names, source_details
+    return {"sources": get_source_names(), "details": source_details(state.load_config())}
+
+
+class TestSourceKeyRequest(BaseModel):
+    source: str
+    # The settings mask (an untouched secret field) means "use the saved value".
+    adzuna_app_id: str = ""
+    adzuna_app_key: str = ""
+    usajobs_email: str = ""
+    usajobs_api_key: str = ""
+
+
+@router.post("/api/sources/test-key")
+async def test_source_key(body: TestSourceKeyRequest):
+    """One minimal live query against a keyed source with the given (or saved)
+    credentials. Writes no config. Returns {ok, message}."""
+    import aiohttp
+
+    from ..job_sources import real_key
+    from .settings import SECRET_MASK
+
+    saved = state.load_config().get("api_keys") or {}
+
+    def _pick(field: str) -> str:
+        v = (getattr(body, field) or "").strip()
+        return real_key(saved.get(field) if v == SECRET_MASK else v)
+
+    timeout = aiohttp.ClientTimeout(total=20)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            if body.source == "adzuna":
+                app_id, app_key = _pick("adzuna_app_id"), _pick("adzuna_app_key")
+                if not app_id or not app_key:
+                    return {"ok": False, "message": "Enter both the App ID and the App Key."}
+                params = {"app_id": app_id, "app_key": app_key, "results_per_page": 1,
+                          "what": "engineer", "content-type": "application/json"}
+                async with session.get("https://api.adzuna.com/v1/api/jobs/us/search/1", params=params) as r:
+                    status = r.status
+            elif body.source == "usajobs":
+                email, key = _pick("usajobs_email"), _pick("usajobs_api_key")
+                if not email or not key:
+                    return {"ok": False, "message": "Enter both the registered email and the API key."}
+                headers = {"Host": "data.usajobs.gov", "User-Agent": email, "Authorization-Key": key}
+                async with session.get("https://data.usajobs.gov/api/search",
+                                       params={"ResultsPerPage": 1}, headers=headers) as r:
+                    status = r.status
+            else:
+                raise HTTPException(400, f"No key test for source {body.source!r}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "message": f"Could not reach {body.source}: {e}"}
+
+    if status == 200:
+        return {"ok": True, "message": "Keys work."}
+    if status in (401, 403):
+        return {"ok": False, "message": "Rejected: check the keys (and, for USAJobs, that the email is the one you registered)."}
+    if status == 429:
+        return {"ok": False, "message": "Rate-limited right now; the keys may still be fine. Try again in a minute."}
+    return {"ok": False, "message": f"Unexpected response (HTTP {status})."}
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +591,10 @@ async def detect_boards(body: DetectBoardsRequest):
 
 class SuggestCompaniesRequest(BaseModel):
     exclude: list[str] = []
+    # The setup wizard asks before anything is saved: its in-progress profile
+    # and search replace the saved ones for this call only.
+    profile: Optional[dict] = None
+    search: Optional[dict] = None
 
 
 def _norm_company(name: str) -> str:
@@ -550,6 +615,10 @@ async def suggest_companies(body: SuggestCompaniesRequest):
     from .. import ai_engine
 
     cfg = state.load_config()
+    if body.profile is not None:
+        cfg = {**cfg, "profile": {**(cfg.get("profile") or {}), **body.profile}}
+    if body.search is not None:
+        cfg = {**cfg, "search": {**(cfg.get("search") or {}), **body.search}}
     search_cfg = cfg.get("search", {})
 
     # Companies already watched (config holds slugs) or already shown.

@@ -80,8 +80,10 @@ search:
   # Recruitee company subdomains — the <company> part of <company>.recruitee.com
   recruitee_companies: []
   indeed:
-    # Indeed scraper uses Playwright (no API key). Set enabled: true to activate.
-    enabled: true
+    # Indeed scraper uses Playwright (no API key). Off by default: it is slow
+    # (minutes per run) and brittle (bot walls, markup changes). Set
+    # enabled: true to include it in fetches.
+    enabled: false
     max_pages: 5
 ai:
   # Any OpenAI-compatible server works: LM Studio (default), Ollama

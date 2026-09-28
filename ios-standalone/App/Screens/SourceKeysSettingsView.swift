@@ -33,7 +33,7 @@ struct SourceKeysSettingsView: View {
             } header: {
                 Eyebrow(text: "Adzuna keys")
             } footer: {
-                Text("Free at developer.adzuna.com. Also powers salary estimates on job pages.")
+                Text("More listings plus better salary estimates on job pages. Free: [sign up at developer.adzuna.com](https://developer.adzuna.com/), then paste both values.")
             }
         }
         if enabled.contains("usajobs") {
@@ -48,7 +48,7 @@ struct SourceKeysSettingsView: View {
             } header: {
                 Eyebrow(text: "USAJobs keys")
             } footer: {
-                Text("Free at developer.usajobs.gov.")
+                Text("US federal government jobs. Free: [request a key at developer.usajobs.gov](https://developer.usajobs.gov/APIRequest/Index), then paste it with the email you registered.")
             }
         }
         Section {
@@ -57,7 +57,7 @@ struct SourceKeysSettingsView: View {
         } header: {
             Eyebrow(text: "Salary estimates (optional)")
         } footer: {
-            Text("Fallback wage data for salary estimates when Adzuna has none. Free at data.bls.gov/registrationEngine.")
+            Text("Fallback wage data for salary estimates when Adzuna has none. [Free at data.bls.gov](https://data.bls.gov/registrationEngine/).")
         }
     }
 }
