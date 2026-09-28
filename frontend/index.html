@@ -59,6 +59,11 @@
                     </button>
                     <div class="now-panel" id="now-panel" role="dialog" aria-label="Now — active runs" hidden></div>
                 </div>
+                <!-- On-device model downloads started by the setup wizard (obDownloadChip). -->
+                <button class="run-status-chip ob-dl-chip" id="ob-dl-chip" style="display:none" onclick="goAISettings()" title="Quick match / Local match downloads — open Settings → AI">
+                    <span class="run-chip-dot" aria-hidden="true"></span>
+                    <span id="ob-dl-chip-text"></span>
+                </button>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">&#9790;</button>
                 <div class="notification-wrapper">
                     <button class="notification-bell" id="notification-bell" onclick="toggleNotificationCenter()">
@@ -746,7 +751,10 @@
                 <div id="stab-integrations" class="settings-tab-panel">
                     <div class="settings-grid">
                         <div class="section-card settings-basic">
-                            <h2>AI Connection</h2>
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                                <h2>AI Connection</h2>
+                                <button class="btn btn-secondary btn-sm" id="ai-change-setup" onclick="obChangeSetup()">Change setup&hellip;</button>
+                            </div>
                             <div class="form-group" style="display:flex;gap:8px;align-items:flex-end">
                                 <div style="flex:1"><label>Server URL</label><input type="text" id="cfg-ai-url" placeholder="http://localhost:1234/v1"></div>
                                 <button class="btn btn-secondary btn-sm" style="white-space:nowrap;margin-bottom:0" onclick="loadAiModels({ persistConnection: true })">Load Models</button>
@@ -1223,7 +1231,7 @@
             </div>
 
             <div class="ob-stepper" id="ob-stepper">
-                <div class="ob-step" data-step="0"><span class="ob-dot">1</span><span class="ob-step-label">Connect AI</span></div>
+                <div class="ob-step" data-step="0"><span class="ob-dot">1</span><span class="ob-step-label">AI</span></div>
                 <div class="ob-step" data-step="1"><span class="ob-dot">2</span><span class="ob-step-label">R&eacute;sum&eacute;</span></div>
                 <div class="ob-step" data-step="2"><span class="ob-dot">3</span><span class="ob-step-label">Profile</span></div>
                 <div class="ob-step" data-step="3"><span class="ob-dot">4</span><span class="ob-step-label">Job Search</span></div>
@@ -1232,28 +1240,105 @@
             </div>
 
             <div class="ob-body">
-                <!-- Step 0: AI -->
+                <!-- Step 0: AI — three cards, one shared exit (Continue = test + save) -->
                 <div class="ob-panel active" data-panel="0">
-                    <h2>Connect your AI</h2>
-                    <p class="ob-lead">Jobsmith works with any OpenAI-compatible server — local like LM Studio or Ollama (fully private), or hosted like OpenRouter or OpenAI. Point it at your server, then pick the models to use.</p>
-                    <div class="form-group"><label>Server base URL</label><input type="text" id="ob-ai-url" placeholder="http://localhost:1234/v1"></div>
-                    <div class="form-group"><label>API key <span class="hint">(optional)</span></label><input type="password" id="ob-ai-api-key" placeholder="Only needed for hosted providers" autocomplete="off"></div>
-                    <div style="display:flex;gap:10px;align-items:center;margin:8px 0 4px">
-                        <button class="btn btn-primary btn-sm" onclick="obTestAI()">Test connection</button>
-                        <span id="ob-ai-status" class="ob-status">Not tested yet</span>
+                    <h2>How should Jobsmith think?</h2>
+                    <p class="ob-lead">You can change this any time in Settings &rarr; AI.</p>
+                    <div class="ob-mode-cards" role="radiogroup" aria-label="AI setup">
+                        <button type="button" class="ob-mode-card" id="ob-mode-local" role="radio" aria-checked="false" onclick="obSelectMode('local')">
+                            <span class="ob-mode-title">Local</span>
+                            <span class="ob-mode-body">Runs privately on this device with Apple Intelligence. Free, nothing to set up. Writing quality is basic; you can connect a cloud provider later for stronger r&eacute;sum&eacute;s.</span>
+                            <span class="ob-mode-reason" id="ob-local-reason" style="display:none"></span>
+                        </button>
+                        <button type="button" class="ob-mode-card" id="ob-mode-cloud" role="radio" aria-checked="false" onclick="obSelectMode('cloud')">
+                            <span class="ob-mode-title">Cloud</span>
+                            <span class="ob-mode-body">Use an AI provider such as OpenAI, Anthropic or OpenRouter. You bring the server address and an API key. Your provider may charge per use.</span>
+                        </button>
+                        <button type="button" class="ob-mode-card" id="ob-mode-advanced" role="radio" aria-checked="false" onclick="obSelectMode('advanced')">
+                            <span class="ob-mode-title">Advanced</span>
+                            <span class="ob-mode-body">Full control: any server, a different model per task, and local model switches.</span>
+                        </button>
                     </div>
-                    <div class="form-row-3" style="margin-top:14px">
-                        <div class="form-group"><label>Content model <span class="hint">(strong)</span></label><select id="ob-ai-model-strong"><option value="">—</option></select></div>
-                        <div class="form-group"><label>Navigator model <span class="hint">(fast)</span></label><select id="ob-ai-model-fast"><option value="">—</option></select></div>
-                        <div class="form-group"><label>Utility model</label><select id="ob-ai-model-utility"><option value="">—</option></select></div>
+                    <button class="btn btn-ghost btn-sm" id="ob-local-recheck" style="display:none" onclick="obCheckLocal()">Check again</button>
+
+                    <div class="ob-sub" id="ob-sub-local" style="display:none">
+                        <label class="ai-ondevice-opt"><input type="checkbox" id="ob-local-downloads" checked onchange="obReadForm()"> <span class="ob-rec">Recommended</span> Download Quick match and Local match (about <span id="ob-local-size">…</span> MB) for faster job scoring and smarter Apply Assist.</label>
                     </div>
-                    <!-- Shown by obApplyAIStatus() only when no endpoint answered and
-                         this Mac's built-in model can. -->
-                    <div id="ob-ai-ondevice" style="display:none;margin-top:14px">
-                        <p class="ob-hint" style="margin-bottom:8px">No server answered &mdash; but this Mac has <strong>Apple Intelligence</strong>. Jobsmith can use it for job-fit scoring and short tasks with no setup at all. It is a small model, so r&eacute;sum&eacute;s and cover letters still want a real endpoint (LM Studio is the easy local option) &mdash; you can add one later in Settings.</p>
-                        <button class="btn btn-primary btn-sm" id="ob-ai-ondevice-btn" onclick="obUseAppleIntelligence()">Use built-in Apple Intelligence</button>
+
+                    <div class="ob-sub" id="ob-sub-cloud" style="display:none">
+                        <div class="form-group"><label>Provider</label><select id="ob-cloud-provider" onchange="obSelectProvider(this.value)"></select></div>
+                        <div class="form-group">
+                            <label>Server address</label>
+                            <input type="text" id="ob-cloud-url" placeholder="https://your-server/v1" onchange="obCloudUrlChanged()">
+                            <a href="#" class="ob-link" id="ob-cloud-edit-url" onclick="obEditAddress(); return false">Edit address</a>
+                            <span class="hint" id="ob-cloud-url-help">Any OpenAI-compatible server, including one you run yourself.</span>
+                            <span class="hint ob-warn" id="ob-cloud-url-warn" style="display:none">This address does not end in /v1. Most servers need it; check your server&rsquo;s docs.</span>
+                        </div>
+                        <div class="form-group">
+                            <label>API key <span class="hint" id="ob-cloud-key-opt">(optional)</span></label>
+                            <input type="password" id="ob-cloud-key" autocomplete="off" oninput="obKeyTyped()" onchange="obListModels()">
+                            <a class="ob-link" id="ob-cloud-key-link" target="_blank" rel="noopener" style="display:none">Get an API key</a>
+                        </div>
+                        <div class="form-group">
+                            <label>Writing model <span class="hint">(r&eacute;sum&eacute;s and cover letters)</span></label>
+                            <div id="ob-model-picker" style="display:none">
+                                <input type="search" id="ob-model-search" placeholder="Search models" oninput="obRenderModelList()">
+                                <select id="ob-model-list" size="7" onchange="obPickWriting(this.value)"></select>
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="ob-model-showall" onchange="obRenderModelList()"> Show all models</label>
+                            </div>
+                            <div id="ob-model-free" style="display:none">
+                                <input type="text" id="ob-model-id" placeholder="Model ID" oninput="obPickWriting(this.value)">
+                                <span class="hint" id="ob-model-error"></span>
+                            </div>
+                            <span class="ob-status" id="ob-model-status"></span>
+                        </div>
+                        <details id="ob-cloud-more">
+                            <summary>Use different models for scoring</summary>
+                            <div class="form-row-2" style="margin-top:8px">
+                                <div class="form-group"><label>Scoring</label><select id="ob-cloud-scoring" onchange="obReadForm()"><option value="">Same as Writing model</option></select></div>
+                                <div class="form-group"><label>Quick helpers</label><select id="ob-cloud-helpers" onchange="obReadForm()"><option value="">Same as Writing model</option></select></div>
+                            </div>
+                        </details>
+                        <label class="ai-ondevice-opt"><input type="checkbox" id="ob-cloud-triage" onchange="obReadForm()"> Also download Quick match (about <span id="ob-triage-size">…</span> MB) for faster, free job scoring.</label>
                     </div>
-                    <p class="ob-hint">No server yet? You can continue and configure AI later in Settings &rarr; Integrations.</p>
+
+                    <div class="ob-sub" id="ob-sub-advanced" style="display:none">
+                        <div class="form-group"><label>Provider <span class="hint">(shortcut)</span></label><select id="ob-adv-provider" onchange="obAdvProvider(this.value)"></select></div>
+                        <div class="form-group"><label>Server base URL</label><input type="text" id="ob-ai-url" placeholder="https://your-server/v1" onchange="obReadForm()"></div>
+                        <div class="form-group"><label>API key <span class="hint">(optional)</span></label><input type="password" id="ob-ai-api-key" autocomplete="off" onchange="obReadForm()"></div>
+                        <div style="display:flex;gap:10px;align-items:center;margin:8px 0 4px">
+                            <button class="btn btn-secondary btn-sm" onclick="obTestAI()">Load models</button>
+                            <span id="ob-adv-status" class="ob-status"></span>
+                        </div>
+                        <div class="form-row-3" style="margin-top:14px">
+                            <div class="form-group"><label>Writing <span class="hint">(strong)</span></label><select id="ob-ai-model-strong" onchange="obReadForm()"><option value="">—</option></select></div>
+                            <div class="form-group"><label>Navigator <span class="hint">(fast)</span></label><select id="ob-ai-model-fast" onchange="obReadForm()"><option value="">—</option></select></div>
+                            <div class="form-group"><label>Quick helpers <span class="hint">(utility)</span></label><select id="ob-ai-model-utility" onchange="obReadForm()"><option value="">—</option></select></div>
+                        </div>
+                        <div class="form-row-2">
+                            <div class="form-group"><label>Job scoring</label>
+                                <select id="ob-adv-scoring" onchange="obReadForm()">
+                                    <option value="strong">Writing model</option>
+                                    <option value="fast">Navigator model</option>
+                                    <option value="utility">Quick helpers model</option>
+                                    <option value="local-match-model">Quick match (on-device, free)</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>&nbsp;</label>
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="ob-adv-nli" onchange="obReadForm()"> Local match (smarter Apply Assist, on-device)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ob-exit" id="ob-ai-exit">
+                        <span id="ob-ai-status" class="ob-status"></span>
+                        <a href="#" class="ob-link" id="ob-ai-details-btn" style="display:none" onclick="obToggleDetails(); return false">Show details</a>
+                        <pre id="ob-ai-details" class="ob-details" style="display:none"></pre>
+                        <div id="ob-ai-fail-actions" style="display:none;margin-top:8px">
+                            <button class="btn btn-secondary btn-sm" onclick="obContinueAnyway()">Continue anyway</button>
+                        </div>
+                    </div>
+                    <p class="ob-hint"><a href="#" class="ob-link" id="ob-ai-later" onclick="obSetupLater(); return false">Set up AI later</a></p>
                 </div>
 
                 <!-- Step 1: Resume / LinkedIn -->

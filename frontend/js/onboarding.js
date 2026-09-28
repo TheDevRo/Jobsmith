@@ -8,9 +8,11 @@
 const OB_STEPS = 5;
 // rerun: wizard opened with an already-populated profile — finish goes
 // through the Review-changes diff panel instead of overwriting config.
-// onDevice: the user picked Apple Intelligence on the AI step, which also
-// moves fit-scoring onto the fast tier when the payload is built.
-let _obState = { step: 0, parsed: null, open: false, rerun: false, diff: [], onDevice: false };
+// ai: step 0's snapshot (see obCollectAI). only: 'ai' when opened from
+// Settings → AI → Change setup… (step 0 alone, back to Settings when done).
+// aiPending: a re-run's tested-but-unsaved AI choice, written by the Review step.
+let _obState = { step: 0, parsed: null, open: false, rerun: false, diff: [],
+                 ai: { mode: '' }, onDeviceStatus: null, only: '', aiPending: null, aiLater: false, cloudWriting: '' };
 
 document.addEventListener('DOMContentLoaded', () => { obCheckStatus(); });
 
@@ -18,7 +20,7 @@ async function obCheckStatus() {
     try {
         const s = await api('/api/onboarding/status');
         window._onbStatus = s;  // A3: reused by the checklist instead of refetching
-        if (s.needs_onboarding) { obOpen({ aiStatus: s.ai }); return; }
+        if (s.needs_onboarding) { obOpen({ status: s }); return; }
         if (!s.tour_complete) {
             // C1 — the tour narrates a UI full of jobs; on an empty app it
             // points at blank panes. Only auto-start when there is data to
@@ -68,38 +70,77 @@ function obTourOffer() {
     });
 }
 
-function obOpen({ aiStatus } = {}) {
+function obOpen({ status, only = '' } = {}) {
     _obState.step = 0;
     _obState.parsed = null;
     _obState.open = true;
-    _obState.onDevice = false;
+    _obState.only = only;
+    _obState.aiPending = null;
+    _obState.aiLater = false;
+    _obState.cloudWriting = '';
+    _obState.ai = _obNewAI();
     document.getElementById('onboarding-overlay').style.display = 'flex';
+    document.getElementById('ob-stepper').style.display = only ? 'none' : '';
+    obSelectMode('');
     obGoto(0);
-    obLoadPrefill().then(() => {
-        if (aiStatus) obApplyAIStatus(aiStatus);
-        else obTestAI(true);
-    });
+    // Status first (the Local card's real state on first paint), then the
+    // presets and saved values, which pick the saved mode back up.
+    const statusP = status ? Promise.resolve(status) : api('/api/onboarding/status').catch(() => ({}));
+    statusP.then(obApplyAIStatus);
+    obLoadSizes();
+    Promise.all([statusP, obLoadProviders(), obLoadPrefill()]).then(([s, , cfg]) => obPrefillAI(s || {}, cfg));
+}
+
+// Re-opening the wizard shows the saved choice (setup_mode + ai.provider).
+function obPrefillAI(s, cfg) {
+    const ai = (cfg && cfg.ai) || {};
+    const models = ai.models || {};
+    const mode = s.setup_mode || '';
+    if (mode === 'cloud' && ai.provider) {
+        const sel = document.getElementById('ob-cloud-provider');
+        sel.value = ai.provider;
+        if (sel.value === ai.provider) {
+            obSelectMode('cloud');
+            if (ai.provider === 'custom') document.getElementById('ob-cloud-url').value = ai.base_url || '';
+            document.getElementById('ob-cloud-key').value = ai.api_key || '';
+            obSelectProvider(ai.provider, { keepUrl: true });
+            _obState.cloudWriting = models.strong?.model || '';
+            const free = document.getElementById('ob-model-id');
+            if (free) free.value = _obState.cloudWriting;
+            obReadForm();
+        }
+    } else if (mode === 'local' && _obLocalAvailable()) {
+        obSelectMode('local');
+    } else if (mode === 'advanced') {
+        obSelectMode('advanced');
+    }
 }
 
 function obHide() {
     document.getElementById('onboarding-overlay').style.display = 'none';
     _obState.open = false;
+    _obState.only = '';
 }
 
 async function obLoadPrefill() {
+    let cfg = null;
     try {
-        const cfg = await api('/api/config');
+        cfg = await api('/api/config');
         const p = cfg.profile || {};
         const isExample = !p.full_name || p.full_name === 'Jane Doe' || p.email === 'jane.doe@example.com';
         _obState.rerun = !isExample;
         const reviewChip = document.getElementById('ob-step-review');
         if (reviewChip) reviewChip.style.display = _obState.rerun ? '' : 'none';
-        document.getElementById('ob-ai-url').value = cfg.ai?.base_url || 'http://localhost:1234/v1';
+        // Advanced starts from today's saved values; Cloud is filled by obPrefillAI.
+        document.getElementById('ob-ai-url').value = cfg.ai?.base_url || '';
         document.getElementById('ob-ai-api-key').value = cfg.ai?.api_key || '';
+        document.getElementById('ob-adv-scoring').value = cfg.ai?.scoring_tier || 'strong';
+        document.getElementById('ob-adv-nli').checked = !!cfg.ai?.nli_beta?.enabled;
         const models = cfg.ai?.models || {};
         document.getElementById('ob-ai-model-strong').dataset.preferred = models.strong?.model || '';
         document.getElementById('ob-ai-model-fast').dataset.preferred = models.fast?.model || '';
         document.getElementById('ob-ai-model-utility').dataset.preferred = models.utility?.model || '';
+        obPopulateModels([]);
         if (!isExample) {
             document.getElementById('ob-name').value = p.full_name || '';
             document.getElementById('ob-email').value = p.email || '';
@@ -127,6 +168,7 @@ async function obLoadPrefill() {
         document.getElementById('ob-adzuna-app-key').value = k.adzuna_app_key || '';
         document.getElementById('ob-bls-key').value = cfg.salary_estimator?.bls?.api_key || '';
     } catch (e) { console.error('obLoadPrefill failed', e); }
+    return cfg;
 }
 
 function obGoto(step) {
@@ -139,6 +181,7 @@ function obGoto(step) {
     document.getElementById('ob-back').style.visibility = step === 0 ? 'hidden' : 'visible';
     const nextBtn = document.getElementById('ob-next');
     if (step === 5) nextBtn.textContent = 'Apply selected ✓';
+    else if (step === 0) nextBtn.textContent = 'Continue →';
     else if (step === OB_STEPS - 1) nextBtn.textContent = _obState.rerun ? 'Review changes →' : 'Finish ✓';
     else nextBtn.textContent = 'Next →';
     const body = document.querySelector('.ob-body');
@@ -149,6 +192,7 @@ function obBack() { if (_obState.step > 0) obGoto(_obState.step - 1); }
 
 function obNext() {
     const step = _obState.step;
+    if (step === 0) { obAIContinue(); return; }
     if (step === 2 && !obValidateProfile()) return;
     if (step === 5) { obApplyDiff(); return; }
     if (step === OB_STEPS - 1) {
@@ -160,6 +204,7 @@ function obNext() {
 }
 
 async function obSkip() {
+    if (_obState.only) { obHide(); return; }  // Change setup…: just close
     if (!(await appConfirm('Skip first-time setup? You can re-run it anytime from Settings → App.'))) return;
     try { await api('/api/onboarding/complete', { method: 'POST', body: '{}' }); } catch (e) {}
     obHide();
@@ -194,84 +239,375 @@ function obFirstFetchNudge() {
 
 function obRelaunch() { obOpen(); }
 
-// --- AI step ---
-async function obTestAI(silent) {
-    const url = document.getElementById('ob-ai-url').value.trim();
-    const apiKey = document.getElementById('ob-ai-api-key').value.trim();
-    const statusEl = document.getElementById('ob-ai-status');
-    statusEl.className = 'ob-status busy';
-    statusEl.textContent = silent ? 'Checking…' : 'Testing…';
-    try { await api('/api/config', { method: 'POST', body: JSON.stringify({ ai: { base_url: url, api_key: apiKey } }) }); } catch (e) {}
+// Settings → AI → Change setup…: step 0 only, then back to Settings.
+function obChangeSetup() { obOpen({ only: 'ai' }); }
+
+// --- AI step (Setup Assistant: Local / Cloud / Advanced) ---
+// _obState.ai is the one snapshot of what step 0 decided; obCollectAI() rebuilds
+// it from the form, and the shared exit (obAIContinue) tests then saves exactly
+// that snapshot — so nothing stale (bug: the old onDevice flag) can leak in.
+const OB_ON_DEVICE_MODEL = 'apple-on-device';  // the sentinel the backend routes on (apple_bridge)
+const OB_QUICK_MATCH = 'local-match-model';    // ai.scoring_tier value for Quick match
+// Model ids that are obviously not chat models; hidden unless "Show all models".
+const OB_NON_CHAT = /embed|whisper|tts|rerank|moderation|dall-e|image/i;
+let _obProviders = [];   // GET /api/ai/providers — Custom is appended here, not in the list
+let _obModels = [];      // the Cloud picker's last fetched list
+let _obAdvModels = [];   // Advanced "Load models" result
+let _obKeyTimer = 0;
+
+function _obNewAI(mode = '') {
+    return { mode, provider: null, base_url: null, api_key: null,
+             models: { strong: '', fast: '', utility: '' },
+             scoring_tier: 'strong', nli: null, triage: false };
+}
+
+function _obVal(id) { const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; }
+
+// Custom URL clean-up: add a scheme, drop a pasted /chat/completions suffix.
+function obNormalizeUrl(u) {
+    u = (u || '').trim();
+    if (!u) return '';
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'https://' + u;
+    return u.replace(/\/+$/, '').replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+}
+
+function obFilterModels(models, query, showAll) {
+    const q = (query || '').trim().toLowerCase();
+    return (models || []).filter(m => (showAll || !OB_NON_CHAT.test(m)) && (!q || m.toLowerCase().includes(q)));
+}
+
+async function obLoadProviders() {
+    try { _obProviders = await api('/api/ai/providers'); } catch (e) { _obProviders = []; }
+    const opts = _obProviders.map(p => '<option value="' + esc(p.name) + '">' + esc(p.name) + '</option>').join('');
+    const cloud = document.getElementById('ob-cloud-provider');
+    const cur = cloud.value;
+    cloud.innerHTML = '<option value="">Choose a provider…</option>' + opts + '<option value="custom">Custom</option>';
+    cloud.value = cur;
+    const adv = document.getElementById('ob-adv-provider');
+    adv.innerHTML = '<option value="">Custom / other</option>' + opts;
+}
+
+// "about N MB" is computed from the pinned file sizes the backend reports.
+async function obLoadSizes() {
+    const mb = b => Math.round((b || 0) / 1e6);
     try {
-        const s = await api('/api/ai/status');
-        obApplyAIStatus({ ok: s.ok, models: s.models || [], error: s.error, on_device: s.on_device });
-    } catch (e) {
-        statusEl.className = 'ob-status err';
-        statusEl.textContent = 'Connection failed';
-    }
+        const [t, n] = await Promise.all([api('/api/ai/triage/status'), api('/api/ai/nli/status')]);
+        document.getElementById('ob-local-size').textContent = mb((t.size_bytes || 0) + (n.size_bytes || 0));
+        document.getElementById('ob-triage-size').textContent = mb(t.size_bytes);
+    } catch (e) { /* the copy keeps its "…" placeholder */ }
 }
 
-// The on-device sentinel — the same id the backend routes on (apple_bridge).
-const OB_ON_DEVICE_MODEL = 'apple-on-device';
+function _obLocalAvailable() { return !!(_obState.onDeviceStatus && _obState.onDeviceStatus.available); }
 
+function obLocalReason(od) {
+    if (!od || od.available) return '';
+    const r = od.reason || '';
+    if (!od.supported) return (!r || /macOS|Apple Silicon/i.test(r)) ? 'Needs a Mac with Apple silicon on macOS 26+' : r;
+    if (/turned off|not enabled|disabled|turn on|enable/i.test(r)) return 'Turn on Apple Intelligence in System Settings, then tap Check again';
+    if (/download|not ready|preparing/i.test(r)) return 'Apple Intelligence is still downloading its model. Tap Check again in a few minutes.';
+    return r || 'Apple Intelligence is not available right now';
+}
+
+// Paint the Local card from a /api/onboarding/status payload (its on_device field).
 function obApplyAIStatus(s) {
-    const statusEl = document.getElementById('ob-ai-status');
-    const endpointModels = (s.models || []).filter(m => m !== OB_ON_DEVICE_MODEL);
-    if (s.ok && endpointModels.length) {
-        statusEl.className = 'ob-status ok';
-        const n = endpointModels.length;
-        statusEl.textContent = 'Connected — ' + n + ' model' + (n === 1 ? '' : 's') + ' available';
-        obPopulateModels(endpointModels);
-    } else {
-        statusEl.className = 'ob-status err';
-        statusEl.textContent = s.error ? 'Not connected: ' + s.error : 'Not connected';
-        obPopulateModels([]);
-    }
-    // Zero-setup escape hatch: no endpoint answered, but this Mac's built-in
-    // model can take the short-context work today.
-    const offer = document.getElementById('ob-ai-ondevice');
-    if (offer) {
-        const show = !endpointModels.length && !!(s.on_device && s.on_device.available)
-            && !_obState.onDevice;
-        offer.style.display = show ? '' : 'none';
-    }
+    _obState.onDeviceStatus = (s && s.on_device) || { supported: false, available: false, reason: '' };
+    const ok = _obLocalAvailable();
+    document.getElementById('ob-mode-local').disabled = !ok;
+    const reason = document.getElementById('ob-local-reason');
+    reason.textContent = obLocalReason(_obState.onDeviceStatus);
+    reason.style.display = ok ? 'none' : '';
+    document.getElementById('ob-local-recheck').style.display = ok ? 'none' : '';
+    if (!ok && _obState.ai.mode === 'local') obSelectMode('');
+    obPopulateModels(_obAdvModels);  // offer (or drop) Apple Intelligence in Advanced
 }
 
-// Wires the two short-context tiers to Apple Intelligence and points scoring at
-// one of them. `strong` (résumés, cover letters) is deliberately left on the
-// endpoint config — a ~3B on-device model writes documents employers read.
-function obUseAppleIntelligence() {
-    _obState.onDevice = true;
-    ['fast', 'utility'].forEach(tier => {
-        const sel = document.getElementById('ob-ai-model-' + tier);
-        if (!sel) return;
-        if (![...sel.options].some(o => o.value === OB_ON_DEVICE_MODEL)) {
-            const opt = document.createElement('option');
-            opt.value = OB_ON_DEVICE_MODEL;
-            opt.textContent = 'Apple Intelligence (on-device)';
-            sel.appendChild(opt);
-        }
-        sel.value = OB_ON_DEVICE_MODEL;
+async function obCheckLocal() {
+    try { obApplyAIStatus(await api('/api/onboarding/status')); } catch (e) { /* keep the last answer */ }
+}
+
+function obSelectMode(mode) {
+    if (mode === 'local' && !_obLocalAvailable()) return;
+    ['local', 'cloud', 'advanced'].forEach(m => {
+        const card = document.getElementById('ob-mode-' + m);
+        card.classList.toggle('selected', m === mode);
+        card.setAttribute('aria-checked', String(m === mode));
+        document.getElementById('ob-sub-' + m).style.display = m === mode ? '' : 'none';
     });
-    const offer = document.getElementById('ob-ai-ondevice');
-    if (offer) offer.style.display = 'none';
-    const statusEl = document.getElementById('ob-ai-status');
-    if (statusEl) {
-        statusEl.className = 'ob-status ok';
-        statusEl.textContent = 'Using Apple Intelligence on this Mac for scoring and short tasks';
-    }
+    _obState.ai = _obNewAI(mode);
+    obClearExit();
+    obReadForm();
 }
 
+// Local = Apple Intelligence on every tier; Settings and older tests call it by this name.
+function obUseAppleIntelligence() { obSelectMode('local'); }
+
+function obSelectProvider(name, { keepUrl = false } = {}) {
+    const p = _obProviders.find(x => x.name === name);
+    const url = document.getElementById('ob-cloud-url');
+    if (p) url.value = p.base_url;
+    else if (!keepUrl) url.value = '';  // Custom starts empty
+    if (!keepUrl) document.getElementById('ob-cloud-key').value = '';  // keys are per provider
+    url.readOnly = !!p;
+    document.getElementById('ob-cloud-edit-url').style.display = p ? '' : 'none';
+    document.getElementById('ob-cloud-url-help').style.display = name === 'custom' ? '' : 'none';
+    document.getElementById('ob-cloud-key-opt').style.display = p ? 'none' : '';  // a preset needs a key
+    const link = document.getElementById('ob-cloud-key-link');
+    link.style.display = p ? '' : 'none';
+    if (p) link.href = p.key_url;
+    _obModels = [];
+    _obState.cloudWriting = '';
+    document.getElementById('ob-model-picker').style.display = 'none';
+    document.getElementById('ob-model-free').style.display = 'none';
+    document.getElementById('ob-model-status').textContent = '';
+    obUrlWarn();
+    obClearExit();
+    obReadForm();
+    if (name === 'custom' ? !!url.value : (p && _obVal('ob-cloud-key'))) obListModels();
+}
+
+// "Edit address": switch to Custom but keep the preset's URL to edit.
+function obEditAddress() {
+    document.getElementById('ob-cloud-provider').value = 'custom';
+    obSelectProvider('custom', { keepUrl: true });
+}
+
+function obUrlWarn() {
+    const custom = _obVal('ob-cloud-provider') === 'custom';
+    const url = _obVal('ob-cloud-url');
+    // Presets (Gemini's path is /v1beta/openai) never warn; Custom warns, never blocks.
+    document.getElementById('ob-cloud-url-warn').style.display =
+        custom && url && !/\/v1$/.test(obNormalizeUrl(url)) ? '' : 'none';
+}
+
+function obCloudUrlChanged() {
+    const el = document.getElementById('ob-cloud-url');
+    el.value = obNormalizeUrl(el.value);
+    obUrlWarn();
+    obReadForm();
+    if (_obVal('ob-cloud-provider') === 'custom' && el.value) obListModels();
+}
+
+function obKeyTyped() {
+    clearTimeout(_obKeyTimer);
+    _obKeyTimer = setTimeout(obListModels, 700);
+}
+
+async function obListModels() {
+    clearTimeout(_obKeyTimer);
+    obReadForm();
+    const ai = _obState.ai;
+    if (ai.mode !== 'cloud' || !ai.base_url || !ai.provider) return;
+    if (ai.provider !== 'custom' && !ai.api_key) return;  // presets list after a key is entered
+    const st = document.getElementById('ob-model-status');
+    st.className = 'ob-status busy';
+    st.textContent = 'Loading models…';
+    let r;
+    try {
+        r = await api('/api/ai/models', { method: 'POST', body: JSON.stringify({ base_url: ai.base_url, api_key: ai.api_key || '' }) });
+    } catch (e) { r = { ok: false, models: [], message: _obApiDetail(e) }; }
+    _obModels = (r.models || []).filter(m => m !== OB_ON_DEVICE_MODEL);
+    const failed = !r.ok || !_obModels.length;
+    document.getElementById('ob-model-picker').style.display = failed ? 'none' : '';
+    document.getElementById('ob-model-free').style.display = failed ? '' : 'none';
+    document.getElementById('ob-model-error').textContent = failed
+        ? (r.message || 'This server did not list any models.') + ' Type the model ID instead.' : '';
+    st.className = 'ob-status';
+    st.textContent = failed ? '' : _obModels.length + ' model' + (_obModels.length === 1 ? '' : 's');
+    obRenderModelList();
+}
+
+function obRenderModelList() {
+    const showAll = document.getElementById('ob-model-showall').checked;
+    const shown = obFilterModels(_obModels, _obVal('ob-model-search'), showAll);
+    const list = document.getElementById('ob-model-list');
+    list.innerHTML = shown.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
+    list.value = _obState.cloudWriting || '';  // never models[0]
+    const chat = obFilterModels(_obModels, '', false);
+    ['ob-cloud-scoring', 'ob-cloud-helpers'].forEach(id => {
+        const sel = document.getElementById(id);
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">Same as Writing model</option>'
+            + chat.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
+        sel.value = chat.includes(cur) ? cur : '';
+    });
+}
+
+function obPickWriting(v) {
+    _obState.cloudWriting = (v || '').trim();
+    obClearExit();
+    obReadForm();
+}
+
+// Advanced: the preset picker is a shortcut that fills the URL (still editable).
+function obAdvProvider(name) {
+    const p = _obProviders.find(x => x.name === name);
+    if (p) document.getElementById('ob-ai-url').value = p.base_url;
+    obReadForm();
+}
+
+// Advanced "Load models": lists with the typed values; saves nothing.
+async function obTestAI() {
+    const statusEl = document.getElementById('ob-adv-status');
+    const base_url = obNormalizeUrl(_obVal('ob-ai-url'));
+    statusEl.className = 'ob-status busy';
+    statusEl.textContent = 'Loading…';
+    let r;
+    try {
+        r = await api('/api/ai/models', { method: 'POST', body: JSON.stringify({ base_url, api_key: _obVal('ob-ai-api-key') }) });
+    } catch (e) { r = { ok: false, models: [], message: _obApiDetail(e) }; }
+    const models = (r.models || []).filter(m => m !== OB_ON_DEVICE_MODEL);
+    _obAdvModels = models;
+    statusEl.className = 'ob-status ' + (r.ok ? 'ok' : 'err');
+    statusEl.textContent = r.ok ? models.length + ' model' + (models.length === 1 ? '' : 's') + ' available' : (r.message || 'Not connected');
+    obPopulateModels(models);
+}
+
+// Advanced tier pickers: Apple Intelligence (when available) + the listed
+// models. No auto-pick — a tier keeps its saved/current value or stays empty.
 function obPopulateModels(models) {
     ['strong', 'fast', 'utility'].forEach(tier => {
         const sel = document.getElementById('ob-ai-model-' + tier);
-        const preferred = sel.dataset.preferred || sel.value || '';
-        const opts = ['<option value="">—</option>']
-            .concat(models.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>'));
-        sel.innerHTML = opts.join('');
-        if (preferred && models.includes(preferred)) sel.value = preferred;
-        else if (models.length) sel.value = models[0];
+        const preferred = sel.value || sel.dataset.preferred || '';
+        const ids = [];
+        if (_obLocalAvailable()) ids.push(OB_ON_DEVICE_MODEL);
+        (models || []).forEach(m => { if (!ids.includes(m)) ids.push(m); });
+        if (preferred && !ids.includes(preferred)) ids.push(preferred);  // never lose a saved tier
+        sel.innerHTML = '<option value="">—</option>' + ids.map(m => '<option value="' + esc(m) + '">'
+            + (m === OB_ON_DEVICE_MODEL ? 'Apple Intelligence (on-device)' : esc(m)) + '</option>').join('');
+        sel.value = preferred;
     });
+    obReadForm();
+}
+
+// Rebuild the step-0 snapshot from the form for the chosen mode.
+function obCollectAI() {
+    const mode = _obState.ai.mode;
+    const ai = _obNewAI(mode);
+    const S = OB_ON_DEVICE_MODEL;
+    if (mode === 'local') {
+        const dl = document.getElementById('ob-local-downloads').checked;
+        ai.models = { strong: S, fast: S, utility: S };
+        ai.scoring_tier = dl ? OB_QUICK_MATCH : 'strong';  // until Quick match is ready, the strong tier (Apple) scores
+        ai.nli = dl ? true : null;
+        ai.triage = dl;
+    } else if (mode === 'cloud') {
+        const w = _obState.cloudWriting || '';
+        const scoring = _obVal('ob-cloud-scoring');
+        ai.provider = _obVal('ob-cloud-provider') || null;
+        ai.base_url = obNormalizeUrl(_obVal('ob-cloud-url'));
+        ai.api_key = _obVal('ob-cloud-key');
+        ai.models = { strong: w, fast: scoring || w, utility: _obVal('ob-cloud-helpers') || w };
+        ai.triage = document.getElementById('ob-cloud-triage').checked;
+        ai.scoring_tier = ai.triage ? OB_QUICK_MATCH : (scoring ? 'fast' : 'strong');
+    } else if (mode === 'advanced') {
+        const url = obNormalizeUrl(_obVal('ob-ai-url'));
+        const preset = _obProviders.find(p => p.name === _obVal('ob-adv-provider'));
+        ai.provider = preset && preset.base_url === url ? preset.name : 'custom';
+        ai.base_url = url || null;
+        ai.api_key = _obVal('ob-ai-api-key');
+        ai.models = { strong: _obVal('ob-ai-model-strong'), fast: _obVal('ob-ai-model-fast'), utility: _obVal('ob-ai-model-utility') };
+        ai.scoring_tier = _obVal('ob-adv-scoring') || 'strong';
+        ai.triage = ai.scoring_tier === OB_QUICK_MATCH;
+        ai.nli = document.getElementById('ob-adv-nli').checked;
+    }
+    return ai;
+}
+
+function obReadForm() { _obState.ai = obCollectAI(); }
+
+function obClearExit() {
+    const st = document.getElementById('ob-ai-status');
+    st.className = 'ob-status';
+    st.textContent = '';
+    document.getElementById('ob-ai-details-btn').style.display = 'none';
+    document.getElementById('ob-ai-details').style.display = 'none';
+    document.getElementById('ob-ai-fail-actions').style.display = 'none';
+}
+
+function obExitError(message, detail, canContinue) {
+    const st = document.getElementById('ob-ai-status');
+    st.className = 'ob-status err';
+    st.textContent = message;
+    document.getElementById('ob-ai-details').textContent = detail || '';
+    document.getElementById('ob-ai-details-btn').style.display = detail ? '' : 'none';
+    document.getElementById('ob-ai-fail-actions').style.display = canContinue ? '' : 'none';
+}
+
+function obToggleDetails() {
+    const d = document.getElementById('ob-ai-details');
+    d.style.display = d.style.display === 'none' ? '' : 'none';
+}
+
+function obAIPayload(ai, verified) {
+    return { mode: ai.mode, provider: ai.provider, base_url: ai.base_url, api_key: ai.api_key,
+             models: ai.models, scoring_tier: ai.scoring_tier, nli: ai.nli, triage: ai.triage, verified };
+}
+
+// Shared exit: a real 1-token test of the Writing model, then save the AI
+// section at once (so the Résumé step uses it). A re-run defers the write to
+// the Review step; "Change setup…" saves and returns to Settings.
+async function obAIContinue({ anyway = false } = {}) {
+    obReadForm();
+    const ai = _obState.ai;
+    if (!ai.mode) { obExitError('Choose Local, Cloud or Advanced, or set up AI later.'); return; }
+    if (!ai.models.strong) {
+        obExitError(ai.mode === 'advanced' ? 'The Writing tier is empty. Pick a Writing model first.' : 'Pick a Writing model first.');
+        return;
+    }
+    if (!anyway) {
+        const st = document.getElementById('ob-ai-status');
+        st.className = 'ob-status busy';
+        st.textContent = 'Testing…';
+        let r;
+        try {
+            r = await api('/api/ai/test-chat', { method: 'POST', body: JSON.stringify({
+                base_url: ai.mode === 'local' ? '' : (ai.base_url || ''), api_key: ai.api_key || '', model: ai.models.strong }) });
+        } catch (e) { r = { ok: false, message: _obApiDetail(e), detail: String(e.message || e) }; }
+        if (!r.ok) { obExitError(r.message || 'The test failed', r.detail, true); return; }
+    }
+    _obState.aiLater = false;
+    if (_obState.rerun && !_obState.only) {
+        _obState.aiPending = { ...ai, verified: !anyway };
+    } else {
+        try {
+            await api('/api/onboarding/ai', { method: 'POST', body: JSON.stringify(obAIPayload(ai, !anyway)) });
+        } catch (e) { obExitError('Could not save: ' + _obApiDetail(e)); return; }
+        if (ai.triage || ai.nli) obDownloadChip();
+    }
+    obClearExit();
+    if (_obState.only) {
+        obHide();
+        toast('AI setup saved.', 'success');
+        if (location.hash === '#settings' && typeof loadSettings === 'function') loadSettings();
+        if (typeof checkAIStatus === 'function') checkAIStatus();
+        return;
+    }
+    obGoto(1);
+}
+
+function obContinueAnyway() { obAIContinue({ anyway: true }); }
+
+// Saves nothing AI-related.
+function obSetupLater() {
+    _obState.aiPending = null;
+    _obState.aiLater = true;
+    if (_obState.only) { obHide(); return; }
+    obGoto(1);
+}
+
+// Header chip while the on-device models download (also shown in Settings → AI).
+async function obDownloadChip() {
+    const chip = document.getElementById('ob-dl-chip');
+    if (!chip) return;
+    let t, n;
+    try { [t, n] = await Promise.all([api('/api/ai/triage/status'), api('/api/ai/nli/status')]); }
+    catch (e) { chip.style.display = 'none'; return; }
+    const active = [t, n].filter(s => s && s.state === 'downloading');
+    if (!active.length) { chip.style.display = 'none'; return; }
+    const pct = Math.round(100 * active.reduce((a, s) => a + (s.progress || 0), 0) / active.length);
+    document.getElementById('ob-dl-chip-text').textContent = 'Downloading local models… ' + pct + '%';
+    chip.style.display = '';
+    setTimeout(obDownloadChip, 3000);
 }
 
 // --- Resume step ---
@@ -550,24 +886,31 @@ function obBuildPayload() {
             min_salary: parseInt(document.getElementById('ob-salary').value, 10) || 0,
             exclude_keywords: obSplitCsv(document.getElementById('ob-exclude').value),
         },
-        ai: {
-            base_url: document.getElementById('ob-ai-url').value.trim(),
-            api_key: document.getElementById('ob-ai-api-key').value.trim(),
-            // On-device: fit-scoring moves to the fast tier, which is the one
-            // now running on Apple Intelligence (default is 'strong').
-            ...(_obState.onDevice ? { scoring_tier: 'fast' } : {}),
-            models: {
-                strong: { model: document.getElementById('ob-ai-model-strong').value },
-                fast: { model: document.getElementById('ob-ai-model-fast').value },
-                utility: { model: document.getElementById('ob-ai-model-utility').value },
-            },
-        },
+        // AI is saved by step 0's shared exit; only a re-run carries it here,
+        // for the Review step to diff.
+        ...(_obState.aiPending ? { ai: obPendingAI(_obState.aiPending) } : {}),
         api_keys: {
             adzuna_app_id: document.getElementById('ob-adzuna-app-id').value.trim(),
             adzuna_app_key: document.getElementById('ob-adzuna-app-key').value.trim(),
         },
         salary_estimator: { bls: { api_key: document.getElementById('ob-bls-key').value.trim() } },
     };
+}
+
+function obPendingAI(p) {
+    const ai = {
+        scoring_tier: p.scoring_tier,
+        models: {
+            strong: { model: p.models.strong },
+            fast: { model: p.models.fast },
+            utility: { model: p.models.utility },
+        },
+    };
+    if (p.provider != null) ai.provider = p.provider;
+    if (p.base_url != null) ai.base_url = p.base_url;
+    if (p.api_key != null) ai.api_key = p.api_key;
+    if (p.nli != null) ai.nli_beta = { enabled: p.nli };
+    return ai;
 }
 
 async function obFinish() {
@@ -623,8 +966,11 @@ const OB_DIFF_FIELDS = [
     { label: 'Minimum salary', path: ['search', 'min_salary'],
       eq: (a, b) => Number(a || 0) === Number(b || 0) },
     { label: 'Exclude keywords', path: ['search', 'exclude_keywords'] },
-    { label: 'AI server URL', path: ['ai', 'base_url'] },
-    { label: 'AI API key', path: ['ai', 'api_key'], secret: true },
+    // AI rows exist only when step 0 was completed in this re-run; an absent
+    // value (e.g. Local leaves the server alone) is "no change".
+    { label: 'AI provider', path: ['ai', 'provider'], eq: (cur, nxt) => nxt === undefined || (cur || '') === nxt },
+    { label: 'AI server URL', path: ['ai', 'base_url'], eq: (cur, nxt) => nxt === undefined || (cur || '') === nxt },
+    { label: 'AI API key', path: ['ai', 'api_key'], secret: true, eq: (cur, nxt) => nxt === undefined || (cur || '') === nxt },
     { label: 'AI models', path: ['ai', 'models'], skipIfEmptyNew: true,
       // Tier-wise merge so applying model picks keeps per-tier base_url/api_key overrides
       merge: (cur, nxt) => {
@@ -636,10 +982,11 @@ const OB_DIFF_FIELDS = [
           return out;
       },
       fmt: v => ['strong', 'fast', 'utility'].map(t => `${t}: ${(v || {})[t]?.model || '—'}`).join(', ') },
-    // Only present in the payload when the wizard moved scoring on-device, so
-    // an absent value is "no change" rather than a reset to the default.
+    // Absent (no AI step in this re-run) is "no change", not a reset.
     { label: 'AI scoring tier', path: ['ai', 'scoring_tier'],
       eq: (cur, nxt) => !nxt || (cur || 'strong') === nxt },
+    { label: 'Local match', path: ['ai', 'nli_beta', 'enabled'],
+      eq: (cur, nxt) => nxt === undefined || !!cur === nxt },
     { label: 'Adzuna App ID', path: ['api_keys', 'adzuna_app_id'] },
     { label: 'Adzuna App Key', path: ['api_keys', 'adzuna_app_key'], secret: true },
     { label: 'BLS API key', path: ['salary_estimator', 'bls', 'api_key'], secret: true },
@@ -728,6 +1075,18 @@ async function obApplyDiff() {
     try {
         if (Object.keys(payload).length) {
             await api('/api/config', { method: 'POST', body: JSON.stringify(payload) });
+        }
+        // The AI values went through /api/config above; this records the mode
+        // (per device) and starts any downloads the applied rows asked for.
+        const p = _obState.aiPending;
+        const applied = label => selected.some(r => r.field.label === label);
+        if (p && selected.some(r => r.field.path[0] === 'ai')) {
+            await api('/api/onboarding/ai', { method: 'POST', body: JSON.stringify({
+                mode: p.mode, verified: p.verified,
+                triage: !!p.triage && applied('AI scoring tier'),
+                nli: applied('Local match') ? p.nli : null,
+            }) });
+            if ((p.triage && applied('AI scoring tier')) || (p.nli && applied('Local match'))) obDownloadChip();
         }
         await api('/api/onboarding/complete', { method: 'POST', body: '{}' });
         toast(selected.length

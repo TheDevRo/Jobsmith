@@ -166,6 +166,28 @@ async def test_ping_without_model_does_not_call(fake_openai):
 
 
 @pytest.mark.asyncio
+async def test_ping_without_url_does_not_call(fake_openai):
+    r = await ai_engine.ping_chat("  ", "k", "m1")
+    assert r["ok"] is False and r["code"] == "no_url"
+    assert fake_openai.calls == []
+
+
+def test_list_models_endpoint_uses_request_values(client, config_path, monkeypatch):
+    seen = {}
+
+    async def conn(cfg):
+        seen.update(cfg["ai"])
+        return {"connected": True, "models": ["a", "text-embedding-3"]}
+    monkeypatch.setattr(ai_engine, "test_connection", conn)
+    before = config_path.read_text()
+    r = client.post("/api/ai/models", json={"base_url": "https://x/v1", "api_key": ""}).json()
+    assert r == {"ok": True, "models": ["a", "text-embedding-3"], "message": "", "detail": ""}
+    assert seen == {"base_url": "https://x/v1", "api_key": ""}
+    assert config_path.read_text() == before
+    assert client.post("/api/ai/models", json={"base_url": ""}).json()["ok"] is False
+
+
+@pytest.mark.asyncio
 async def test_ping_apple_unavailable_reports_reason(fake_openai, monkeypatch):
     async def status(probe=True):
         return {"supported": True, "available": False, "reason": "Apple Intelligence is turned off"}

@@ -219,6 +219,30 @@ async def ai_providers():
     return json.loads(PROVIDERS_PATH.read_text(encoding="utf-8"))
 
 
+class ListModelsRequest(BaseModel):
+    base_url: str = ""
+    api_key: str = ""
+
+
+@router.post("/api/ai/models")
+async def ai_list_models(body: ListModelsRequest):
+    """The model ids a server lists, for the values in the request (the wizard's
+    picker, before anything is saved). Writes no config."""
+    base_url = body.base_url.strip()
+    if not base_url:
+        return {"ok": False, "models": [], "message": "Enter the server address first", "detail": ""}
+    api_key = body.api_key
+    if api_key == SECRET_MASK:
+        api_key = (state.load_config().get("ai") or {}).get("api_key", "")
+    try:
+        res = await asyncio.wait_for(
+            ai_engine.test_connection({"ai": {"base_url": base_url, "api_key": api_key.strip()}}), timeout=20)
+    except asyncio.TimeoutError:
+        res = {"connected": False, "error": f"Could not reach the server at {base_url}", "detail": "timed out"}
+    return {"ok": bool(res.get("connected")), "models": res.get("models", []),
+            "message": res.get("error") or "", "detail": res.get("detail") or ""}
+
+
 class TestChatRequest(BaseModel):
     base_url: str = ""
     api_key: str = ""
@@ -313,11 +337,13 @@ async def get_config(
         "auto_apply": cfg.get("auto_apply", {}),
         "ai": {
             "base_url": cfg.get("ai", {}).get("base_url", ""),
+            "provider": cfg.get("ai", {}).get("provider", ""),
             "api_key": cfg.get("ai", {}).get("api_key", ""),
             "model": cfg.get("ai", {}).get("model", ""),
             "models": cfg.get("ai", {}).get("models", {}),
             "scoring_tier": cfg.get("ai", {}).get("scoring_tier", "strong"),
             "triage_refine": bool(cfg.get("ai", {}).get("triage_refine", False)),
+            "nli_beta": {"enabled": bool((cfg.get("ai", {}).get("nli_beta") or {}).get("enabled", False))},
             "context_window": cfg.get("ai", {}).get("context_window", 8192),
         },
         "profile": {

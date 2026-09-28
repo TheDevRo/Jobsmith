@@ -1,7 +1,7 @@
 // Apple Intelligence (on-device) UI: the Settings opt-ins must appear ONLY on a
 // machine the backend says can run the model, and the wizard's zero-setup offer
-// must appear only when no endpoint answered — while leaving the `strong` tier
-// (résumés, cover letters) on the configured endpoint.
+// wizard's Local card must paint from the real /api/onboarding/status shape and
+// put every tier (résumés included) on Apple Intelligence.
 //
 // Same jsdom style as the other frontend tests: the real index.html plus the
 // real settings.js / onboarding.js, eval'd as one unit so their top-level
@@ -33,7 +33,7 @@ const doc = window.document;
 // Helpers the two files borrow from core.js / review.js, plus the network stub.
 let statusPayload = { ok: false, models: [], error: "Connection refused" };
 let apiCalls = [];
-window.api = (url) => { apiCalls.push(url); return Promise.resolve(url === "/api/ai/status" ? statusPayload : {}); };
+window.api = (url) => { apiCalls.push(url); return Promise.resolve(url === "/api/ai/status" ? statusPayload : url === "/api/onboarding/status" ? { needs_onboarding: false, tour_complete: true } : {}); };
 window.toast = () => {};
 window.esc = (s) => String(s == null ? "" : s);
 window.splitCsvSmart = (v) => (v || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -98,45 +98,54 @@ const sel = t => doc.getElementById("cfg-ai-model-" + t);
   cb("strong").checked = false;
   window.applyOnDeviceTier("strong");
 
-  // ---- 3. Wizard: the offer only appears when nothing else answered ----
-  const offer = doc.getElementById("ob-ai-ondevice");
-  const obSel = t => doc.getElementById("ob-ai-model-" + t);
+  // ---- 3. Wizard: the Local card paints from the real /api/onboarding/status shape ----
+  const realStatus = (on_device) => ({
+    needs_onboarding: true, tour_complete: false, profile_ok: false, extension_paired: false,
+    ai: { ok: false, models: [], error: "Connection refused" },
+    on_device, setup_mode: "", provider: "",
+  });
+  const local = doc.getElementById("ob-mode-local");
+  const reason = doc.getElementById("ob-local-reason");
+  const recheck = doc.getElementById("ob-local-recheck");
 
-  window.obApplyAIStatus({ ok: false, models: [], error: "Connection refused",
-                           on_device: { supported: true, available: false, reason: "off" } });
-  checks.push(["no endpoint + on-device unavailable → no offer", offer.style.display === "none"]);
+  window.obApplyAIStatus(realStatus({ supported: false, available: false, reason: "Apple Intelligence requires macOS 26 on Apple Silicon" }));
+  checks.push(["unsupported Mac → Local card disabled", local.disabled === true]);
+  checks.push(["unsupported Mac → hardware reason shown",
+    reason.style.display !== "none" && reason.textContent === "Needs a Mac with Apple silicon on macOS 26+"]);
+  checks.push(["unavailable → Check again offered", recheck.style.display !== "none"]);
 
-  window.obApplyAIStatus({ ok: true, models: ["big-model"],
-                           on_device: { supported: true, available: true, reason: null } });
-  checks.push(["endpoint answered → no offer (the real model wins)", offer.style.display === "none"]);
+  window.obApplyAIStatus(realStatus({ supported: true, available: false, reason: "Apple Intelligence is turned off" }));
+  checks.push(["turned off → the actionable reason",
+    reason.textContent === "Turn on Apple Intelligence in System Settings, then tap Check again"]);
 
-  window.obApplyAIStatus({ ok: false, models: [], error: "Connection refused",
-                           on_device: { supported: true, available: true, reason: null } });
-  checks.push(["no endpoint + on-device available → offer shown", offer.style.display !== "none"]);
+  window.obApplyAIStatus(realStatus({ supported: true, available: true, reason: null }));
+  checks.push(["available → Local card enabled, no reason, no Check again",
+    local.disabled === false && reason.style.display === "none" && recheck.style.display === "none"]);
 
-  // A status whose only model is the sentinel is still "no endpoint answered".
-  window.obApplyAIStatus({ ok: true, models: [SENTINEL],
-                           on_device: { supported: true, available: true, reason: null } });
-  checks.push(["sentinel-only model list still counts as no endpoint", offer.style.display !== "none"]);
+  // A status payload without on_device (older backend) disables Local.
+  window.obApplyAIStatus({ needs_onboarding: true, ai: { ok: true, models: ["m"] } });
+  checks.push(["status without on_device → Local disabled", local.disabled === true]);
+  window.obApplyAIStatus(realStatus({ supported: true, available: true, reason: null }));
 
-  // ---- 4. Wizard: accepting the offer ----
-  obSel("strong").innerHTML = '<option value="">—</option>';
+  // ---- 4. Wizard: choosing Local = Apple Intelligence on every tier ----
   window.obUseAppleIntelligence();
-  checks.push(["fast tier moves on-device", obSel("fast").value === SENTINEL]);
-  checks.push(["utility tier moves on-device", obSel("utility").value === SENTINEL]);
-  checks.push(["strong (résumés/cover letters) is left alone", obSel("strong").value !== SENTINEL]);
-  checks.push(["the offer is dismissed once taken", offer.style.display === "none"]);
+  let ai = window.obCollectAI();
+  checks.push(["Local puts all three tiers on-device (strong included)",
+    ai.models.strong === SENTINEL && ai.models.fast === SENTINEL && ai.models.utility === SENTINEL]);
+  checks.push(["recommended downloads are pre-checked", doc.getElementById("ob-local-downloads").checked === true]);
+  checks.push(["checked → Quick match scores, Local match on",
+    ai.scoring_tier === "local-match-model" && ai.nli === true && ai.triage === true]);
+  checks.push(["Local leaves the server alone", ai.base_url === null && ai.api_key === null && ai.provider === null]);
 
-  const payload = window.obBuildPayload();
-  checks.push(["payload routes scoring to the on-device tier", payload.ai.scoring_tier === "fast"]);
-  checks.push(["payload writes the sentinel for fast + utility",
-    payload.ai.models.fast.model === SENTINEL && payload.ai.models.utility.model === SENTINEL]);
-  checks.push(["payload leaves strong on the endpoint", payload.ai.models.strong.model !== SENTINEL]);
+  doc.getElementById("ob-local-downloads").checked = false;
+  ai = window.obCollectAI();
+  checks.push(["unchecked → scoring stays on the (Apple) strong tier, Local match untouched",
+    ai.scoring_tier === "strong" && ai.nli === null && ai.triage === false]);
+  doc.getElementById("ob-local-downloads").checked = true;
 
-  // Without the offer taken, the wizard must not touch scoring_tier at all.
-  window._obState.onDevice = false;
-  checks.push(["untaken offer leaves scoring_tier unset",
-    window.obBuildPayload().ai.scoring_tier === undefined]);
+  // Losing availability after the pick drops the Local choice.
+  window.obApplyAIStatus(realStatus({ supported: true, available: false, reason: "Apple Intelligence is turned off" }));
+  checks.push(["Local deselected when it becomes unavailable", window._obState.ai.mode === ""]);
 
   // Nothing on-device related fetches on its own: the only calls are the
   // wizard's own DOMContentLoaded status check, which jsdom fires for us.

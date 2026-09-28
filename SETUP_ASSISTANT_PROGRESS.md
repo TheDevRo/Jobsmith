@@ -19,7 +19,7 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 | # | Status | Commit |
 |---|--------|--------|
 | M1 shared plumbing (desktop backend) | DONE | (see git log "M1") |
-| M2 desktop wizard step 0 | todo | |
+| M2 desktop wizard step 0 | DONE | (see git log "M2") |
 | M3 desktop fixes | todo | |
 | M4 iOS step 0 | todo | |
 | M5 iOS fixes | todo | |
@@ -62,8 +62,29 @@ No row needed fixing.
   `lm-studio`; blank already falls back to that placeholder). base_url left at localhost:1234.
 - D7 `ai.provider` Swift registry row added in M1 (not M4) because tests/test_sync_crosslang.py
   asserts the two registries match; stale "not keychain" note fixed at the same time.
+- D8 Added `POST /api/ai/models {base_url, api_key}` (not in the PRD's file list): the Cloud picker and
+  Advanced "Load models" must list with the typed, unsaved values (bug 2). Wraps test_connection; writes nothing.
+  `ping_chat` also refuses an empty base_url (the SDK would otherwise default to api.openai.com).
+- D9 Desktop tier mapping for Cloud: Writing = strong, Scoring = fast, Quick helpers = utility. "Same as
+  Writing" fills all three; a separate Scoring model sets `scoring_tier: fast`; the Quick match box sets
+  `local-match-model`. Local: all three = sentinel; box checked → `local-match-model` + nli + triage;
+  unchecked → `strong` (Apple) and nli untouched.
+- D10 Re-run (profile already exists): step-0 Continue only TESTS; the AI choice rides in the Review diff
+  (new rows: AI provider, Local match; URL/key/provider rows treat "absent" as no change). After applying,
+  `POST /api/onboarding/ai {mode, verified, triage?, nli?}` records setup_mode and starts downloads only
+  for applied rows. "Change setup…" (obChangeSetup, `only:'ai'`) saves directly and closes.
+- D11 Switching Cloud provider from the dropdown clears the key (keys are per provider); "Edit address"
+  keeps URL and key. Advanced lists every id (no non-chat filter: "unchanged in power") and always keeps a
+  saved tier value as an option so re-runs never lose tiers.
+- D12 Download chip: `#ob-dl-chip` in the top bar, started after a save that asked for downloads, polls
+  triage + nli status every 3 s, hides when nothing is downloading; click → Settings → AI.
+- D13 `GET /api/config` ai now also returns `provider` and `nli_beta.enabled` (wizard prefill + diff).
 
 ## Verification log
 - M1: pytest 1101 passed, 3 skipped (baseline 1073; +28 in tests/test_setup_assistant.py). The only
   existing test changed: tests/test_honesty_prompts.py MINIMAL_CONFIG gained `model: test-model`
   (it relied on the old silent `local-model`). frontend unchanged (423 PASS).
+- M2: pytest 1103 passed, 3 skipped. frontend 486 PASS lines, 14/14 files pass. New
+  frontend/tests/test_setup_modes.js (in test:frontend); test_apple_intelligence.js wizard half rewritten to
+  boot from the real /api/onboarding/status shape (its old "offer only when no endpoint" checks are gone
+  with the offer itself).

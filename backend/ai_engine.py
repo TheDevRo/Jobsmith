@@ -1323,6 +1323,9 @@ async def ping_chat(base_url: str, api_key: str, model: str) -> dict:
                     status.get("reason") or apple_bridge.REASON_UNSUPPORTED)
             await apple_bridge.ensure_started()
             base_url, api_key = apple_bridge.bridge_base_url() or "", _ON_DEVICE_KEY
+        elif not (base_url or "").strip():
+            # An empty base_url would make the SDK fall back to api.openai.com.
+            return {"ok": False, "code": "no_url", "message": "Enter the server address first", "detail": ""}
         async with AsyncOpenAI(base_url=base_url, api_key=api_key or "lm-studio",
                                timeout=PING_TIMEOUT, max_retries=0) as client:
             await client.chat.completions.create(
