@@ -37,7 +37,7 @@ public enum AIEngineError: Error, Equatable, Sendable, LocalizedError {
     }
 }
 
-/// Chat backend for any OpenAI-compatible endpoint (LM Studio, OpenRouter…).
+/// Chat backend for any OpenAI-compatible endpoint (a local server, OpenRouter…).
 public struct OpenAICompatibleEngine: AIEngine {
     public init() {}
 
@@ -64,6 +64,14 @@ public struct OpenAICompatibleEngine: AIEngine {
         return content
     }
 
+    /// The Setup Assistant's test: 1 token, 20 s. Only the HTTP status counts —
+    /// a reasoning model may spend its one token thinking and return no text.
+    /// `testConnection` keeps using /models, for listing only.
+    public func pingChat(model: String, config: AIConfig) async throws {
+        let body: [String: Any] = ["model": model, "messages": [["role": "user", "content": "ping"]], "max_tokens": 1]
+        _ = try await send(path: "chat/completions", method: "POST", body: body, config: config, timeout: 20)
+    }
+
     public func listModels(config: AIConfig) async throws -> [String] {
         let data = try await send(path: "models", method: "GET", body: nil, config: config)
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -74,13 +82,13 @@ public struct OpenAICompatibleEngine: AIEngine {
     }
 
     private func send(path: String, method: String, body: [String: Any]?,
-                      config: AIConfig) async throws -> Data {
+                      config: AIConfig, timeout: TimeInterval = 90) async throws -> Data {
         var base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
         guard !base.isEmpty, let url = URL(string: base + "/" + path) else {
             throw AIEngineError.invalidBaseURL(config.baseURL)
         }
-        var request = URLRequest(url: url, timeoutInterval: 90)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if !config.apiKey.isEmpty {

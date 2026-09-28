@@ -15,12 +15,40 @@ public struct AppleOnDeviceEngine: AIEngine {
     public init() {}
 
     public static var isAvailable: Bool {
+        #if DEBUG
+        if CommandLine.arguments.contains("-NoAppleIntelligence") { return false }
+        #endif
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             return SystemLanguageModel.default.availability == .available
         }
         #endif
         return false
+    }
+
+    /// Why the Local card is greyed out, in words the user can act on; nil when available.
+    public static var unavailableReason: String? {
+        #if DEBUG
+        // UI-test hook: a deterministic "unavailable" whatever the host Mac supports.
+        if CommandLine.arguments.contains("-NoAppleIntelligence") {
+            return "Needs an iPhone with Apple Intelligence on iOS 26+"
+        }
+        #endif
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            switch SystemLanguageModel.default.availability {
+            case .available:
+                return nil
+            case .unavailable(.appleIntelligenceNotEnabled):
+                return "Turn on Apple Intelligence in System Settings, then tap Check again"
+            case .unavailable(.modelNotReady):
+                return "Apple Intelligence is still downloading its model. Tap Check again in a few minutes."
+            case .unavailable:
+                return "Needs an iPhone with Apple Intelligence on iOS 26+"
+            }
+        }
+        #endif
+        return "Needs an iPhone with Apple Intelligence on iOS 26+"
     }
 
     public func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
@@ -114,6 +142,14 @@ public struct EngineRouter: AIEngine {
             return try await onDevice.complete(req, config: config)
         }
         return try await endpoint.complete(req, config: config)
+    }
+
+    public func pingChat(model: String, config: AIConfig) async throws {
+        if model == AIConfig.onDeviceModelID {
+            try await onDevice.pingChat(model: model, config: config)
+        } else {
+            try await endpoint.pingChat(model: model, config: config)
+        }
     }
 
     public func listModels(config: AIConfig) async throws -> [String] {

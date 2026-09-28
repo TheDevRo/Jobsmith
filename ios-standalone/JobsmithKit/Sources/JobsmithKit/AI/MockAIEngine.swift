@@ -82,6 +82,22 @@ public final class MockAIEngine: AIEngine, @unchecked Sendable {
         }
     }
 
+    /// Setup-wizard pings succeed unless a failure is set; the model is recorded.
+    private var pingFailure: Error?
+    public private(set) var pingedModels: [String] = []
+    public func setPingFailure(_ error: Error?) {
+        lock.lock(); defer { lock.unlock() }
+        pingFailure = error
+    }
+
+    public func pingChat(model: String, config: AIConfig) async throws {
+        lock.lock()
+        pingedModels.append(model)
+        let failure = pingFailure
+        lock.unlock()
+        if let failure { throw failure }
+    }
+
     public func listModels(config: AIConfig) async throws -> [String] {
         lock.lock(); defer { lock.unlock() }
         if let modelError { throw MockError(modelError) }

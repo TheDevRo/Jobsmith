@@ -11,13 +11,23 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var apiKeys: APIKeys
     /// Prompt template overrides keyed by template id; defaults live in code.
     public var promptOverrides: [String: String]
+    /// Setup Assistant choice: "local" | "cloud" | "advanced" ("" = not chosen).
+    /// Device-local: not in the settings-sync registry.
+    public var setupMode: String
+    /// Set when the setup wizard is finished or dismissed; gates the wizard on
+    /// launch. Device-local. Configs from before the flag existed decode it as
+    /// "has a profile", so existing users are never re-prompted.
+    public var onboardingComplete: Bool
 
     public init(profile: Profile = Profile(), search: SearchConfig = SearchConfig(),
                 ai: AIConfig = AIConfig(), honesty: HonestyConfig = HonestyConfig(),
-                apiKeys: APIKeys = APIKeys(), promptOverrides: [String: String] = [:]) {
+                apiKeys: APIKeys = APIKeys(), promptOverrides: [String: String] = [:],
+                setupMode: String = "", onboardingComplete: Bool = false) {
         self.profile = profile; self.search = search; self.ai = ai
         self.honesty = honesty; self.apiKeys = apiKeys
         self.promptOverrides = promptOverrides
+        self.setupMode = setupMode
+        self.onboardingComplete = onboardingComplete
     }
 
     // Tolerant decoding, mirroring the sub-structs. Without it a single new
@@ -32,10 +42,12 @@ public struct AppConfig: Codable, Equatable, Sendable {
         honesty = c.lenient(HonestyConfig.self, .honesty, HonestyConfig())
         apiKeys = c.lenient(APIKeys.self, .apiKeys, APIKeys())
         promptOverrides = c.lenient([String: String].self, .promptOverrides, [:])
+        setupMode = c.lenient(String.self, .setupMode, "")
+        onboardingComplete = c.lenient(Bool.self, .onboardingComplete, !profile.isEmpty)
     }
 
     enum CodingKeys: String, CodingKey {
-        case profile, search, ai, honesty, apiKeys, promptOverrides
+        case profile, search, ai, honesty, apiKeys, promptOverrides, setupMode, onboardingComplete
     }
 }
 
@@ -187,9 +199,12 @@ public struct AIConfig: Codable, Equatable, Sendable {
     }
 
     public var engine: EngineKind
-    /// OpenAI-compatible endpoint, e.g. http://192.168.1.x:1234/v1 (LM Studio)
-    /// or https://openrouter.ai/api/v1.
+    /// OpenAI-compatible endpoint, e.g. http://192.168.1.x:1234/v1 (a server on
+    /// your network) or https://openrouter.ai/api/v1. Empty on a new install.
     public var baseURL: String
+    /// The Setup Assistant preset `baseURL` came from (`AIProviderPreset.name`),
+    /// or "custom". Synced with `baseURL` (settings registry `ai.provider`).
+    public var provider: String
     /// Bearer token for the live endpoint. A live credential, so `ConfigStore`
     /// round-trips it through the device Keychain (`SecretKey.aiAPIKey`) rather
     /// than this struct's JSON — see `SecretStore`. It stays a plain property so
@@ -230,7 +245,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
     public var triageUseNeuralEngine: Bool
 
     public init(engine: EngineKind = .openAICompatible,
-                baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
+                baseURL: String = "", apiKey: String = "", provider: String = "",
                 utilityModel: String = "", fastModel: String = "", strongModel: String = "",
                 temperature: Double = 0.7, maxTokens: Int = 16384,
                 preferOnDeviceForLightTasks: Bool = false,
@@ -239,6 +254,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 nliBetaEnabled: Bool = false, nliUseNeuralEngine: Bool = false,
                 triageRefine: Bool = false, triageUseNeuralEngine: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
+        self.provider = provider
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
         self.temperature = temperature; self.maxTokens = maxTokens
@@ -260,6 +276,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         engine = try c.decodeIfPresent(EngineKind.self, forKey: .engine) ?? d.engine
         baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? d.baseURL
         apiKey = try c.decodeIfPresent(String.self, forKey: .apiKey) ?? d.apiKey
+        provider = c.lenient(String.self, .provider, "")
         utilityModel = try c.decodeIfPresent(String.self, forKey: .utilityModel) ?? ""
         fastModel = try c.decodeIfPresent(String.self, forKey: .fastModel) ?? ""
         strongModel = try c.decodeIfPresent(String.self, forKey: .strongModel) ?? ""
@@ -363,13 +380,63 @@ public struct AIConfig: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
+        case engine, baseURL, apiKey, provider, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
         case savedEndpoints, nliBetaEnabled, nliUseNeuralEngine, triageRefine, triageUseNeuralEngine
     }
 
     /// Keys still read (never written) so old configs migrate.
     private enum LegacyKeys: String, CodingKey { case nliScoringPreferLocal }
+}
+
+/// Cloud provider presets for the Setup Assistant — name, base URL, API-key
+/// page. Twin of desktop `backend/ai_providers.json` (same rows, same order;
+/// KitTests.SetupAssistantTests reads that file to enforce it). "Custom" is
+/// not a row: the UI appends it.
+public struct AIProviderPreset: Equatable, Sendable, Identifiable {
+    public let name: String
+    public let baseURL: String
+    public let keyURL: String
+    public var id: String { name }
+
+    public static let all: [AIProviderPreset] = [
+        .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", keyURL: "https://platform.openai.com/api-keys"),
+        .init(name: "Anthropic", baseURL: "https://api.anthropic.com/v1", keyURL: "https://console.anthropic.com/settings/keys"),
+        .init(name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", keyURL: "https://aistudio.google.com/apikey"),
+        .init(name: "xAI (Grok)", baseURL: "https://api.x.ai/v1", keyURL: "https://console.x.ai"),
+        .init(name: "Mistral", baseURL: "https://api.mistral.ai/v1", keyURL: "https://console.mistral.ai/api-keys"),
+        .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", keyURL: "https://console.groq.com/keys"),
+        .init(name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", keyURL: "https://platform.deepseek.com/api_keys"),
+        .init(name: "Together AI", baseURL: "https://api.together.xyz/v1", keyURL: "https://api.together.ai/settings/api-keys"),
+        .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", keyURL: "https://fireworks.ai/account/api-keys"),
+        .init(name: "Cerebras", baseURL: "https://api.cerebras.ai/v1", keyURL: "https://cloud.cerebras.ai"),
+        .init(name: "NVIDIA NIM", baseURL: "https://integrate.api.nvidia.com/v1", keyURL: "https://build.nvidia.com"),
+        .init(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", keyURL: "https://openrouter.ai/keys"),
+    ]
+
+    /// Custom-URL clean-up (desktop `obNormalizeUrl`): add https:// when there
+    /// is no scheme, drop a pasted /chat/completions and trailing slashes.
+    public static func normalize(_ raw: String) -> String {
+        var u = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return "" }
+        if u.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*://", options: .regularExpression) == nil { u = "https://" + u }
+        while u.hasSuffix("/") { u.removeLast() }
+        if u.lowercased().hasSuffix("/chat/completions") { u.removeLast("/chat/completions".count) }
+        while u.hasSuffix("/") { u.removeLast() }
+        return u
+    }
+
+    /// Custom addresses warn (never block) without /v1. Presets never warn.
+    public static func lacksV1(_ raw: String) -> Bool {
+        let u = normalize(raw)
+        return !u.isEmpty && !u.hasSuffix("/v1")
+    }
+
+    /// Model ids that are obviously not chat models (desktop OB_NON_CHAT).
+    public static func isNonChat(_ id: String) -> Bool {
+        id.range(of: "embed|whisper|tts|rerank|moderation|dall-e|image",
+                 options: [.regularExpression, .caseInsensitive]) != nil
+    }
 }
 
 public enum ModelTier: String, Codable, Sendable, CaseIterable {

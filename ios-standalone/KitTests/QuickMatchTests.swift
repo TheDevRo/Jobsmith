@@ -222,8 +222,10 @@ final class QuickMatchTests: XCTestCase {
     func testPlannedSource() {
         XCTAssertEqual(ScoreSource.planned(config: picked, localReady: true, quickReady: true), .quickMatch)
         XCTAssertEqual(ScoreSource.planned(config: picked, localReady: true, quickReady: false), .localModel)
+        // Quick match needs only the pick, not the Local match switch (iOS bug 6).
         var off = picked; off.ai.nliBetaEnabled = false
-        XCTAssertNotEqual(ScoreSource.planned(config: off, localReady: true, quickReady: true), .quickMatch)
+        XCTAssertEqual(ScoreSource.planned(config: off, localReady: true, quickReady: true), .quickMatch)
+        XCTAssertNotEqual(ScoreSource.planned(config: off, localReady: true, quickReady: false), .localModel)
         XCTAssertEqual(ScoreSource.of(matchReport: #"{"scored_by":"triage"}"#, reasoning: nil), .quickMatch)
     }
 
@@ -341,7 +343,7 @@ final class QuickMatchStoreTests: XCTestCase {
         let files = try QuickMatchModel.files.map { NLIModel.File(name: $0.name, size: Int64(bodies[$0.name]!.count), sha256: try sha(bodies[$0.name]!)) }
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [StubServer.self]
-        let s = NLIModelStore(session: URLSession(configuration: cfg), baseURL: URL(string: "https://models.invalid/q")!,
+        let s = NLIModelStore(configuration: cfg, baseURL: URL(string: "https://models.invalid/q")!,
                               files: files, model: QuickMatchModel.spec)
         XCTAssertEqual(s.state, .notInstalled)
         s.install()

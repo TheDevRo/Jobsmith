@@ -459,7 +459,7 @@ final class LocalNLIScoringTests: XCTestCase {
         let viaLocal = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
                                                       config: local, engine: Answering(), nli: { _ in Half() })
         XCTAssertEqual(source(viaLocal), .localModel)
-        XCTAssertEqual(source(viaLocal)?.label, "Local match model")
+        XCTAssertEqual(source(viaLocal)?.label, "Local match")
         // The match report's own fields survive the tag.
         let report = try JSONSerialization.jsonObject(with: Data(viaLocal.matchReportJSON!.utf8)) as! [String: Any]
         XCTAssertNotNil(report["matched_skills"])
@@ -831,7 +831,7 @@ final class NLIModelStoreTests: XCTestCase {
     private func store(_ files: [NLIModel.File]) -> NLIModelStore {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [StubServer.self]
-        return NLIModelStore(session: URLSession(configuration: cfg), baseURL: URL(string: "https://models.invalid/v1")!, files: files)
+        return NLIModelStore(configuration: cfg, baseURL: URL(string: "https://models.invalid/v1")!, files: files)
     }
 
     private func finish(_ s: NLIModelStore) async throws {

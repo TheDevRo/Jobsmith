@@ -65,10 +65,13 @@ public struct LocalModelSpec: Sendable {
     }
 }
 
-/// Download / verify / resume / delete for an on-device model (the Local AI model, or
-/// Quick match via `quickMatch`), observed by the Settings screen. A download that drops keeps its resume data, so Retry
-/// continues where it stopped. The model directory only ever receives verified
-/// files: each download is size- and SHA-256-checked before it is moved in.
+/// Download / verify / resume / delete for an on-device model (Local match, or
+/// Quick match via `quickMatch`), observed by the Settings screen. Downloads run on a
+/// background `URLSession`, so they keep going when the user leaves the screen or the
+/// app is backgrounded (the system finishes them while the app is suspended). A download
+/// that drops keeps its resume data, so Retry continues where it stopped. The model
+/// directory only ever receives verified files: each download is size- and
+/// SHA-256-checked before it is moved in.
 @MainActor
 public final class NLIModelStore: ObservableObject {
     public static let shared = NLIModelStore()
@@ -84,20 +87,30 @@ public final class NLIModelStore: ObservableObject {
     @Published public private(set) var state: State
     private var job: Task<Void, Never>?
     private let session: URLSession
+    private let delegate = DownloadDelegate()
     private let baseURL: URL
     private let files: [NLIModel.File]
     private let makeSpec: @Sendable () -> LocalModelSpec  // re-read each time: tests move the root
     private var model: LocalModelSpec { makeSpec() }
 
-    public convenience init(session: URLSession = .shared, baseURL: URL? = nil, files: [NLIModel.File]? = nil) {
-        self.init(session: session, baseURL: baseURL, files: files, model: NLIModel.spec)
+    /// `configuration` defaults to a background session (one identifier per model
+    /// revision); tests pass an ephemeral one with a stub protocol.
+    public convenience init(configuration: URLSessionConfiguration? = nil, baseURL: URL? = nil,
+                            files: [NLIModel.File]? = nil) {
+        self.init(configuration: configuration, baseURL: baseURL, files: files, model: NLIModel.spec)
     }
 
-    init(session: URLSession = .shared, baseURL: URL? = nil, files: [NLIModel.File]? = nil,
+    init(configuration: URLSessionConfiguration? = nil, baseURL: URL? = nil, files: [NLIModel.File]? = nil,
          model: @autoclosure @escaping @Sendable () -> LocalModelSpec) {
-        self.session = session
         makeSpec = model
         let spec = model()
+        let config = configuration ?? {
+            let c = URLSessionConfiguration.background(withIdentifier: "com.jobsmith.models.\(spec.revision)")
+            c.sessionSendsLaunchEvents = true
+            c.isDiscretionary = false
+            return c
+        }()
+        session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         self.baseURL = baseURL ?? spec.baseURL
         self.files = files ?? spec.files
         state = spec.isInstalled ? .ready : .notInstalled
@@ -186,10 +199,17 @@ public final class NLIModelStore: ObservableObject {
         let fm = FileManager.default
         let resumeFile = dir.appendingPathComponent(file.name + ".resume")
         let dest = dir.appendingPathComponent(file.name + ".verified")
+        // A background download can finish while the app is not running; its
+        // file is already at `dest` — keep it if it verifies.
+        if fm.fileExists(atPath: dest.path), (try? await verify(dest, file)) == true { return dest }
         try? fm.removeItem(at: dest)
         let resumeData = try? Data(contentsOf: resumeFile)
         let url = baseURL.appendingPathComponent(file.name)
         let session = self.session
+        let delegate = self.delegate
+        let label = DownloadDelegate.label(dest: dest, resume: resumeFile)
+        // Re-attach to a download the system kept running across a relaunch.
+        let running = await session.allTasks.first { $0.taskDescription == label && $0.state == .running }
 
         let box = TaskBox()
         let poll = Task { @MainActor in
@@ -204,42 +224,31 @@ public final class NLIModelStore: ObservableObject {
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                let handler: @Sendable (URL?, URLResponse?, Error?) -> Void = { tmp, response, error in
-                    if let error {
-                        let data = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data
-                        if let data { try? data.write(to: resumeFile) } else { try? fm.removeItem(at: resumeFile) }
-                        cont.resume(throwing: error)
-                        return
-                    }
-                    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                        try? fm.removeItem(at: resumeFile)
-                        cont.resume(throwing: NLIDownloadError.http(http.statusCode))
-                        return
-                    }
-                    do {
-                        try fm.moveItem(at: tmp!, to: dest)  // before the handler returns and tmp is deleted
-                        try? fm.removeItem(at: resumeFile)
-                        cont.resume()
-                    } catch {
-                        cont.resume(throwing: error)
-                    }
-                }
-                let task = resumeData.map { session.downloadTask(withResumeData: $0, completionHandler: handler) }
-                    ?? session.downloadTask(with: url, completionHandler: handler)
+                let task = running as? URLSessionDownloadTask
+                    ?? resumeData.map { session.downloadTask(withResumeData: $0) }
+                    ?? session.downloadTask(with: url)
+                task.taskDescription = label
                 box.task = task
+                delegate.wait(for: task, cont)  // before resume(): a stubbed task can finish at once
                 task.resume()
             }
         } onCancel: {
             box.task?.cancel(byProducingResumeData: { data in try? data?.write(to: resumeFile) })
         }
 
-        let size = (try? fm.attributesOfItem(atPath: dest.path)[.size] as? NSNumber)?.int64Value ?? -1
-        let digest = try await Task.detached { try Self.sha256(dest) }.value  // off the main actor
-        guard size == file.size, digest == file.sha256 else {
+        guard try await verify(dest, file) else {
             try? fm.removeItem(at: dest)
             throw NLIDownloadError.checksum(file.name)
         }
         return dest
+    }
+
+    /// Size + SHA-256 against the pinned values (hashing off the main actor).
+    private func verify(_ url: URL, _ file: NLIModel.File) async throws -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? -1
+        guard size == file.size else { return false }
+        let digest = try await Task.detached { try Self.sha256(url) }.value
+        return digest == file.sha256
     }
 
     nonisolated static func sha256(_ url: URL) throws -> String {
@@ -279,6 +288,62 @@ public final class NLIModelStore: ObservableObject {
 
     private final class TaskBox: @unchecked Sendable {
         var task: URLSessionDownloadTask?
+    }
+}
+
+/// Delegate for the (background) model-download session. Background sessions
+/// only report through a delegate, and may report after a relaunch, so each
+/// task carries its destination + resume-data paths in `taskDescription`.
+final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [Int: CheckedContinuation<Void, Error>] = [:]
+    private var moveErrors: [Int: Error] = [:]
+
+    static func label(dest: URL, resume: URL) -> String { dest.path + "\n" + resume.path }
+
+    private static func paths(_ task: URLSessionTask) -> (dest: URL, resume: URL)? {
+        let parts = (task.taskDescription ?? "").components(separatedBy: "\n")
+        guard parts.count == 2 else { return nil }
+        return (URL(fileURLWithPath: parts[0]), URL(fileURLWithPath: parts[1]))
+    }
+
+    func wait(for task: URLSessionTask, _ cont: CheckedContinuation<Void, Error>) {
+        lock.lock(); defer { lock.unlock() }
+        waiters[task.taskIdentifier] = cont
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let (dest, resume) = Self.paths(downloadTask) else { return }
+        if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { return }
+        let fm = FileManager.default
+        do {
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: location, to: dest)  // before this returns and `location` is deleted
+            try? fm.removeItem(at: resume)
+        } catch {
+            lock.lock(); moveErrors[downloadTask.taskIdentifier] = error; lock.unlock()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let cont = waiters.removeValue(forKey: task.taskIdentifier)
+        let moveError = moveErrors.removeValue(forKey: task.taskIdentifier)
+        lock.unlock()
+        let paths = Self.paths(task)
+        if let error {
+            if let data = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data, let paths {
+                try? data.write(to: paths.resume)
+            }
+            cont?.resume(throwing: error)
+        } else if let http = task.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            if let paths { try? FileManager.default.removeItem(at: paths.resume) }
+            cont?.resume(throwing: NLIDownloadError.http(http.statusCode))
+        } else if let moveError {
+            cont?.resume(throwing: moveError)
+        } else {
+            cont?.resume()
+        }
     }
 }
 

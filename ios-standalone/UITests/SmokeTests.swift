@@ -245,16 +245,15 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(setUp.waitForExistence(timeout: 10))
         setUp.tap()
 
-        XCTAssertTrue(app.staticTexts["Connect your AI"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Test connection"].exists)
+        XCTAssertTrue(app.staticTexts["How should Jobsmith think?"].waitForExistence(timeout: 5))
         attach(app, "onboarding-ai-step")
-        app.buttons["Continue"].tap()
+        app.buttons["setup.later"].tap()
 
         XCTAssertTrue(app.staticTexts["Import your profile"].waitForExistence(timeout: 5))
         // Back returns to the AI step, forward again to the import step.
         app.buttons["Back"].tap()
-        XCTAssertTrue(app.staticTexts["Connect your AI"].waitForExistence(timeout: 5))
-        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["How should Jobsmith think?"].waitForExistence(timeout: 5))
+        app.buttons["setup.later"].tap()
         XCTAssertTrue(app.staticTexts["Import your profile"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["LinkedIn profile"].exists, "import source picker")
         app.buttons["LinkedIn profile"].tap()
@@ -278,6 +277,55 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 10),
                       "imported name should appear in the profile review")
         attach(app, "onboarding-profile-imported")
+    }
+
+    /// Setup Assistant step 0 on a fresh launch (no -SkipOnboarding): the three
+    /// cards show, Local is greyed out with its reason on the Simulator, and
+    /// Cloud → Custom saves through the shared exit (mock ping) and moves on.
+    func testSetupAssistantCards() {
+        let app = XCUIApplication()
+        // -NoAppleIntelligence: this Simulator inherits the host Mac's Apple
+        // Intelligence (it reports *available* on an AI-enabled Mac), so the
+        // unavailable state is forced for a deterministic check.
+        app.launchArguments = ["-SeedDemoData", "-UseMockAI", "-NoAppleIntelligence"]
+        app.launch()
+        let setUp = app.buttons["Set up"]
+        XCTAssertTrue(setUp.waitForExistence(timeout: 10))
+        setUp.tap()
+
+        XCTAssertTrue(app.staticTexts["How should Jobsmith think?"].waitForExistence(timeout: 5))
+        let local = app.buttons["setup.card.local"]
+        XCTAssertTrue(local.exists && app.buttons["setup.card.cloud"].exists && app.buttons["setup.card.advanced"].exists,
+                      "three cards")
+        XCTAssertFalse(local.isEnabled, "Local is greyed out without Apple Intelligence")
+        XCTAssertTrue(app.staticTexts["setup.local.reason"].exists, "Local says why")
+        XCTAssertTrue(app.buttons["Check again"].exists)
+        attach(app, "setup-cards")
+
+        // Continue with nothing chosen explains itself instead of saving.
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Choose Local, Cloud or Advanced, or set up AI later."].waitForExistence(timeout: 3))
+
+        app.buttons["setup.card.cloud"].tap()
+        let providerPicker = app.buttons["setup.provider"]
+        XCTAssertTrue(providerPicker.waitForExistence(timeout: 3))
+        providerPicker.tap()
+        app.buttons["Custom"].tap()
+        let url = app.textFields["Server address"]
+        XCTAssertTrue(url.waitForExistence(timeout: 3))
+        url.tap()
+        url.typeText("192.0.2.9:1234/v1\n")
+        // The mock engine lists one model; nothing is picked for the user.
+        let writing = app.buttons["setup.writing"]
+        XCTAssertTrue(writing.waitForExistence(timeout: 10), "model list loads for Custom with no key")
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Pick a Writing model first."].waitForExistence(timeout: 3), "no auto-pick")
+        writing.tap()
+        XCTAssertTrue(app.searchFields["Search models"].waitForExistence(timeout: 5), "searchable list")
+        app.buttons["mock-model"].tap()
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Import your profile"].waitForExistence(timeout: 10),
+                      "a passing ping saves and moves to the import")
     }
 
     /// The "Help me pick" AI title suggester opens from Search settings.

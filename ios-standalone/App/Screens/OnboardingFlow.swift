@@ -20,7 +20,7 @@ struct OnboardingFlow: View {
             Group {
                 switch step {
                 case .welcome: welcome
-                case .ai: aiStep
+                case .ai: SetupModeStep(onDone: { step = .resume })
                 case .resume: ResumeImportStep(onDone: { step = .profile })
                 case .profile: profileStep
                 case .companies: companiesStep
@@ -28,6 +28,11 @@ struct OnboardingFlow: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                // Relaunched mid-wizard after the AI step was saved: pick up at
+                // the import instead of starting over.
+                if step == .welcome, !model.config.setupMode.isEmpty { step = .resume }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if step != .welcome {
@@ -107,24 +112,6 @@ struct OnboardingFlow: View {
                 advance()
             } label: {
                 Text("Looks right")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.ember)
-            .padding(16)
-        }
-    }
-
-    private var aiStep: some View {
-        VStack(spacing: 0) {
-            stepHeader("Connect your AI",
-                       "LM Studio on your network, any OpenAI-compatible provider, or Apple's on-device model. This powers the profile import on the next step.")
-            AIConnectionSettingsView()
-            Button {
-                advance()
-            } label: {
-                Text("Continue")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
             }
@@ -392,11 +379,14 @@ struct ResumeImportStep: View {
         let result = await ResumeProfileParser.parse(
             text: text, config: model.config, engine: model.aiEngine,
             promptKey: kind == .linkedin ? "linkedin_import" : "resume_parse")
-        warnings = result.warnings
         if result.profile.isEmpty {
-            errorMessage = "The AI couldn't extract a profile. Is your AI connected (previous step)? You can also skip and fill the profile manually."
+            // Surface the engine's own reason (the parser puts it in the first
+            // warning), not a guess about the previous step.
+            errorMessage = result.warnings.first ?? "The AI couldn't extract a profile. You can skip and fill the profile manually."
+            warnings = Array(result.warnings.dropFirst())
             return
         }
+        warnings = result.warnings
         // Await the write: onDone() moves straight to the profile review,
         // which reads the config on appear.
         await model.saveConfigNow { $0.profile = result.profile }

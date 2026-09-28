@@ -107,8 +107,7 @@ targets:
           NSAllowsLocalNetworking: true
           NSAllowsArbitraryLoadsInWebContent: true
         NSLocalNetworkUsageDescription: >-
-          Jobsmith connects to your local AI server (e.g. LM Studio) for job
-          scoring and resume tailoring.
+          Jobsmith connects to AI servers on your network, such as one you run on your own computer.
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:

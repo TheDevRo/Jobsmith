@@ -17,6 +17,9 @@ final class AppModel {
     let configStore: ConfigStore
 
     var config: AppConfig
+    /// The launch-time config load (plus its one-off migrations). The
+    /// onboarding gate awaits it instead of guessing with a sleep.
+    @ObservationIgnored private(set) var configLoad: Task<Void, Never>?
     var inbox: [Job] = []
     var pipeline: [Job] = []
     /// Soft-deleted postings — the Recently Deleted (recycle bin) contents,
@@ -82,7 +85,7 @@ final class AppModel {
             seedDemoData()
         }
         #endif
-        Task {
+        configLoad = Task {
             config = await configStore.load()
             await migrateInboxSortIfNeeded()
             #if DEBUG

@@ -21,6 +21,7 @@ struct JobsmithStandaloneApp: App {
         BackgroundScheduler.register(model: model)
         NotificationManager.requestProvisionalAuthorization()
         NotificationManager.registerCategories()
+        DownloadPolicy.start()
         UNUserNotificationCenter.current().delegate = delegate
         // The Lock Screen Stop button: StopRunIntent executes in this process
         // and reaches the model through the bridge (the widget target only
@@ -131,8 +132,8 @@ struct RootTabView: View {
             Button("Still working on it", role: .cancel) {}
         }
         .task {
-            // Give ConfigStore a beat to load, then gate on an empty profile.
-            try? await Task.sleep(for: .milliseconds(300))
+            // Gate on the loaded config, never on a guess about load timing.
+            await model.configLoad?.value
             // -SkipOnboarding is a UI-test hook, and the UI tests run against
             // the Debug build — a shipped binary always shows the wizard on a
             // fresh profile.
@@ -141,11 +142,15 @@ struct RootTabView: View {
             #else
             let skipOnboarding = false
             #endif
-            if model.config.profile.isEmpty && !skipOnboarding {
+            if !model.config.onboardingComplete && !skipOnboarding {
                 showOnboarding = true
             }
         }
-        .sheet(isPresented: $showOnboarding) {
+        .sheet(isPresented: $showOnboarding, onDismiss: {
+            // Finished or closed on purpose: don't ask again. (Killing the app
+            // mid-wizard doesn't dismiss, so the wizard comes back next launch.)
+            model.saveConfig { $0.onboardingComplete = true }
+        }) {
             OnboardingFlow()
                 .environment(model)
         }

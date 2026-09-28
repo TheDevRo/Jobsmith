@@ -64,7 +64,8 @@ public enum ScoreSource: Equatable, Sendable {
     public static func planned(config: AppConfig, localReady: Bool = NLIModel.isInstalled,
                                quickReady: Bool = QuickMatchModel.isInstalled) -> ScoreSource {
         guard prefersLocal(config) else { return .llm(config.ai, .fast) }
-        return quickReady ? .quickMatch : localReady ? .localModel : .llm(config.ai, .fast)
+        return quickReady ? .quickMatch
+            : localReady && LocalNLI.enabled(config) ? .localModel : .llm(config.ai, .fast)
     }
 
     /// Which engines WILL fill an Apply Assist form: leftover fields, and — when
@@ -76,8 +77,11 @@ public enum ScoreSource: Equatable, Sendable {
         return localReady && LocalNLI.enabled(config) ? (.localModel, llm) : (llm, nil)
     }
 
+    /// Quick match is picked for scoring. It no longer also needs the Local match
+    /// switch (that gated a downloaded Quick match off unless both were set); the
+    /// detailed NLI step still does.
     static func prefersLocal(_ config: AppConfig) -> Bool {
-        LocalNLI.enabled(config) && config.ai.usesLocalMatchModel
+        config.ai.usesLocalMatchModel
     }
 
     /// Whether a stored Quick match score came from a feed preview (no requirement lines).
@@ -97,7 +101,7 @@ public enum ScoreSource: Equatable, Sendable {
     public var label: String {
         switch self {
         case .quickMatch: return "Quick match"
-        case .localModel: return "Local match model"
+        case .localModel: return "Local match"
         case .appleIntelligence: return "Apple Intelligence"
         // "local-model" is the placeholder id sent when no model is named; don't let it
         // read like the local match model.
@@ -206,9 +210,13 @@ public enum ScoringService {
             case .success(let result): return result
             case .failure(let miss): quickMiss = miss
             }
-            switch await localScore(job: job, profile: profile, config: config, nli: nli) {
-            case .success(let result): return result
-            case .failure(let miss): localMiss = miss == .notReady && quickMiss != .notReady ? quickMiss : miss
+            if local {
+                switch await localScore(job: job, profile: profile, config: config, nli: nli) {
+                case .success(let result): return result
+                case .failure(let miss): localMiss = miss == .notReady && quickMiss != .notReady ? quickMiss : miss
+                }
+            } else {
+                localMiss = quickMiss
             }
         }
         do {
@@ -222,11 +230,11 @@ public enum ScoringService {
                 switch localMiss {
                 case .nothingToJudge:
                     // About this one posting: skip it and keep the batch going.
-                    throw ScoringError.refused("The Local match model found no requirements to check in this posting, and \(fallback).")
+                    throw ScoringError.refused("Quick match found no requirements to check in this posting, and \(fallback).")
                 case .notReady:
-                    throw ScoringError.localModelUnavailable("The Local match model isn't downloaded yet (Settings → AI connection → Local match model), and \(fallback).")
+                    throw ScoringError.localModelUnavailable("Quick match isn't downloaded yet (Settings → AI connection → Quick match), and \(fallback).")
                 case .failed(let why):
-                    throw ScoringError.localModelUnavailable("The Local match model couldn't run (\(why)), and \(fallback).")
+                    throw ScoringError.localModelUnavailable("Quick match couldn't run (\(why)), and \(fallback).")
                 }
             }
             if !local { throw error }

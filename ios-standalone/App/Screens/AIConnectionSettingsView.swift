@@ -8,13 +8,17 @@ import JobsmithKit
 /// where. On-device is just another option in each dropdown, not a separate
 /// engine mode.
 ///
-/// State note: the fields are `@State` mirrors flushed to `model.saveConfig`
-/// on disappear, rather than bindings straight into `model.config.ai`. That is
-/// deliberate — `test()` probes the endpoint with the *typed but unsaved*
-/// values, and writing through on every keystroke would persist (and
-/// re-validate) half-typed URLs and keys.
+/// State note: the fields are `@State` mirrors saved to `model.saveConfig`
+/// shortly after the last change (debounced) and again on disappear, rather
+/// than bindings straight into `model.config.ai`: `test()` probes the endpoint
+/// with the typed values, and writing through on every keystroke would persist
+/// half-typed URLs and keys. Killing the app mid-edit loses at most the last
+/// half second.
 struct AIConnectionSettingsView: View {
     @Environment(AppModel.self) private var model
+    /// Off when this form IS the setup wizard's Advanced path (no loop back).
+    var showChangeSetup = true
+    @State private var showSetup = false
     @State private var baseURL = ""
     @State private var apiKey = ""
     @State private var strongModel = ""
@@ -31,6 +35,11 @@ struct AIConnectionSettingsView: View {
     @State private var hasAppeared = false
     @ObservedObject private var localModel = NLIModelStore.shared
     @ObservedObject private var quickModel = NLIModelStore.quickMatch
+    @State private var saveTask: Task<Void, Never>?
+    /// The Scoring model to go back to when Quick match is switched off.
+    @AppStorage("quickMatchPreviousFastModel") private var previousFast = ""
+    @State private var cellularAsk: NLIModelStore?
+    @State private var confirmDelete: NLIModelStore?
 
     private var availableModels: [String] { status?.models ?? [] }
     private var onDeviceAvailable: Bool { AppleOnDeviceEngine.isAvailable }
@@ -72,13 +81,11 @@ struct AIConnectionSettingsView: View {
         if tier == .fast, ai.usesLocalMatchModel {
             let writer = ScoreSource.llm(ai, .fast).label
             if quickModel.state == .ready {
-                return "→ Scores every job on your device with Quick match, no AI calls. Jobs it can't judge go to the detailed Local match model when downloaded, else your Resume model · \(writer). AI form-fill and essays use your Resume model."
+                return "→ Scores every job on your device with Quick match, no AI calls. Jobs it can't judge go to Local match when it's on and downloaded, else your Writing model · \(writer). AI form-fill and essays use your Writing model."
             }
-            return localModel.state == .ready
-                ? "→ Scores jobs on your device with the Local match model. Jobs it can't judge, AI form-fill and essays use your Resume model · \(writer)."
-                : localModel.isDownloading
-                    ? "→ Scoring uses your Resume model · \(writer) until the Local match model finishes downloading."
-                    : "→ Scoring uses your Resume model · \(writer) — the Local match model isn't downloaded. Download it under Local match model below."
+            return quickModel.isDownloading
+                ? "→ Scoring uses your Writing model · \(writer) until Quick match finishes downloading."
+                : "→ Scoring uses your Writing model · \(writer) — Quick match isn't downloaded. Download it under Quick match below."
         }
         if ai.usesOnDevice(for: tier) {
             return "→ Runs on your device: private, offline, free. A small model, so quality is below a good server model."
@@ -91,29 +98,63 @@ struct AIConnectionSettingsView: View {
 
     var body: some View {
         Form {
+            if showChangeSetup {
+                Section {
+                    Button("Change setup…") { showSetup = true }
+                } footer: {
+                    Text("Re-run the Local / Cloud / Advanced choice from first-time setup.")
+                }
+            }
             savedEndpointsSection
             endpointSection
             tierSection(tier: .strong, selection: $strongModel,
-                        title: "Resume & cover letters",
-                        blurb: "Writes your full tailored documents and revisions. Use your most capable model here.")
-            tierSection(tier: .fast, selection: $fastModel, fallbackLabel: "Same as Resume model",
-                        title: "Scoring & form-fill",
+                        title: "Writing",
+                        blurb: "Résumés and cover letters, and their revisions. Use your most capable model here.")
+            tierSection(tier: .fast, selection: $fastModel, fallbackLabel: "Same as Writing model",
+                        title: "Scoring",
                         blurb: "Rates each job's fit and maps application form fields. Runs often — a smaller or on-device model is usually fine.")
             tierSection(tier: .utility, selection: $utilityModel, fallbackLabel: "Same as Scoring model",
                         title: "Quick helpers",
                         blurb: "Salary-title lookup and picking which résumé sections to include. The lightest calls.")
+            quickMatchSection
             localModelSection
             batchScoringSection
         }
         .navigationTitle("AI connection")
-        .onChange(of: fastModel) { _, new in
-            // Picking the local match model switches it on and starts the download.
-            // (Not on load: re-opening this screen must not restart a deleted download.)
-            guard new == AIConfig.localMatchModelID,
-                  model.config.ai.fastModel != new || !model.config.ai.nliBetaEnabled else { return }
-            model.saveConfig { $0.ai.nliBetaEnabled = true; $0.ai.fastModel = new }
-            if quickModel.state != .ready { quickModel.install() }
-            if localModel.state != .ready { localModel.install() }
+        .navigationDestination(isPresented: $showSetup) {
+            SetupModeStep(onDone: { showSetup = false })
+                .navigationTitle("Change setup")
+        }
+        .onChange(of: fastModel) { old, new in
+            scheduleSave()
+            // Picking Quick match (here or with its switch) starts its download and
+            // remembers the Scoring model to restore. Not on load: re-opening this
+            // screen must not restart a deleted download.
+            guard hasAppeared, new == AIConfig.localMatchModelID, old != new,
+                  model.config.ai.fastModel != new else { return }
+            previousFast = old
+            if quickModel.state != .ready { requestDownload(quickModel) }
+        }
+        .onChange(of: baseURL) { scheduleSave() }
+        .onChange(of: apiKey) { scheduleSave() }
+        .onChange(of: strongModel) { scheduleSave() }
+        .onChange(of: utilityModel) { scheduleSave() }
+        .confirmationDialog(cellularTitle, isPresented: Binding(
+            get: { cellularAsk != nil }, set: { if !$0 { cellularAsk = nil } }
+        ), titleVisibility: .visible) {
+            Button("Download now") { cellularAsk?.install(); cellularAsk = nil }
+            Button("Wait for Wi-Fi", role: .cancel) { cellularAsk = nil }
+        }
+        .confirmationDialog(deleteTitle, isPresented: Binding(
+            get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                let store = confirmDelete
+                confirmDelete = nil
+                Task { await store?.delete() }
+            }
+        } message: {
+            Text("It can be downloaded again later.")
         }
         .onAppear {
             hasAppeared = true
@@ -129,19 +170,58 @@ struct AIConnectionSettingsView: View {
         }
         .onDisappear {
             guard hasAppeared else { return }
-            let (u, k, s, f, ut) = (baseURL, apiKey, strongModel, fastModel, utilityModel)
-            model.saveConfig { config in
-                config.ai.baseURL = u
-                config.ai.apiKey = k
-                config.ai.strongModel = s
-                config.ai.fastModel = f
-                config.ai.utilityModel = ut
-                // Per-tier models are now the single source of truth; retire
-                // the legacy engine switch so it can't override them.
-                config.ai.engine = .openAICompatible
-                config.ai.preferOnDeviceForLightTasks = false
-            }
+            saveTask?.cancel()
+            flush()
         }
+    }
+
+    /// Save a beat after the last edit, so a killed app keeps what was typed.
+    private func scheduleSave() {
+        guard hasAppeared else { return }
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            flush()
+        }
+    }
+
+    private func flush() {
+        let (u, k, s, f, ut) = (baseURL, apiKey, strongModel, fastModel, utilityModel)
+        model.saveConfig { config in
+            config.ai.baseURL = u
+            // Keep ai.provider honest when the address is edited here.
+            config.ai.provider = AIProviderPreset.all.first { $0.baseURL == u }?.name
+                ?? (u.isEmpty ? "" : "custom")
+            config.ai.apiKey = k
+            config.ai.strongModel = s
+            config.ai.fastModel = f
+            config.ai.utilityModel = ut
+            // Per-tier models are now the single source of truth; retire
+            // the legacy engine switch so it can't override them.
+            config.ai.engine = .openAICompatible
+            config.ai.preferOnDeviceForLightTasks = false
+        }
+    }
+
+    /// Start a model download, asking first on cellular / metered networks.
+    private func requestDownload(_ store: NLIModelStore) {
+        if DownloadPolicy.isExpensiveNetwork { cellularAsk = store } else { store.install() }
+    }
+
+    private func name(of store: NLIModelStore) -> String { store === quickModel ? "Quick match" : "Local match" }
+
+    private func megabytes(_ store: NLIModelStore) -> Int {
+        let bytes = store === quickModel ? QuickMatchModel.sizeBytes : NLIModel.sizeBytes
+        return Int((Double(bytes) / 1_000_000).rounded())
+    }
+
+    private var cellularTitle: String {
+        cellularAsk.map { "Download \(megabytes($0)) MB on cellular?" } ?? ""
+    }
+
+    private var deleteTitle: String {
+        confirmDelete.map { "Delete the \(name(of: $0)) model?" } ?? ""
     }
 
     /// The one-tap switcher. Selecting a preset fills the fields, persists the
@@ -241,7 +321,15 @@ struct AIConnectionSettingsView: View {
 
     private var endpointSection: some View {
         Section {
-            TextField("http://192.168.1.x:1234/v1", text: $baseURL)
+            // Shortcut: fill the address from a provider preset (still editable).
+            Menu {
+                ForEach(AIProviderPreset.all) { p in
+                    Button(p.name) { baseURL = p.baseURL; status = nil }
+                }
+            } label: {
+                Label("Provider presets", systemImage: "list.bullet")
+            }
+            TextField("https://your-server/v1", text: $baseURL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
