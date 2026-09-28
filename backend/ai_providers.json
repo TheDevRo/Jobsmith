@@ -1,0 +1,14 @@
+[
+  {"name": "OpenAI", "base_url": "https://api.openai.com/v1", "key_url": "https://platform.openai.com/api-keys"},
+  {"name": "Anthropic", "base_url": "https://api.anthropic.com/v1", "key_url": "https://console.anthropic.com/settings/keys"},
+  {"name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "key_url": "https://aistudio.google.com/apikey"},
+  {"name": "xAI (Grok)", "base_url": "https://api.x.ai/v1", "key_url": "https://console.x.ai"},
+  {"name": "Mistral", "base_url": "https://api.mistral.ai/v1", "key_url": "https://console.mistral.ai/api-keys"},
+  {"name": "Groq", "base_url": "https://api.groq.com/openai/v1", "key_url": "https://console.groq.com/keys"},
+  {"name": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "key_url": "https://platform.deepseek.com/api_keys"},
+  {"name": "Together AI", "base_url": "https://api.together.xyz/v1", "key_url": "https://api.together.ai/settings/api-keys"},
+  {"name": "Fireworks", "base_url": "https://api.fireworks.ai/inference/v1", "key_url": "https://fireworks.ai/account/api-keys"},
+  {"name": "Cerebras", "base_url": "https://api.cerebras.ai/v1", "key_url": "https://cloud.cerebras.ai"},
+  {"name": "NVIDIA NIM", "base_url": "https://integrate.api.nvidia.com/v1", "key_url": "https://build.nvidia.com"},
+  {"name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1", "key_url": "https://openrouter.ai/keys"}
+]

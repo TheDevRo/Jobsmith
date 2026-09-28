@@ -31,6 +31,7 @@ MINIMAL_CONFIG = {
     "ai": {
         "base_url": "http://localhost:1234/v1",
         "api_key":  "test",
+        "model":    "test-model",  # an empty model now raises AINotConfigured
         "temperature": 0.7,
         "max_tokens":  2000,
     }

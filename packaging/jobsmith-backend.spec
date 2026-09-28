@@ -25,6 +25,8 @@ datas = [
     # __file__-relative, so they must sit beside the frozen backend package.
     # Without them, PDFs silently fall back to built-in Helvetica/Times.
     (str(repo_root / "backend" / "fonts"), "backend/fonts"),
+    # Setup-wizard provider presets, read __file__-relative by routers/settings.py.
+    (str(repo_root / "backend" / "ai_providers.json"), "backend"),
 ]
 datas += collect_data_files("playwright_stealth")
 datas += collect_data_files("playwright")

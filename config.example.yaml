@@ -89,7 +89,10 @@ ai:
   base_url: http://localhost:1234/v1
   # Sent as the Bearer token. Local servers ignore it; hosted providers
   # need a real key. Blank falls back to the "lm-studio" placeholder.
-  api_key: lm-studio
+  api_key: ''
+  # Which setup-wizard preset base_url came from (e.g. OpenRouter), or
+  # "custom". Only used to show the right choice when setup is re-run.
+  provider: ''
   temperature: 0.7
   max_tokens: 16384
   context_window: 16384
@@ -120,21 +123,21 @@ ai:
     # Content tier — tailored resumes, cover letters, job-fit scoring,
     # and AI Edit (Strong mode). Use your highest-quality model.
     strong:
-      model: mistralai/mistral-7b-instruct-v0.3
+      model: ''
     # Navigator tier — drives auto-apply browser automation and AI Edit
     # (Fast mode). Needs reliable JSON / tool-call output; latency matters.
     fast:
-      model: qwen/qwen3.5-9b
+      model: ''
     # Utility tier — short helper calls during job ingestion (salary-estimator
     # title canonicalization, resume role-pick ranking). A small fast model
     # is fine. If omitted, falls back to the `fast` tier above.
     utility:
-      model: qwen/qwen3.5-9b
+      model: ''
 api_keys:
-  adzuna_app_id: your-app-id
-  adzuna_app_key: your-app-key
-  usajobs_email: your-email@example.com
-  usajobs_api_key: your-api-key
+  adzuna_app_id: ''
+  adzuna_app_key: ''
+  usajobs_email: ''
+  usajobs_api_key: ''
 auto_apply:
   enabled: false
   headless: true

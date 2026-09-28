@@ -18,7 +18,7 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 ## Milestones
 | # | Status | Commit |
 |---|--------|--------|
-| M1 shared plumbing (desktop backend) | in progress | |
+| M1 shared plumbing (desktop backend) | DONE | (see git log "M1") |
 | M2 desktop wizard step 0 | todo | |
 | M3 desktop fixes | todo | |
 | M4 iOS step 0 | todo | |
@@ -43,7 +43,27 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 No row needed fixing.
 
 ## Decisions
-- (log here)
+- D1 Presets live in `backend/ai_providers.json` (12 rows: name, base_url, key_url; Custom is NOT a row —
+  UIs append it). Served by `GET /api/ai/providers`; bundled via packaging/jobsmith-backend.spec.
+  `ai.provider` stores the preset name, or `custom`.
+- D2 `_model()` raises `AINotConfigured("No AI model is set up — open Settings → AI")`; a new
+  `_configured_model()` (returns "") is used by endpoint resolution so listing /models on a fresh install
+  still works. Other raw `local-model` fallbacks (auto_apply/llm_client.py, browser_use_agent.py) are
+  left alone: the PRD scopes the fix to `_model()`.
+- D3 Error codes (shared with iOS later): auth, credit, model, rate_limit, unreachable, unavailable,
+  no_model, error. Order: 401/403 → auth; 402 or insufficient_quota → credit; 404 / model_not_found /
+  "model … not found|does not exist" → model; 429 → rate_limit; connection/timeout → unreachable.
+- D4 ping uses exactly `max_tokens: 1` (no max_completion_tokens retry): a model that rejects
+  max_tokens would fail every real call in the app too, so failing the ping is the honest answer.
+- D5 `POST /api/onboarding/ai` fields are optional (None = leave as is) so Local does not wipe the
+  endpoint. "Continue anyway" = `verified:false` → `ai_verified: false` (new LOCAL top-level key).
+  It also starts the NLI / Quick match downloads when `nli` / `triage` are true.
+- D6 config.example.yaml: model ids, Adzuna AND USAJobs placeholders blanked, `api_key: ''` (was
+  `lm-studio`; blank already falls back to that placeholder). base_url left at localhost:1234.
+- D7 `ai.provider` Swift registry row added in M1 (not M4) because tests/test_sync_crosslang.py
+  asserts the two registries match; stale "not keychain" note fixed at the same time.
 
 ## Verification log
-- (per milestone)
+- M1: pytest 1101 passed, 3 skipped (baseline 1073; +28 in tests/test_setup_assistant.py). The only
+  existing test changed: tests/test_honesty_prompts.py MINIMAL_CONFIG gained `model: test-model`
+  (it relied on the old silent `local-model`). frontend unchanged (423 PASS).

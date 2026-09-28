@@ -193,6 +193,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("ai.base_url", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.baseURL",
             note="Endpoint URL. A LAN address (e.g. 192.168.x) only resolves where reachable — "
                  "that's the user's call, hence its own toggle."),
+    Setting("ai.provider", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.provider",
+            note="Setup-wizard preset name (e.g. 'OpenRouter') or 'custom'; rides with ai.base_url."),
     Setting("ai.api_key", Cls.SYNC, Kind.STRING, "ai_connection", ios="ai.apiKey", api_masked=True,
             note="SYNCED by user decision — travels in the user-owned folder with the rest of the "
                  "AI Connection group. STILL api_masked=True: never leak it in the HTTP /api/config "
@@ -271,6 +273,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("sync.settings.general", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("sync.interval_seconds", Cls.LOCAL, Kind.INT, "_excluded"),
     Setting("onboarding_complete", Cls.LOCAL, Kind.BOOL, "_excluded"),
+    Setting("setup_mode", Cls.LOCAL, Kind.ENUM, "_excluded", enum_values=("local", "cloud", "advanced")),
+    Setting("ai_verified", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("tour_complete", Cls.LOCAL, Kind.BOOL, "_excluded"),
     Setting("extension.backend_url", Cls.LOCAL, Kind.STRING, "_excluded", ext="backendUrl"),
     # iOS UserDefaults device-local: jobsmith.sync.*, jobsmith.bgsearch.*,

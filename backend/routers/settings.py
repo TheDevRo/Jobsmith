@@ -4,7 +4,9 @@ onboarding, and dashboard stats/activity.
 """
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -205,6 +207,32 @@ async def ai_status():
         payload["ok"] = False
         payload["error"] = on_device.get("reason") or apple_bridge.REASON_UNSUPPORTED
     return payload
+
+
+# Cloud provider presets (name, base_url, key_url). The iOS twin is
+# AIProviderPreset.all in JobsmithKit; a test on each side keeps them in step.
+PROVIDERS_PATH = Path(__file__).resolve().parent.parent / "ai_providers.json"
+
+
+@router.get("/api/ai/providers")
+async def ai_providers():
+    return json.loads(PROVIDERS_PATH.read_text(encoding="utf-8"))
+
+
+class TestChatRequest(BaseModel):
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+
+
+@router.post("/api/ai/test-chat")
+async def ai_test_chat(body: TestChatRequest):
+    """1-token chat ping against the values in the request. Writes no config.
+    A masked key (the field was never touched) means "the saved key"."""
+    api_key = body.api_key
+    if api_key == SECRET_MASK:
+        api_key = (state.load_config().get("ai") or {}).get("api_key", "")
+    return await ai_engine.ping_chat(body.base_url.strip(), api_key.strip(), body.model)
 
 
 class NliBetaUpdate(BaseModel):
@@ -472,7 +500,66 @@ async def onboarding_status():
         ),
         "extension_paired": bool(cfg.get("extension_paired", False)),
         "ai": ai_status,
+        # The wizard's Local card paints from this on first render.
+        "on_device": await _on_device_status(cfg),
+        "setup_mode": cfg.get("setup_mode", ""),
+        "provider": (cfg.get("ai") or {}).get("provider", ""),
     }
+
+
+SETUP_MODES = ("local", "cloud", "advanced")
+_SCORING_TIERS = ("strong", "fast", "utility", ai_engine.LOCAL_MATCH)
+
+
+class OnboardingAI(BaseModel):
+    """The wizard's shared exit: everything step 0 decided, saved in one go.
+    None means "leave as is" (e.g. Local does not touch base_url/api_key)."""
+    mode: str
+    provider: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    models: dict = {}  # {"strong"|"fast"|"utility": model id}
+    scoring_tier: Optional[str] = None
+    nli: Optional[bool] = None
+    triage: bool = False
+    verified: bool = True
+
+
+@router.post("/api/onboarding/ai")
+async def onboarding_save_ai(body: OnboardingAI):
+    """Save only the AI section plus setup_mode (per device, never synced),
+    then start any on-device model downloads the user opted into."""
+    if body.mode not in SETUP_MODES:
+        raise HTTPException(400, f"mode must be one of: {list(SETUP_MODES)}")
+    if body.scoring_tier is not None and body.scoring_tier not in _SCORING_TIERS:
+        raise HTTPException(400, f"scoring_tier must be one of: {list(_SCORING_TIERS)}")
+    cfg = state.load_config()
+    ai = cfg.setdefault("ai", {})
+    for key in ("provider", "base_url", "api_key"):
+        val = getattr(body, key)
+        if val is not None and val != SECRET_MASK:
+            ai[key] = val.strip()
+    models = ai.setdefault("models", {})
+    for tier, model in (body.models or {}).items():
+        if tier in ("strong", "fast", "utility") and isinstance(model, str):
+            # Base-overlay: keep any sibling per-tier keys (base_url/api_key).
+            models[tier] = {**(models.get(tier) or {}), "model": model.strip()}
+    if body.scoring_tier is not None:
+        ai["scoring_tier"] = body.scoring_tier
+    if body.nli is not None:
+        ai.setdefault("nli_beta", {})["enabled"] = bool(body.nli)
+    cfg["setup_mode"] = body.mode
+    cfg["ai_verified"] = bool(body.verified)
+    state.save_config(cfg)
+    ai_engine.clear_clients()
+    # Downloads start on Continue, in the background (both return at once).
+    if body.nli:
+        from ..nli import model
+        model.install()
+    if body.triage:
+        from ..nli import triage_model
+        triage_model.install()
+    return {"saved": True, "setup_mode": body.mode}
 
 
 @router.post("/api/onboarding/complete")

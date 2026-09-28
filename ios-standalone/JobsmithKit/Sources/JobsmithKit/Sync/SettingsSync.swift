@@ -91,8 +91,9 @@ public enum SettingsSync {
               note: "Canonical = SORTED [String]. Fold iOS Set<String> + linkedInEnabled ('linkedin' member) in/out. Sort before hashing."),
         // AI Connection — endpoint + api key + model tiers + gen params.
         .init("ai.base_url", category: "ai_connection", ios: "ai.baseURL"),
+        .init("ai.provider", category: "ai_connection", ios: "ai.provider"),
         .init("ai.api_key", category: "ai_connection", ios: "ai.apiKey",
-              note: "Synced by user decision (travels in the user-owned folder). iOS keeps it in the config JSON already; unlike li_at it is NOT keychain-only."),
+              note: "Synced by user decision (travels in the user-owned folder). At rest on the phone ConfigStore keeps it in the Keychain (SecretKey.aiAPIKey), not the config JSON; the sync mapper sees the in-memory value."),
         .init("ai.models.strong", category: "ai_connection", ios: "ai.strongModel",
               note: "Value = model-id string. Do NOT export when it equals the 'apple-on-device' sentinel — skip the row so it never lands on desktop."),
         .init("ai.models.fast", category: "ai_connection", ios: "ai.fastModel",
