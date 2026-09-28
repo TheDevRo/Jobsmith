@@ -247,6 +247,28 @@ async def nli_delete_model():
     return nli.status(state.load_config())
 
 
+@router.get("/api/ai/triage/status")
+async def triage_status():
+    """Quick match model (picked via ai.scoring_tier = local-match-model): {state, progress, size_bytes, error}."""
+    from ..nli import triage_model
+    return triage_model.status()
+
+
+@router.post("/api/ai/triage/install")
+async def triage_install():
+    from ..nli import triage_model
+    return triage_model.install()
+
+
+@router.delete("/api/ai/triage/model")
+async def triage_delete_model():
+    from ..nli import triage_model
+    try:
+        return triage_model.delete()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
 @router.get("/api/config")
 async def get_config(
     request: Request,
@@ -267,6 +289,7 @@ async def get_config(
             "model": cfg.get("ai", {}).get("model", ""),
             "models": cfg.get("ai", {}).get("models", {}),
             "scoring_tier": cfg.get("ai", {}).get("scoring_tier", "strong"),
+            "triage_refine": bool(cfg.get("ai", {}).get("triage_refine", False)),
             "context_window": cfg.get("ai", {}).get("context_window", 8192),
         },
         "profile": {

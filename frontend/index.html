@@ -812,11 +812,22 @@
                             </div>
                             <div class="form-group settings-advanced" style="margin-top:8px">
                                 <label>Scoring Tier</label>
-                                <select id="cfg-scoring-tier" style="width:100%">
+                                <select id="cfg-scoring-tier" style="width:100%" onchange="scoringTierChanged()">
                                     <option value="strong">Content (highest-quality scores)</option>
                                     <option value="utility">Utility (avoids model swap during ingestion)</option>
                                     <option value="fast">Navigator</option>
+                                    <option value="local-match-model">Local match model (Quick match, no AI calls)</option>
                                 </select>
+                                <div id="ai-triage-block" style="display:none;margin-top:6px">
+                                    <p class="ai-tier-hint">Quick match scores every job on this computer in a fraction of a second, from how well your profile covers each requirement line. Jobs it can't judge go to the Content model. Downloads about <span id="ai-triage-size">134 MB</span>.</p>
+                                    <p class="ai-tier-hint" id="ai-triage-status" style="margin-top:4px"></p>
+                                    <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-triage-refine"> Refine top matches with the detailed model</label>
+                                    <p class="ai-tier-hint">After a scoring run, the Local AI model (beta) re-scores the top 15% of Quick matches, more slowly and more carefully. Needs the Local AI model switched on and downloaded.</p>
+                                    <div class="btn-row" style="margin-top:6px">
+                                        <button class="btn btn-secondary btn-sm" id="ai-triage-retry" style="display:none" onclick="installTriageModel()">Retry download</button>
+                                        <button class="btn btn-secondary btn-sm" id="ai-triage-delete" style="display:none" onclick="deleteTriageModel()">Delete model</button>
+                                    </div>
+                                </div>
                                 <p class="ai-tier-hint" style="margin-top:4px">Which tier's model judges job-fit. Set to <strong>Utility</strong> so scoring and the salary-estimator share one model — keeps LM Studio from swapping models on every ingested job. Switch back to <strong>Content</strong> for the most accurate scores.</p>
                             </div>
                             <div class="form-group settings-advanced" style="margin-top:8px">

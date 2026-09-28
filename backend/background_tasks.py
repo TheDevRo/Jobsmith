@@ -419,6 +419,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
         # Job ids we've already tried this run, so a job left unscored by a
         # transient failure isn't re-fetched forever from the unscored feed.
         attempted: set[str] = set()
+        quick: list[tuple[dict, float]] = []  # Quick match scores of this run (the refine pass picks from them)
 
         # Rescored jobs stay in the query's result set (unlike unscored jobs,
         # which drop out once scored), so snapshot the target IDs up front and
@@ -488,6 +489,8 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                 try:
                     score, reasoning, match_report = await ai_engine.score_job_fit(job, profile, cfg)
                     await db.update_job_score(job["id"], score, reasoning, match_report)
+                    if (match_report or {}).get("scored_by") == "triage":
+                        quick.append((job, score))
                     if cfg.get("salary_estimator", {}).get("auto_on_ingest", True) and cfg.get("salary_estimator", {}).get("market_compare_on_score", True):
                         await _maybe_estimate_salary(job, cfg)
                     scored += 1
@@ -503,6 +506,13 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                     failed += 1
                 processed += 1
                 state.score_status.update(done=processed, failed=failed)
+
+        if quick and not state.cancel_score.is_set():
+            state.score_status.update(detail="Refining top matches with the detailed model...")
+            async for job, score, reasoning, match_report in ai_engine.refine_top_matches(quick, profile, cfg):
+                await db.update_job_score(job["id"], score, reasoning, match_report)
+                if state.cancel_score.is_set():
+                    break
 
         # Surface transient failures so a silent LM Studio outage doesn't read as
         # "all done" — those jobs were left unscored and will retry next run.

@@ -23,7 +23,7 @@ function report(checks) {
   return fail;
 }
 
-// The 64 config inputs saveSettings() reads. Adding a setting? Add it here too.
+// The 65 config inputs saveSettings() reads. Adding a setting? Add it here too.
 const CFG_IDS = [
   "cfg-adzuna-app-id", "cfg-adzuna-app-key", "cfg-ai-api-key", "cfg-ai-model-fast",
   "cfg-ai-model-strong", "cfg-ai-model-utility", "cfg-ai-nli-beta",
@@ -39,7 +39,7 @@ const CFG_IDS = [
   "cfg-salary", "cfg-salary-auto-ingest", "cfg-scoring-tier", "cfg-server-host",
   "cfg-skills", "cfg-sponsorship", "cfg-state", "cfg-street-address",
   "cfg-street-address-2", "cfg-summary", "cfg-sync-enabled", "cfg-sync-folder",
-  "cfg-sync-fulfill", "cfg-sync-interval", "cfg-sync-label", "cfg-usajobs-email",
+  "cfg-sync-fulfill", "cfg-sync-interval", "cfg-sync-label", "cfg-triage-refine", "cfg-usajobs-email",
   "cfg-usajobs-key", "cfg-veteran", "cfg-work-auth", "cfg-workable",
   "cfg-workday-email", "cfg-workday-password", "cfg-zip",
 ].sort();

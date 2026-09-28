@@ -7,8 +7,10 @@ Uses the OpenAI-compatible API exposed by LM Studio.
 import asyncio
 import json
 import logging
+import math
 import random
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -547,15 +549,29 @@ def parse_score_response(
     return None
 
 
+LOCAL_MATCH = "local-match-model"  # ai.scoring_tier value: Quick match scores, the Content tier covers the rest
+REFINE_SHARE = 0.15  # "Refine top matches": the NLI model re-scores this share of a run's Quick match scores
+
+
+def uses_quick_match(config: dict) -> bool:
+    return (config.get("ai") or {}).get("scoring_tier") == LOCAL_MATCH
+
+
 async def score_job_fit(
     job: dict, profile: dict, config: dict
 ) -> tuple[float, str, Optional[dict]]:
     """
     Score how well a job matches the candidate's profile (0-100).
     Returns (score, reasoning, match_report); raises ScoringUnavailable when no
-    score can be produced. With the Local AI model (beta) switched on and
-    installed, an unavailable scoring LLM falls back to the local NLI model.
+    score can be produced. With the Local match model picked as the scoring
+    tier, Quick match (embedding triage, no LLM) scores first and the LLM only
+    gets the jobs it can't judge. With the Local AI model (beta) switched on
+    and installed, an unavailable scoring LLM falls back to the local NLI model.
     """
+    if uses_quick_match(config):
+        result = await _score_job_fit_triage(job, profile)
+        if result is not None:
+            return result
     try:
         return await _score_job_fit_llm(job, profile, config)
     except (ScoringUnavailable, apple_bridge.BridgeUnavailable) as exc:
@@ -569,12 +585,52 @@ async def score_job_fit(
         return result
 
 
+def _tagged(report: Optional[dict], scored_by: str, t0: float) -> Optional[dict]:
+    """The report with its source and scoring time (seconds), shown next to the score."""
+    if report is None:
+        return None
+    return {**report, "scored_by": scored_by, "score_seconds": round(time.perf_counter() - t0, 2)}
+
+
+async def _score_job_fit_triage(job: dict, profile: dict):
+    """(score, reasoning, match_report) from Quick match, or None (not installed / nothing to judge / error)."""
+    from .nli import triage, triage_model
+    if not triage_model.installed():
+        triage_model.install()  # picked but not downloaded (yet): fetch it, the LLM scores meanwhile
+        return None
+    t0 = time.perf_counter()
+    try:
+        model = await asyncio.to_thread(triage.get)
+        result = model and await asyncio.to_thread(model.score, job, profile)
+    except Exception:  # noqa: BLE001 — fall back to the LLM, never to a fake score
+        logger.exception("Quick match scoring failed for %s", job.get("title", ""))
+        return None
+    if not result:
+        return None
+    score, reasoning, report = result
+    clean = _sanitize_match_report(report)
+    return score, reasoning, _tagged(clean and {**clean, "bucket": report["bucket"]}, triage.SCORED_BY, t0)
+
+
+async def refine_top_matches(scored: list[tuple[dict, float]], profile: dict, config: dict):
+    """"Refine top matches with the detailed model" (ai.triage_refine, default off): the local NLI model re-scores
+    the top REFINE_SHARE of a run's Quick match scores when it is installed. Yields (job, score, reasoning, report)."""
+    if not (config.get("ai") or {}).get("triage_refine") or not scored or nli.get_scorer(config) is None:
+        return
+    top = sorted(scored, key=lambda js: js[1], reverse=True)[:math.ceil(REFINE_SHARE * len(scored))]
+    for job, _ in top:
+        result = await _score_job_fit_nli(job, profile, config)
+        if result is not None:
+            yield (job, *result)
+
+
 async def _score_job_fit_nli(job: dict, profile: dict, config: dict):
     """(score, reasoning, match_report) from the local model, or None if it can't score this job."""
     scorer = nli.get_scorer(config)
     if scorer is None:
         return None
     from .nli import fit
+    t0 = time.perf_counter()
     try:
         result = await asyncio.to_thread(fit.score, job, profile, scorer)
     except Exception:  # noqa: BLE001 — fall back to "unscored", never to a fake score
@@ -583,7 +639,7 @@ async def _score_job_fit_nli(job: dict, profile: dict, config: dict):
     if result is None:
         return None
     score, reasoning, report = result
-    return score, reasoning, _sanitize_match_report(report)
+    return score, reasoning, _tagged(_sanitize_match_report(report), "local_model", t0)
 
 
 async def _score_job_fit_llm(
@@ -597,6 +653,8 @@ async def _score_job_fit_llm(
     """
     ai_cfg = config.get("ai", {})
     tier = ai_cfg.get("scoring_tier", "strong")
+    if tier == LOCAL_MATCH:
+        tier = "strong"
     client = await get_client(config, tier)
 
     prompt = prompt_registry.render_prompt(

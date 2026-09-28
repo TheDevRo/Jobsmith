@@ -77,6 +77,9 @@ async function loadSettings() {
         loadNliStatus();
         const scoringTierSel = document.getElementById('cfg-scoring-tier');
         if (scoringTierSel) scoringTierSel.value = cfg.ai?.scoring_tier || 'strong';
+        const refineCb = document.getElementById('cfg-triage-refine');
+        if (refineCb) refineCb.checked = !!cfg.ai?.triage_refine;
+        scoringTierChanged({ install: false });
 
         document.getElementById('cfg-adzuna-app-id').value = cfg.api_keys?.adzuna_app_id || '';
         document.getElementById('cfg-adzuna-app-key').value = cfg.api_keys?.adzuna_app_key || '';
@@ -782,6 +785,7 @@ async function saveSettings() {
             base_url: document.getElementById('cfg-ai-url').value,
             api_key: document.getElementById('cfg-ai-api-key').value.trim(),
             scoring_tier: document.getElementById('cfg-scoring-tier').value || 'strong',
+            triage_refine: !!document.getElementById('cfg-triage-refine')?.checked,
             models: {
                 fast: { model: onDeviceTierModel('fast') },
                 strong: { model: onDeviceTierModel('strong') },
@@ -1306,6 +1310,55 @@ async function deleteNliModel() {
         renderNliStatus(await api('/api/ai/nli/model', { method: 'DELETE' }));
         toast('Local AI model deleted', 'success');
     } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
+}
+
+// ---- Quick match (Local match model as the scoring tier) ----
+// Picking it starts its own small download; the status line polls while that runs.
+const AI_LOCAL_MATCH = 'local-match-model';
+let _triagePoll = null;
+
+function renderTriageStatus(s) {
+    const line = document.getElementById('ai-triage-status');
+    if (!line || !s) return;
+    const size = document.getElementById('ai-triage-size');
+    if (size && s.size_bytes) size.textContent = Math.round(s.size_bytes / 1e6) + ' MB';
+    line.textContent = {
+        not_installed: 'Not downloaded. The Content model scores until it is.',
+        downloading: 'Downloading ' + Math.round((s.progress || 0) * 100) + '%… The Content model scores until it finishes.',
+        ready: 'Ready. Runs on this computer.',
+        error: 'Error: ' + (s.error || 'download failed') + '. The Content model scores for now.',
+    }[s.state] || '';
+    line.style.color = s.state === 'error' ? 'var(--accent-red)' : '';
+    const retry = document.getElementById('ai-triage-retry');
+    const del = document.getElementById('ai-triage-delete');
+    if (retry) retry.style.display = (s.state === 'error' || s.state === 'not_installed') ? '' : 'none';
+    if (del) del.style.display = s.state === 'ready' ? '' : 'none';
+    clearTimeout(_triagePoll);
+    if (s.state === 'downloading') _triagePoll = setTimeout(loadTriageStatus, 1500);
+}
+
+async function loadTriageStatus() {
+    try { renderTriageStatus(await api('/api/ai/triage/status')); } catch (e) { /* non-fatal */ }
+}
+
+async function installTriageModel() {
+    try { renderTriageStatus(await api('/api/ai/triage/install', { method: 'POST' })); }
+    catch (e) { toast('Could not start the download', 'error'); }
+}
+
+async function deleteTriageModel() {
+    try {
+        renderTriageStatus(await api('/api/ai/triage/model', { method: 'DELETE' }));
+        toast('Quick match model deleted', 'success');
+    } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
+}
+
+// Show the Quick match block for the Local match model; picking it (not loading the page) starts the download.
+function scoringTierChanged({ install = true } = {}) {
+    const on = document.getElementById('cfg-scoring-tier')?.value === AI_LOCAL_MATCH;
+    const block = document.getElementById('ai-triage-block');
+    if (block) block.style.display = on ? '' : 'none';
+    if (on) (install ? installTriageModel : loadTriageStatus)();
 }
 
 async function loadAiModels({ preselect = {}, persistConnection = false } = {}) {

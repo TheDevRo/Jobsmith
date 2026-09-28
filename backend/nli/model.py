@@ -112,7 +112,9 @@ def _add(n: int) -> None:
         _job["done"] += n
 
 
-def _download(url: str, dest: Path, size: int, sha: str) -> None:
+def _download(url: str, dest: Path, size: int, sha: str, add=None) -> None:
+    """Stream url to dest (resumable .part, SHA-256 checked); add(n) reports bytes (default: this model's job)."""
+    add = add or _add
     part = dest.with_name(dest.name + ".part")
     have = part.stat().st_size if part.exists() else 0
     if have > size:
@@ -123,20 +125,20 @@ def _download(url: str, dest: Path, size: int, sha: str) -> None:
         with part.open("rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 h.update(chunk)
-    _add(have)
+    add(have)
     if have < size:
         headers = {"Range": f"bytes={have}-"} if have else {}
         with httpx.stream("GET", url, headers=headers, follow_redirects=True,
                           timeout=httpx.Timeout(30.0, read=60.0)) as r:
             r.raise_for_status()
             if have and r.status_code != 206:  # server ignored the Range header: start over
-                _add(-have)
+                add(-have)
                 have, h = 0, hashlib.sha256()
             with part.open("ab" if have else "wb") as f:
                 for chunk in r.iter_bytes():  # as received, so a dropped connection keeps what arrived
                     f.write(chunk)
                     h.update(chunk)
-                    _add(len(chunk))
+                    add(len(chunk))
     if h.hexdigest() != sha:
         part.unlink(missing_ok=True)
         raise ValueError(f"{dest.name}: checksum mismatch (download corrupted or the file changed upstream)")

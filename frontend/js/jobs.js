@@ -398,6 +398,21 @@ function buildJobDetailHtml(job) {
     `;
 }
 
+// Which engine scored the job (match_report.scored_by, shared with iOS), so Quick match, the detailed local
+// model and an AI model are never confused. Nothing for scores saved before sources were recorded.
+function scoreSourceLine(report) {
+    const tag = report && report.scored_by;
+    if (!tag) return '';
+    const label = tag === 'triage' ? 'Quick match'
+        : tag === 'local_model' ? 'Local match model'
+        : tag === 'apple_intelligence' ? 'Apple Intelligence'
+        : tag.startsWith('endpoint:') ? (tag.slice(9) || 'AI endpoint') : '';
+    if (!label) return '';
+    const secs = typeof report.score_seconds === 'number' ? ` · ${report.score_seconds < 1 ? report.score_seconds.toFixed(2) : report.score_seconds.toFixed(1)} s` : '';
+    const bucket = report.bucket ? ` · ${escapeHtml(report.bucket)} fit` : '';
+    return `<div class="match-report-label">Scored by ${escapeHtml(label)}${bucket}${secs}</div>`;
+}
+
 function renderFitAnalysis(job) {
     const report = safeParseJSON(job.match_report, null);
     if (!job.fit_reasoning && !report) return '';
@@ -423,6 +438,7 @@ function renderFitAnalysis(job) {
     return `
         <div class="detail-section">
             <h4>Fit Analysis</h4>
+            ${scoreSourceLine(report)}
             ${job.fit_reasoning ? `<p style="font-size:13px;color:var(--text-secondary);line-height:1.6">${escapeHtml(job.fit_reasoning)}</p>` : ''}
             ${reportHtml}
         </div>
