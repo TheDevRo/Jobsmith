@@ -62,6 +62,11 @@ const base = { size_bytes: 546242116, progress: 0, error: null };
   await window.deleteNliModel();
   checks.push(["Delete sends DELETE", calls.some(c => c[0] === "/api/ai/nli/model" && c[1] === "DELETE") && !shown(del)]);
 
+  // A failed/partial download keeps Retry + Delete even after the switch goes off.
+  window.renderNliStatus({ ...base, enabled: false, installed: false, state: "off", error: "connection reset" });
+  checks.push(["off + failed download → Retry and Delete offered", shown(retry) && shown(del)]);
+  checks.push(["label says Local match", /Local match/.test(doc.querySelector('label[for], #ai-nli-block label').textContent)]);
+
   let fail = 0;
   for (const [name, ok] of checks) { console.log((ok ? "PASS" : "FAIL") + "  " + name); if (!ok) fail++; }
   if (fail) { console.error(`\ntest_nli_beta.js: ${fail} check(s) failed`); process.exit(1); }

@@ -348,3 +348,109 @@ def test_example_config_ships_no_models_or_placeholders():
     assert cfg["ai"]["provider"] == ""
     assert not any(cfg["api_keys"].values())
     assert json.dumps(cfg).find("mistral-7b") == -1
+
+
+# ---------------------------------------------------------------------------
+# Résumé chunking for Apple's 8,000-character input cap
+# ---------------------------------------------------------------------------
+def _long_resume() -> str:
+    roles = []
+    for i in range(12):
+        bullets = "\n".join(f"- Delivered outcome {i}.{j} " + "x" * 160 for j in range(9))
+        roles.append(f"Engineer {i} at Company{i}\n2010 - 2012\n{bullets}\n")
+    text = ("Jane Real\njane@real.dev\n\nSUMMARY\nBuilds things.\n\nEXPERIENCE\n" + "\n".join(roles)
+            + "\nEDUCATION\nBSc Computer Science, State University, 2009\n\nSKILLS\nPython, Go, SQL\n")
+    assert len(text) >= 20000
+    return text
+
+
+@pytest.mark.asyncio
+async def test_resume_chunked_for_apple_8k_engine(monkeypatch):
+    from backend import resume_parser
+    seen = []
+
+    class Fake8k:
+        class chat:
+            class completions:
+                @staticmethod
+                async def create(model, messages, **kw):
+                    prompt = messages[0]["content"]
+                    seen.append(len(prompt))
+                    if len(prompt) > 8000:
+                        raise openai.BadRequestError("input too long", response=httpx.Response(400, request=_REQ), body=None)
+                    out = {"experience": [], "education": [], "skills": []}
+                    if "jane@real.dev" in prompt:
+                        out.update(full_name="Jane Real", email="jane@real.dev")
+                    for i in range(12):
+                        if f"Engineer {i} at Company{i}" in prompt:
+                            out["experience"].append({"title": f"Engineer {i}", "company": f"Company{i}"})
+                    if "State University" in prompt:
+                        out["education"].append({"degree": "BSc Computer Science", "school": "State University"})
+                    if "Python, Go" in prompt:
+                        out["skills"] = ["Python", "Go", "python"]
+                    resp = type("R", (), {})()
+                    resp.choices = [type("C", (), {"message": type("M", (), {"content": json.dumps(out)})()})()]
+                    return resp
+
+    async def gc(cfg, tier="strong"):
+        return Fake8k
+    monkeypatch.setattr(ai_engine, "get_client", gc)
+    cfg = {"ai": {"models": {"strong": {"model": apple_bridge.SENTINEL_MODEL}}}}
+    res = await resume_parser.parse_resume(_long_resume(), cfg)
+    assert len(seen) >= 3 and max(seen) <= 8000
+    p = res["profile"]
+    assert p["full_name"] == "Jane Real" and p["email"] == "jane@real.dev"
+    assert [e["title"] for e in p["experience"]] == [f"Engineer {i}" for i in range(12)]
+    assert p["education"][0]["school"] == "State University"
+    assert p["skills"] == ["Python", "Go"]  # de-duplicated case-insensitively
+    assert not any("only the first part" in w for w in res["warnings"])
+
+
+def test_chunk_resume_splits_on_sections_under_limit():
+    from backend import resume_parser
+    chunks = resume_parser.chunk_resume(_long_resume(), 7000)
+    assert all(len(c) <= 7000 for c in chunks)
+    assert any(c.startswith("EDUCATION") or "\nEDUCATION" in c for c in chunks)
+    assert "".join(chunks).replace("\n", "") .count("Engineer 11 at Company11") == 1
+
+
+def test_merge_profiles_first_scalar_wins_and_lists_dedupe():
+    from backend import resume_parser
+    a = resume_parser._sanitize({"full_name": "A", "experience": [{"title": "T", "company": "C", "bullets": ["x"]}]})
+    b = resume_parser._sanitize({"full_name": "B", "email": "e@x", "experience": [{"title": "t", "company": "c", "bullets": ["x", "y"]}]})
+    m = resume_parser.merge_profiles([a, b])
+    assert m["full_name"] == "A" and m["email"] == "e@x"
+    assert len(m["experience"]) == 1 and m["experience"][0]["bullets"] == ["x", "y"]
+
+
+@pytest.mark.asyncio
+async def test_resume_parse_failure_returns_real_error(monkeypatch):
+    from backend import resume_parser
+
+    async def gc(cfg, tier="strong"):
+        raise apple_bridge.BridgeUnavailable("Apple Intelligence is turned off")
+    monkeypatch.setattr(ai_engine, "get_client", gc)
+    res = await resume_parser.parse_resume("Jane\njane@x.dev", {"ai": {"models": {"strong": {"model": "m"}}}})
+    assert "Apple Intelligence is turned off" in res["warnings"][0]
+
+
+# ---------------------------------------------------------------------------
+# Deleting Quick match resets the scoring tier
+# ---------------------------------------------------------------------------
+def test_delete_quick_match_resets_scoring_tier(client, config_path, monkeypatch):
+    from backend.nli import triage_model
+    monkeypatch.setattr(triage_model, "delete", lambda: {"state": "not_installed"})
+    cfg = _saved(config_path)
+    cfg["ai"]["scoring_tier"] = "local-match-model"
+    config_path.write_text(yaml.dump(cfg))
+    r = client.delete("/api/ai/triage/model").json()
+    assert r["scoring_tier_reset"] is True
+    assert _saved(config_path)["ai"]["scoring_tier"] == "strong"
+    r = client.delete("/api/ai/triage/model").json()
+    assert r["scoring_tier_reset"] is False
+
+
+def test_server_label_names_provider():
+    assert ai_engine.server_label({"ai": {"provider": "OpenRouter"}}) == "OpenRouter"
+    assert ai_engine.server_label({"ai": {"provider": "custom"}}) == "your AI server"
+    assert ai_engine.server_label({}) == "your AI server"

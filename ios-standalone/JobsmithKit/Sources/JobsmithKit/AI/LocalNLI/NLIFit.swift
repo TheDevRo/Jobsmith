@@ -6,7 +6,7 @@ import Foundation
 /// judged "is it met?" against the profile; score = mean P(met).
 extension LocalNLI {
     static let maxLines = 20
-    public static let reasoningPrefix = "Scored by the local model (beta)"
+    public static let reasoningPrefix = "Scored by Local match"
     static let keywordRe = Extractive.rx(
         #"\b(experience|years|degree|bachelor|master|proficien|knowledge|skill|familiar|certif|ability|"#
         + #"required|must|prefer|expertise|background)"#)

@@ -364,7 +364,7 @@ final class LocalNLIScoringTests: XCTestCase {
     func testScoringFallsBackToTheLocalModel() async throws {
         let result = try await ScoringService.score(job: JobFixtures.dataEngineer, profile: JobFixtures.profile,
                                                     config: on, engine: MockAIEngine(), nli: { _ in Half() })
-        XCTAssertTrue(result.reasoning.hasPrefix("Scored by the local model (beta)"))
+        XCTAssertTrue(result.reasoning.hasPrefix("Scored by Local match"))
         XCTAssertEqual(result.score, 100 * (0.9 + 0.9 + 0.1) / 3, accuracy: 0.1)
         let report = try JSONSerialization.jsonObject(with: Data(result.matchReportJSON!.utf8)) as! [String: Any]
         XCTAssertEqual(report["matched_skills"] as? [String], ["5+ years of experience with Python and SQL",

@@ -422,7 +422,7 @@ function checkBackendPort() {
     if (localStorage.getItem(key) === '1') return;
     showBanner('port-mismatch', {
         tone: 'warn',
-        message: `Running on port ${port} — update the extension's backend URL (Settings → Integrations in the extension) to http://localhost:${port}.`,
+        message: `Running on port ${port} — update the Backend URL in the Jobsmith extension's popup to http://localhost:${port}.`,
         actions: [{
             label: 'Got it',
             onClick: () => { localStorage.setItem(key, '1'); dismissBanner('port-mismatch'); },

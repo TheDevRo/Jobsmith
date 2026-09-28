@@ -265,7 +265,7 @@ class NliBetaUpdate(BaseModel):
 
 @router.get("/api/ai/nli/status")
 async def nli_status():
-    """Local AI model (beta): {enabled, installed, state, progress, size_bytes, error}."""
+    """Local match (on-device NLI): {enabled, installed, state, progress, size_bytes, error}."""
     return nli.status(state.load_config())
 
 
@@ -314,11 +314,20 @@ async def triage_install():
 
 @router.delete("/api/ai/triage/model")
 async def triage_delete_model():
+    """Delete Quick match. If it is still the scoring tier, scoring goes back to
+    the AI model (`strong`) — otherwise the next scoring run would silently
+    download it again."""
     from ..nli import triage_model
     try:
-        return triage_model.delete()
+        result = triage_model.delete()
     except RuntimeError as exc:
         raise HTTPException(409, str(exc))
+    cfg = state.load_config()
+    reset = ai_engine.uses_quick_match(cfg)
+    if reset:
+        cfg["ai"]["scoring_tier"] = "strong"
+        state.save_config(cfg)
+    return {**result, "scoring_tier_reset": reset}
 
 
 @router.get("/api/config")
@@ -698,7 +707,7 @@ async def suggest_job_titles(body: SuggestTitlesRequest):
             timeout=120,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(504, "The AI took too long to respond — is a model loaded in LM Studio?")
+        raise HTTPException(504, f"The AI took too long to respond — is {ai_engine.server_label(cfg)} running with a model loaded?")
     except Exception as exc:
         logger.exception("suggest_job_titles failed")
         raise HTTPException(502, f"AI request failed: {exc}")

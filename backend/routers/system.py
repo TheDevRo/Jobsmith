@@ -146,11 +146,11 @@ async def browser_install():
 
 @router.get("/api/ai/models")
 async def list_ai_models():
-    """Return available models from the configured LM Studio instance."""
+    """Return available models from the configured AI server."""
     cfg = state.load_config()
     status = await ai_engine.test_connection(cfg)
     if not status.get("connected"):
-        raise HTTPException(503, detail=status.get("error", "LM Studio not reachable"))
+        raise HTTPException(503, detail=status.get("error") or f"Could not reach {ai_engine.server_label(cfg)}")
     return {"models": status.get("models", [])}
 
 

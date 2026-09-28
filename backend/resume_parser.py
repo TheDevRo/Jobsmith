@@ -20,6 +20,7 @@ import logging
 import re
 
 from . import ai_engine
+from . import apple_bridge
 from . import prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,19 @@ _STR_FIELDS = (
     "linkedin", "github", "portfolio", "summary",
 )
 _MAX_CHARS = 16000  # keep the prompt inside the local model's context window
+# Apple's on-device model takes at most 8,000 characters of input
+# (apple-bridge OnDeviceModel.swift). With it as the strong tier the résumé is
+# parsed in section-aligned chunks under 7,000 characters (less the prompt) and
+# the partial profiles are merged. The iOS twin is ResumeProfileParser.chunk.
+APPLE_INPUT_CAP = 8000
+APPLE_CHUNK_CHARS = 7000
+_HEADINGS = {
+    "summary", "professional summary", "profile", "objective", "experience", "work experience",
+    "professional experience", "relevant experience", "employment", "employment history", "work history",
+    "education", "skills", "technical skills", "core skills", "certifications", "certificates",
+    "licenses", "licenses and certifications", "projects", "awards", "publications", "volunteer",
+    "volunteer experience", "languages", "interests", "references",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +195,84 @@ def _extract_json(text: str) -> dict:
     raise ValueError("Model did not return parseable JSON")
 
 
+def _is_heading(line: str) -> bool:
+    t = line.strip().rstrip(":").strip()
+    if not t or len(t) > 40:
+        return False
+    return t.lower() in _HEADINGS or (t.isupper() and any(c.isalpha() for c in t))
+
+
+def _pack(pieces: list[str], limit: int) -> list[str]:
+    out, cur = [], ""
+    for piece in pieces:
+        if cur and len(cur) + len(piece) > limit:
+            out.append(cur)
+            cur = ""
+        cur += piece
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _split_hard(block: str, limit: int) -> list[str]:
+    """Split one oversized section on blank lines (so a role stays whole), a
+    still-oversized paragraph on lines, and a single huge line on characters."""
+    pieces = []
+    for para in (p for p in re.split(r"(?<=\n)(?=\s*\n)", block) if p):
+        if len(para) <= limit:
+            pieces.append(para)
+            continue
+        for line in para.splitlines(keepends=True):
+            pieces += [line[i:i + limit] for i in range(0, len(line), limit)]
+    return _pack(pieces, limit)
+
+
+def chunk_resume(text: str, limit: int = APPLE_CHUNK_CHARS) -> list[str]:
+    """Split résumé text on section headings into chunks of at most `limit`
+    characters, packing whole sections together where they fit."""
+    sections, cur = [], []
+    for line in text.splitlines(keepends=True):
+        if _is_heading(line) and cur:
+            sections.append("".join(cur))
+            cur = []
+        cur.append(line)
+    if cur:
+        sections.append("".join(cur))
+    pieces = [p for sec in sections for p in ([sec] if len(sec) <= limit else _split_hard(sec, limit))]
+    return [c.strip() for c in _pack(pieces, limit) if c.strip()]
+
+
+def _key(*parts) -> tuple:
+    return tuple(str(p or "").strip().lower() for p in parts)
+
+
+def merge_profiles(parts: list[dict]) -> dict:
+    """Merge sanitized partial profiles: the first non-empty scalar wins; lists
+    are concatenated and de-duplicated (experience by title+company, merging
+    bullets; education by degree+school; strings case-insensitively)."""
+    out = _sanitize({})
+    for p in parts:
+        for f in _STR_FIELDS:
+            if not out[f] and p.get(f):
+                out[f] = p[f]
+        for f in ("skills", "certifications"):
+            seen = {s.lower() for s in out[f]}
+            for s in p.get(f) or []:
+                if s.lower() not in seen:
+                    seen.add(s.lower())
+                    out[f].append(s)
+        for e in p.get("experience") or []:
+            match = next((x for x in out["experience"] if _key(x["title"], x["company"]) == _key(e["title"], e["company"])), None)
+            if match is None:
+                out["experience"].append({**e, "bullets": list(e["bullets"])})
+            else:
+                match["bullets"] += [b for b in e["bullets"] if b not in match["bullets"]]
+        for e in p.get("education") or []:
+            if all(_key(x["degree"], x["school"]) != _key(e["degree"], e["school"]) for x in out["education"]):
+                out["education"].append(dict(e))
+    return out
+
+
 async def parse_resume(text: str, config: dict, prompt_key: str = "resume_parse") -> dict:
     """Extract a partial profile dict from résumé-like text via the local LLM.
 
@@ -198,44 +290,60 @@ async def parse_resume(text: str, config: dict, prompt_key: str = "resume_parse"
     if not text:
         return {"profile": _sanitize({}), "warnings": ["No résumé text to parse."]}
 
-    if len(text) > _MAX_CHARS:
-        text = text[:_MAX_CHARS]
-        warnings.append(
-            "The text was long; only the first part was parsed. Review fields carefully."
-        )
+    if ai_engine._configured_model(config, "strong") == apple_bridge.SENTINEL_MODEL:
+        overhead = len(prompt_registry.render_prompt(config, prompt_key, resume=""))
+        chunks = chunk_resume(text, min(APPLE_CHUNK_CHARS, APPLE_INPUT_CAP - overhead - 200))
+    else:
+        if len(text) > _MAX_CHARS:
+            text = text[:_MAX_CHARS]
+            warnings.append(
+                "The text was long; only the first part was parsed. Review fields carefully."
+            )
+        chunks = [text]
 
     ai_cfg = config.get("ai", {})
-    client = await ai_engine.get_client(config, "strong")
-    prompt = prompt_registry.render_prompt(config, prompt_key, resume=text)
-
+    parts: list[dict] = []
+    bad_json: list[str] = []
     try:
-        response = await client.chat.completions.create(
-            model=ai_engine._model(config, "strong"),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=ai_cfg.get("max_tokens", 4096),
-        )
-        raw_text = (response.choices[0].message.content or "").strip()
+        client = await ai_engine.get_client(config, "strong")
+        for chunk in chunks:
+            prompt = prompt_registry.render_prompt(config, prompt_key, resume=chunk)
+            response = await client.chat.completions.create(
+                model=ai_engine._model(config, "strong"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=ai_cfg.get("max_tokens", 4096),
+            )
+            raw_text = (response.choices[0].message.content or "").strip()
+            try:
+                data = _extract_json(raw_text)
+            except ValueError:
+                logger.warning("Résumé parse: unparseable model output: %s", raw_text[:300])
+                bad_json.append(raw_text[:120])
+                continue
+            parts.append(_sanitize(data if isinstance(data, dict) else {}))
     except Exception as exc:
         logger.exception("Résumé parse: LLM call failed")
+        code, message = ai_engine.describe_ai_error(exc, ai_cfg.get("base_url", ""))
+        detail = f"{type(exc).__name__}: {exc}"
+        reason = detail if code == "error" else f"{message} ({detail})"
         return {
             "profile": _sanitize({}),
-            "warnings": [f"AI extraction failed ({exc}). Fill the form manually."],
+            "warnings": [f"AI extraction failed: {reason}. Fill the form manually."],
         }
 
-    try:
-        data = _extract_json(raw_text)
-    except ValueError:
-        logger.warning("Résumé parse: unparseable model output: %s", raw_text[:300])
+    if not parts:
         return {
             "profile": _sanitize({}),
             "warnings": [
-                "Could not extract structured data automatically. Fill the form "
+                f"The AI's reply was not valid JSON (it began: {bad_json[0]!r}). Fill the form "
                 "manually or try again."
             ],
         }
+    if bad_json:
+        warnings.append(f"{len(bad_json)} of {len(chunks)} parts of the résumé could not be read — check the fields.")
 
-    profile = _sanitize(data if isinstance(data, dict) else {})
+    profile = merge_profiles(parts)
     if not profile.get("full_name") and not profile.get("experience"):
         warnings.append(
             "Little structured data was found — double-check every field below."

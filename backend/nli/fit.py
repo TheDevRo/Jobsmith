@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 MAX_LINES = 20
-REASONING = "Scored by the local model (beta)"
+REASONING = "Scored by Local match"
 KEYWORDS = re.compile(r"\b(experience|years|degree|bachelor|master|proficien|knowledge|skill|familiar|certif|ability|"
                       r"required|must|prefer|expertise|background)", re.I)
 _BULLET = re.compile(r"^[\s•\-\*·▪◦●]+")

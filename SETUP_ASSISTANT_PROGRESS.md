@@ -20,7 +20,7 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 |---|--------|--------|
 | M1 shared plumbing (desktop backend) | DONE | (see git log "M1") |
 | M2 desktop wizard step 0 | DONE | (see git log "M2") |
-| M3 desktop fixes | todo | |
+| M3 desktop fixes | DONE | (see git log "M3") |
 | M4 iOS step 0 | todo | |
 | M5 iOS fixes | todo | |
 | M6 hardening | todo | |
@@ -79,6 +79,23 @@ No row needed fixing.
 - D12 Download chip: `#ob-dl-chip` in the top bar, started after a save that asked for downloads, polls
   triage + nli status every 3 s, hides when nothing is downloading; click → Settings → AI.
 - D13 `GET /api/config` ai now also returns `provider` and `nli_beta.enabled` (wizard prefill + diff).
+- D14 Résumé chunking budget = min(7000, 8000 − prompt-template length − 200): the 8,000 cap covers the
+  whole prompt, so a bare 7,000-char chunk plus the template could still overflow. Sections split on
+  headings (known names or short ALL-CAPS lines); an oversized section splits on blank lines, then lines.
+  The 16,000-char truncation now applies only to non-Apple models. Merge: first non-empty scalar; skills/
+  certs deduped case-insensitively; experience deduped by title+company (bullets merged); education by
+  degree+school.
+- D15 Error copy: `ai_engine.server_label(cfg)` / JS `aiServerName()` = provider name, else "your AI
+  server". LM Studio wording kept only on the context-window "Apply to LM Studio" + reload controls
+  (system.py load/reload endpoints included).
+- D16 Naming: "Local AI model (beta)" → "Local match" (+ "(on-device, beta)" hint in Settings);
+  scoring option → "Quick match (on-device, free)"; NLI reasoning → "Scored by Local match" on BOTH
+  desktop (nli/fit.py) and iOS (NLIFit.reasoningPrefix) for parity.
+- D17 Job scoring select moved to Basic with Quick match first, AI tiers as "AI model: …". Dropdown change
+  only shows status; saveSettings starts the Quick match download. DELETE /api/ai/triage/model returns
+  `scoring_tier_reset` and the UI resets the select + toasts.
+- D18 Key fields: wizard Adzuna/BLS and Settings USAJobs key are password inputs; `realKey()` blanks the
+  old example placeholders (your-app-id / your-app-key / your-api-key / your-email@example.com).
 
 ## Verification log
 - M1: pytest 1101 passed, 3 skipped (baseline 1073; +28 in tests/test_setup_assistant.py). The only
@@ -88,3 +105,7 @@ No row needed fixing.
   frontend/tests/test_setup_modes.js (in test:frontend); test_apple_intelligence.js wizard half rewritten to
   boot from the real /api/onboarding/status shape (its old "offer only when no endpoint" checks are gone
   with the offer itself).
+- M3: pytest 1109 passed, 3 skipped (+6: chunking via a fake 8,000-char engine on a 20k résumé, chunk
+  limits, merge rule, real parse error, Quick-match delete reset, server label). tests/test_nli_beta.py
+  reasoning prefix updated. frontend 492 PASS: test_triage_ui (no install on pick, Save installs, delete
+  resets, Basic placement, labels), test_nli_beta (Retry/Delete with switch off + failed download).

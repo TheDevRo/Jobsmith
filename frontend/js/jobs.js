@@ -398,13 +398,13 @@ function buildJobDetailHtml(job) {
     `;
 }
 
-// Which engine scored the job (match_report.scored_by, shared with iOS), so Quick match, the detailed local
-// model and an AI model are never confused. Nothing for scores saved before sources were recorded.
+// Which engine scored the job (match_report.scored_by, shared with iOS), so Quick match, Local match
+// and an AI model are never confused. Nothing for scores saved before sources were recorded.
 function scoreSourceLine(report) {
     const tag = report && report.scored_by;
     if (!tag) return '';
     const label = tag === 'triage' ? (report.preview ? 'Quick match · preview only' : 'Quick match')
-        : tag === 'local_model' ? 'Local match model'
+        : tag === 'local_model' ? 'Local match'
         : tag === 'apple_intelligence' ? 'Apple Intelligence'
         : tag.startsWith('endpoint:') ? (tag.slice(9) || 'AI endpoint') : '';
     if (!label) return '';

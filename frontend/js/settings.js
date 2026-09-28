@@ -60,6 +60,7 @@ async function loadSettings() {
 
         document.getElementById('cfg-ai-url').value = cfg.ai?.base_url || '';
         document.getElementById('cfg-ai-api-key').value = cfg.ai?.api_key || '';
+        window._aiProvider = cfg.ai?.provider || '';
         // Context window — snap to nearest option, defaulting to 8192
         const savedCtx = cfg.ai?.context_window || 8192;
         const ctxSel = document.getElementById('cfg-context-window');
@@ -79,12 +80,12 @@ async function loadSettings() {
         if (scoringTierSel) scoringTierSel.value = cfg.ai?.scoring_tier || 'strong';
         const refineCb = document.getElementById('cfg-triage-refine');
         if (refineCb) refineCb.checked = !!cfg.ai?.triage_refine;
-        scoringTierChanged({ install: false });
+        scoringTierChanged();
 
-        document.getElementById('cfg-adzuna-app-id').value = cfg.api_keys?.adzuna_app_id || '';
-        document.getElementById('cfg-adzuna-app-key').value = cfg.api_keys?.adzuna_app_key || '';
-        document.getElementById('cfg-usajobs-email').value = cfg.api_keys?.usajobs_email || '';
-        document.getElementById('cfg-usajobs-key').value = cfg.api_keys?.usajobs_api_key || '';
+        document.getElementById('cfg-adzuna-app-id').value = realKey(cfg.api_keys?.adzuna_app_id);
+        document.getElementById('cfg-adzuna-app-key').value = realKey(cfg.api_keys?.adzuna_app_key);
+        document.getElementById('cfg-usajobs-email').value = realKey(cfg.api_keys?.usajobs_email);
+        document.getElementById('cfg-usajobs-key').value = realKey(cfg.api_keys?.usajobs_api_key);
         const blsKeyEl = document.getElementById('cfg-bls-api-key');
         if (blsKeyEl) blsKeyEl.value = cfg.salary_estimator?.bls?.api_key || '';
 
@@ -726,6 +727,17 @@ async function testAnswerBankMatch() {
     }
 }
 
+// Error copy names the chosen preset provider, else "your AI server" — never a
+// specific product (ai.provider is set by the setup wizard).
+function aiServerName() {
+    const p = window._aiProvider || '';
+    return p && p !== 'custom' ? p : 'your AI server';
+}
+
+// Old example configs shipped these as values; show them as empty fields.
+const KEY_PLACEHOLDERS = ['your-app-id', 'your-app-key', 'your-api-key', 'your-email@example.com'];
+function realKey(v) { return KEY_PLACEHOLDERS.includes(v) ? '' : (v || ''); }
+
 async function saveSettings() {
     const splitTrim = (s) => s.split(',').map(v => v.trim()).filter(Boolean);
 
@@ -814,6 +826,8 @@ async function saveSettings() {
     try {
         await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
         toast('Settings saved!', 'success');
+        // Quick match downloads start on Save, never on picking it in the dropdown.
+        if (body.ai.scoring_tier === AI_LOCAL_MATCH) installTriageModel();
         if (typeof checkAIStatus === 'function') checkAIStatus();  // A1 — the AI URL/model may have just changed
         if (window._loadedServerHost !== undefined && body.server.host !== window._loadedServerHost) {
             window._loadedServerHost = body.server.host;
@@ -1254,7 +1268,7 @@ async function refreshOnDeviceUI(status) {
     }
 }
 
-// ---- Local AI model (beta) ----
+// ---- Local match (on-device NLI model) ----
 // One switch (ai.nli_beta.enabled). Turning it on makes the backend download the
 // model; the status line polls while that runs. Off = the LLM does everything.
 let _nliPoll = null;
@@ -1278,8 +1292,10 @@ function renderNliStatus(s) {
     line.textContent = text;
     line.style.color = s.state === 'error' ? 'var(--accent-red)' : '';
     line.style.display = text ? '' : 'none';
-    if (retry) retry.style.display = (s.enabled && (s.state === 'error' || s.state === 'not_installed')) ? '' : 'none';
-    if (del) del.style.display = (s.installed && s.state !== 'downloading') ? '' : 'none';
+    // A failed or partial download offers Retry + Delete even with the switch off.
+    const failed = s.state === 'error' || !!s.error;
+    if (retry) retry.style.display = (failed || (s.enabled && s.state === 'not_installed')) ? '' : 'none';
+    if (del) del.style.display = ((s.installed || failed) && s.state !== 'downloading') ? '' : 'none';
     clearTimeout(_nliPoll);
     if (s.state === 'downloading') _nliPoll = setTimeout(loadNliStatus, 1500);
 }
@@ -1295,7 +1311,7 @@ async function saveNliBeta() {
             method: 'PUT', body: JSON.stringify({ enabled: !!(cb && cb.checked) }),
         }));
     } catch (e) {
-        toast('Failed to update the Local AI model setting', 'error');
+        toast('Failed to update the Local match setting', 'error');
         loadNliStatus();
     }
 }
@@ -1308,11 +1324,11 @@ async function installNliModel() {
 async function deleteNliModel() {
     try {
         renderNliStatus(await api('/api/ai/nli/model', { method: 'DELETE' }));
-        toast('Local AI model deleted', 'success');
+        toast('Local match model deleted', 'success');
     } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
 }
 
-// ---- Quick match (Local match model as the scoring tier) ----
+// ---- Quick match (the local-match-model scoring tier) ----
 // Picking it starts its own small download; the status line polls while that runs.
 const AI_LOCAL_MATCH = 'local-match-model';
 let _triagePoll = null;
@@ -1323,7 +1339,7 @@ function renderTriageStatus(s) {
     const size = document.getElementById('ai-triage-size');
     if (size && s.size_bytes) size.textContent = Math.round(s.size_bytes / 1e6) + ' MB';
     line.textContent = {
-        not_installed: 'Not downloaded. The Content model scores until it is.',
+        not_installed: 'Not downloaded yet. Save to download it; the Content model scores until then.',
         downloading: 'Downloading ' + Math.round((s.progress || 0) * 100) + '%… The Content model scores until it finishes.',
         ready: 'Ready. Runs on this computer.',
         error: 'Error: ' + (s.error || 'download failed') + '. The Content model scores for now.',
@@ -1348,17 +1364,26 @@ async function installTriageModel() {
 
 async function deleteTriageModel() {
     try {
-        renderTriageStatus(await api('/api/ai/triage/model', { method: 'DELETE' }));
-        toast('Quick match model deleted', 'success');
+        const s = await api('/api/ai/triage/model', { method: 'DELETE' });
+        renderTriageStatus(s);
+        if (s.scoring_tier_reset) {
+            const sel = document.getElementById('cfg-scoring-tier');
+            if (sel) sel.value = 'strong';
+            scoringTierChanged();
+            toast('Quick match deleted. Job scoring now uses your AI model.', 'success');
+        } else {
+            toast('Quick match model deleted', 'success');
+        }
     } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
 }
 
-// Show the Quick match block for the Local match model; picking it (not loading the page) starts the download.
-function scoringTierChanged({ install = true } = {}) {
+// Show the Quick match block when it is picked. Only Save (or the setup
+// wizard's exit) starts the download — changing the dropdown never does.
+function scoringTierChanged() {
     const on = document.getElementById('cfg-scoring-tier')?.value === AI_LOCAL_MATCH;
     const block = document.getElementById('ai-triage-block');
     if (block) block.style.display = on ? '' : 'none';
-    if (on) (install ? installTriageModel : loadTriageStatus)();
+    if (on) loadTriageStatus();
 }
 
 async function loadAiModels({ preselect = {}, persistConnection = false } = {}) {
@@ -1417,9 +1442,9 @@ async function loadAiModels({ preselect = {}, persistConnection = false } = {}) 
 
         return models;
     } catch (e) {
-        // LM Studio not reachable — leave dropdowns with a placeholder
+        // AI server not reachable — leave dropdowns with a placeholder
         allSelects.forEach(sel => {
-            sel.innerHTML = '<option value="">— LM Studio not reachable —</option>';
+            sel.innerHTML = '<option value="">— Could not reach ' + esc(aiServerName()) + ' —</option>';
         });
         // Still restore saved values as manual entries
         const pairs = [[fastSel, curFast], [strongSel, curStrong]];

@@ -38,16 +38,17 @@ needs that browser to scrape job boards.
 
 Then the **setup wizard** opens. Five steps:
 
-1. **Connect AI** — point Jobsmith at your AI server, test the connection, and
-   pick your fast and strong models from the list the server reports. Local
-   options are [LM Studio](https://lmstudio.ai) (recommended, fully private) and
-   Ollama; hosted providers such as OpenRouter or OpenAI work with an API key.
-   Start your AI server *before* this step so the model list is populated.
-   On a Mac running macOS 26+ on Apple Silicon with Apple Intelligence on, this
-   step also offers **Use built-in Apple Intelligence** when no server answers —
-   see below.
+1. **AI** — *How should Jobsmith think?* Pick one of three cards (details
+   below): **Local**, **Cloud** or **Advanced**. **Continue** runs a real
+   one-word test against the model you chose and saves the AI settings only if
+   it answers, so the next step can already use it. If the test fails you get
+   the reason in plain English (a rejected key, a model your account can't
+   use, no credit, rate limiting, or a server that can't be reached) with
+   **Show details** for the raw error, plus **Continue anyway** (saves, marked
+   unverified) and **Set up AI later** (saves nothing).
 2. **Résumé** — upload or paste your existing resume. The AI parses it into
-   structured fields.
+   structured fields. The step says where the résumé goes: it stays on this Mac
+   with Local, or is sent to your provider with Cloud.
 3. **Profile** — check what was parsed and fill in the rest (contact details,
    work authorization, salary target). This is the only data the AI is allowed
    to use; it never invents facts about you.
@@ -57,50 +58,75 @@ Then the **setup wizard** opens. Five steps:
 There is no config file to edit. `config.yaml` is created on first boot and the
 wizard writes every answer into it.
 
+### The three AI cards
+
+- **Local** — Apple Intelligence runs every task on this Mac: free, private,
+  nothing to set up. Writing quality is basic; you can connect a cloud provider
+  later for stronger résumés. Needs macOS 26+ on Apple Silicon with Apple
+  Intelligence turned on; otherwise the card is greyed out with the reason and a
+  **Check again** button. A pre-checked, recommended box also downloads
+  **Quick match** and **Local match** (the size is shown next to it) for faster
+  job scoring and smarter Apply Assist. They download in the background after
+  you continue; a chip in the top bar and **Settings → AI** show the progress,
+  and Apple Intelligence scores jobs until Quick match is ready.
+- **Cloud** — an AI provider you pay for (or a free tier): OpenAI, Anthropic,
+  Google Gemini, xAI, Mistral, Groq, DeepSeek, Together AI, Fireworks, Cerebras,
+  NVIDIA NIM or OpenRouter. Pick the provider, paste your API key (**Get an API
+  key** opens the provider's key page), then search the provider's live model
+  list and pick one **Writing model**; Jobsmith ships no default model names.
+  Scoring and quick helper tasks use the same model unless you open **Use
+  different models for scoring**. **Custom** takes any OpenAI-compatible server,
+  including one you run yourself (LM Studio, Ollama, vLLM, llama.cpp, LiteLLM);
+  its API key is optional. If a server can't list its models you can type the
+  model ID instead.
+- **Advanced** — the full form: any server, a different model per tier (with
+  Apple Intelligence as a per-tier option), the job-scoring choice and the
+  Local match switch, with the provider list as a shortcut for the address.
+
+You can change this any time with **Settings → AI → Change setup…**, which
+reopens just this step and returns to Settings when done.
+
 **Skipping and re-running.** Every step can be skipped, and you can close the
 wizard entirely — the app works, it just has less to go on. Re-run it any time
 from **Settings → App → Re-run setup wizard**. A re-run adds a **Review** step that
-shows a diff of what would change before anything is saved, so it is safe to
-run again on a configured install.
+shows a diff of what would change before anything is saved (including the AI
+step), so it is safe to run again on a configured install.
 
 If your AI server is not reachable, the dashboard shows a warning banner with
 an **Open AI Settings** and a **Retry** button. Scoring, tailoring, and resume
 parsing do not work until that clears; everything else does.
 
-### No AI server? Apple Intelligence
+### Apple Intelligence per tier
 
-On **macOS 26 or newer, Apple Silicon, with Apple Intelligence turned on**, the
-wizard offers **Use built-in Apple Intelligence** when no server answers. Taking
-it puts the Navigator and Utility tiers on the Mac's own model and points job-fit
-scoring at them — free, offline, private, and no download. The Content tier
-(résumés and cover letters) stays on whatever server you configure, because the
-built-in model is small: fine for scoring and short tasks, noticeably weaker at
-long documents, and very long job postings can exceed its context window and be
-skipped.
-
-You can change this any time in **Settings → AI**, where each tier has its own
-*Use Apple Intelligence (on-device)* checkbox. The checkboxes only appear on a
-machine that can actually run it. If Apple Intelligence is later turned off in
-System Settings, on-device tiers fail with that reason rather than silently
+In **Settings → AI**, each tier has its own *Use Apple Intelligence
+(on-device)* checkbox, shown only on a machine that can run it. The built-in
+model is small: fine for scoring and short tasks, weaker at long documents, and
+very long job postings can exceed its context window and be skipped. Long
+résumés are read in parts so they fit. If Apple Intelligence is later turned off
+in System Settings, on-device tiers fail with that reason rather than silently
 sending the work to your server.
 
-### Optional: Local AI model (beta)
+### Quick match and Local match
 
-**Settings → AI → Local AI model (beta)** is one switch for a small on-device
-language-understanding model (about 690 MB, downloaded once when you turn it on,
-deletable from the same place). With it on:
+- **Quick match** (about 134 MB) scores every job on this computer in a fraction
+  of a second, from how well your profile covers each requirement line. Pick it
+  under **Settings → AI → Job scoring: Quick match (on-device, free)**; it
+  downloads when you save. Jobs it can't judge go to your AI model. Deleting it
+  switches job scoring back to your AI model.
+- **Local match** (about 690 MB, on-device, beta) is one switch in **Settings →
+  AI**. With it on:
+  - **Apply Assist** fills the fields left after your profile and answer bank
+    *without an LLM*: it only ever picks a form option, types a value copied
+    from your profile, or computes years from your role dates. Essay questions
+    still go to your AI and come back as drafts to review; anything it isn't
+    sure of is left blank for you.
+  - **Job-fit scoring** falls back to it when your AI server is unreachable.
+    Those scores say *Scored by Local match* and use a different method (the
+    share of the posting's requirement lines your profile meets), so they don't
+    line up exactly with LLM scores.
 
-- **Apply Assist** fills the fields left after your profile and answer bank
-  *without an LLM*: it only ever picks a form option, types a value copied from
-  your profile, or computes years from your role dates. Essay questions still go
-  to your AI server and come back as drafts to review; anything it isn't sure of
-  is left blank for you.
-- **Job-fit scoring** falls back to it when your AI server is unreachable. Those
-  scores say *Scored by the local model (beta)* and use a different method
-  (the share of the posting's requirement lines your profile meets), so they
-  don't line up exactly with LLM scores.
-
-Off (the default) changes nothing. The switch is per machine and never syncs.
+  Off (the default) changes nothing. The switch is per machine and never syncs.
+  A failed or partial download always offers **Retry** and **Delete**.
 
 ## 3. First fetch
 

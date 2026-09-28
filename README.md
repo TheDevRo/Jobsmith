@@ -39,7 +39,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **AI-powered tailoring** — Your AI server scores job fit and generates tailored resumes and cover letters
 - **Bring your own AI** — Any OpenAI-compatible endpoint works: LM Studio or Ollama for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
 - **Apple Intelligence (on-device)** — On macOS 26+ Apple Silicon, run scoring and short helper tasks on the Mac's built-in model with zero setup; document generation stays on your endpoint
-- **Local AI model (beta)** — Optional on-device model that fills application forms from your profile without an LLM and scores jobs when no AI server is reachable
+- **Local match (beta)** — Optional on-device model that fills application forms from your profile without an LLM and scores jobs when no AI server is reachable
 - **Honesty levels** — Choose how much latitude the AI takes per job: `honest` / `tailored` / `embellished` / `fabricated`
 - **AI Edit** — Iteratively revise generated resumes and cover letters with natural-language instructions; per-edit honesty + model tier overrides
 - **Resume style presets** — `executive`, `ledger`, `banner`, `compact`, `swiss` (all ATS-friendly), each with a selectable accent color
@@ -182,9 +182,9 @@ Routing is strict — a tier set to `apple-on-device` never silently falls back 
 your server, so if Apple Intelligence is turned off those calls fail with a
 message saying exactly that instead of quietly sending private work elsewhere.
 
-### Local AI model (beta)
+### Local match (beta)
 
-**Settings → AI → Local AI model (beta)** is one switch for a small on-device
+**Settings → AI → Local match** is one switch for a small on-device
 language-understanding model (about 690 MB, downloaded once when you turn it on,
 deletable from the same place). With it on:
 
@@ -194,7 +194,7 @@ deletable from the same place). With it on:
   to your AI server and come back as drafts to review; anything it isn't sure of
   is left blank for you.
 - **Job-fit scoring** falls back to it when your AI server is unreachable. Those
-  scores say *Scored by the local model (beta)* and use a different method
+  scores say *Scored by Local match* and use a different method
   (the share of the posting's requirement lines your profile meets), so they
   don't line up exactly with LLM scores.
 

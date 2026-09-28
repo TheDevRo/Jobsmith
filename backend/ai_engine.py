@@ -580,9 +580,9 @@ async def score_job_fit(
     """
     Score how well a job matches the candidate's profile (0-100).
     Returns (score, reasoning, match_report); raises ScoringUnavailable when no
-    score can be produced. With the Local match model picked as the scoring
-    tier, Quick match (embedding triage, no LLM) scores first and the LLM only
-    gets the jobs it can't judge. With the Local AI model (beta) switched on
+    score can be produced. With Quick match picked as the scoring
+    tier (embedding triage, no LLM) it scores first and the LLM only
+    gets the jobs it can't judge. With Local match switched on
     and installed, an unavailable scoring LLM falls back to the local NLI model.
     """
     if uses_quick_match(config):
@@ -1259,7 +1259,7 @@ async def batch_process_jobs(
 
 
 async def test_connection(config: dict) -> dict:
-    """Test connectivity to LM Studio. Returns status dict."""
+    """Test connectivity to the AI server (lists its models). Returns status dict."""
     try:
         # Inside the try: a strong tier set to Apple Intelligence can fail here
         # (bridge missing / Apple Intelligence off) and that is a connection
@@ -1277,6 +1277,12 @@ async def test_connection(config: dict) -> dict:
 # Setup-wizard connection test + plain-English errors
 # ---------------------------------------------------------------------------
 PING_TIMEOUT = 20.0
+
+
+def server_label(config: dict) -> str:
+    """How error copy names the AI server: the preset provider, else generic."""
+    provider = ((config or {}).get("ai") or {}).get("provider") or ""
+    return provider if provider and provider != "custom" else "your AI server"
 
 
 def describe_ai_error(exc: BaseException, base_url: str = "") -> tuple[str, str]:

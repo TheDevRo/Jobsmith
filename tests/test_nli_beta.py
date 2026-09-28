@@ -340,7 +340,7 @@ def test_scoring_falls_back_to_local_model(monkeypatch):
             return [0.9 if "Python" in h or "Bachelor" in h else 0.1 for _, h in pairs]
     use_scorer(monkeypatch, Half())
     score, reasoning, report = asyncio.run(ai_engine.score_job_fit(JOB, PROFILE, ON))
-    assert reasoning.startswith("Scored by the local model (beta)")
+    assert reasoning.startswith("Scored by Local match")
     assert score == pytest.approx(100 * (0.9 + 0.9 + 0.1) / 3, abs=0.1)
     assert set(report) == {"matched_skills", "missing_skills", "matched_soft_skills", "missing_soft_skills",
                            "keywords", "title_alignment", "scored_by", "score_seconds"}

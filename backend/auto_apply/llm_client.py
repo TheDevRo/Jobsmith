@@ -119,7 +119,7 @@ class LLMClient:
                     )
 
         raise RuntimeError(
-            f"LM Studio call failed after {max_retries} attempts: {last_exc}"
+            f"AI call failed after {max_retries} attempts: {last_exc}"
         )
 
     async def complete_json(
@@ -152,7 +152,7 @@ class LLMClient:
                 user = user + "\n\n[IMPORTANT: Return ONLY valid JSON. No markdown, no extra text.]"
 
         raise ValueError(
-            f"LM Studio returned invalid JSON after {max_retries} attempts. "
+            f"The AI returned invalid JSON after {max_retries} attempts. "
             f"Last response: {last_text[:300]}"
         )
 

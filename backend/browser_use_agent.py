@@ -1180,7 +1180,7 @@ async def run_browser_use_apply(
                     errors = [e for e in result.errors() if e]
                 except Exception:
                     pass
-            error_detail = "; ".join(errors[-3:]) if errors else "hit max_failures (check LM Studio model/context)"
+            error_detail = "; ".join(errors[-3:]) if errors else "hit max_failures (check your AI server's model/context)"
             logger.warning(
                 "Browser-Use agent did not complete for %s at %s — %s",
                 job_title, company, error_detail,

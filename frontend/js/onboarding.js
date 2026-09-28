@@ -96,6 +96,11 @@ function obPrefillAI(s, cfg) {
     const ai = (cfg && cfg.ai) || {};
     const models = ai.models || {};
     const mode = s.setup_mode || '';
+    // What reads a résumé until a new choice is saved (see obResumePrivacy).
+    _obState.savedAI = {
+        mode: mode || (models.strong?.model === OB_ON_DEVICE_MODEL ? 'local' : (models.strong?.model ? 'cloud' : '')),
+        provider: ai.provider || '', base_url: ai.base_url || '',
+    };
     if (mode === 'cloud' && ai.provider) {
         const sel = document.getElementById('ob-cloud-provider');
         sel.value = ai.provider;
@@ -164,8 +169,8 @@ async function obLoadPrefill() {
         document.getElementById('ob-salary').value = s.min_salary || '';
         document.getElementById('ob-exclude').value = (s.exclude_keywords || []).join(', ');
         const k = cfg.api_keys || {};
-        document.getElementById('ob-adzuna-app-id').value = k.adzuna_app_id || '';
-        document.getElementById('ob-adzuna-app-key').value = k.adzuna_app_key || '';
+        document.getElementById('ob-adzuna-app-id').value = realKey(k.adzuna_app_id);
+        document.getElementById('ob-adzuna-app-key').value = realKey(k.adzuna_app_key);
         document.getElementById('ob-bls-key').value = cfg.salary_estimator?.bls?.api_key || '';
     } catch (e) { console.error('obLoadPrefill failed', e); }
     return cfg;
@@ -184,8 +189,25 @@ function obGoto(step) {
     else if (step === 0) nextBtn.textContent = 'Continue →';
     else if (step === OB_STEPS - 1) nextBtn.textContent = _obState.rerun ? 'Review changes →' : 'Finish ✓';
     else nextBtn.textContent = 'Next →';
+    if (step === 1) obResumePrivacy();
     const body = document.querySelector('.ob-body');
     if (body) body.scrollTop = 0;
+}
+
+// Résumé step: say where the résumé goes, for the AI that will actually read it
+// (a re-run parses with the saved setup until the Review step applies a new one).
+function obResumePrivacy() {
+    const el = document.getElementById('ob-resume-privacy');
+    if (!el) return;
+    const deferred = _obState.rerun && !_obState.only;
+    const ai = (deferred || _obState.aiLater) ? (_obState.savedAI || {}) : _obState.ai;
+    const host = (() => { try { return new URL(ai.base_url).host; } catch (e) { return ''; } })();
+    let text;
+    if (ai.mode === 'local') text = 'Apple Intelligence will fill in your profile. Your résumé stays on this Mac.';
+    else if (ai.provider && ai.provider !== 'custom') text = 'your AI will fill in your profile. Your résumé is sent to ' + ai.provider + ' to read it.';
+    else if (host) text = 'your AI will fill in your profile. Your résumé is sent to your AI server at ' + host + ' to read it.';
+    else text = 'your AI will fill in your profile. Set up AI first, or skip and fill it in by hand.';
+    el.textContent = text;
 }
 
 function obBack() { if (_obState.step > 0) obGoto(_obState.step - 1); }
@@ -208,7 +230,7 @@ async function obSkip() {
     if (!(await appConfirm('Skip first-time setup? You can re-run it anytime from Settings → App.'))) return;
     try { await api('/api/onboarding/complete', { method: 'POST', body: '{}' }); } catch (e) {}
     obHide();
-    toast('Setup skipped — you can re-run it from Settings.', 'info');
+    toast('You can run setup again from Settings → App', 'info');
     window._onbStatus = null;  // A3: profile/pairing state just changed
     if (typeof checkAIStatus === 'function') checkAIStatus();  // A1
     obFirstFetchNudge();  // C3
@@ -1153,7 +1175,7 @@ const TOUR_STEPS = [
         hash: '#settings',
         selector: '#stab-integrations',
         title: 'AI',
-        body: 'Everything the AI does: your LM Studio (or other OpenAI-compatible) endpoint and the three model picks — Content, Navigator, Utility — plus how honestly it tailors, the resume visual style, and DOCX/PDF output. Advanced mode adds the scoring tier, context window, max experience entries, the AI Edit model, and the full prompt editor.',
+        body: 'Everything the AI does: how Jobsmith thinks (Change setup… re-runs the Local / Cloud / Advanced choice), your AI server and the three model picks — Content, Navigator, Utility — plus how honestly it tailors, the resume visual style, and DOCX/PDF output. Advanced mode adds the scoring tier, context window, max experience entries, the AI Edit model, and the full prompt editor.',
         before: () => _tourSwitchSettingsTab('stab-integrations'),
     },
     {
@@ -1188,7 +1210,7 @@ const TOUR_STEPS = [
         hash: '#settings',
         selector: '#card-prompts',
         title: 'Edit the AI\'s prompts',
-        body: 'Every prompt Jobsmith sends to your local AI — scoring, resume tailoring, cover letters, parsing — is editable at the bottom of the AI tab. Placeholders like {profile_summary} are filled in automatically at run time. Customized prompts are saved to your config; Reset to Default brings any of them back.',
+        body: 'Every prompt Jobsmith sends to your AI — scoring, resume tailoring, cover letters, parsing — is editable at the bottom of the AI tab. Placeholders like {profile_summary} are filled in automatically at run time. Customized prompts are saved to your config; Reset to Default brings any of them back.',
         before: () => { setSettingsMode('advanced'); _tourSwitchSettingsTab('stab-integrations'); loadPrompts(); },
     },
     {
