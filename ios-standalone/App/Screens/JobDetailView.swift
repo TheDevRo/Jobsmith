@@ -48,12 +48,14 @@ struct JobDetailView: View {
                             Eyebrow(text: "Why this score")
                             if let source = ScoreSource.of(matchReport: job.matchReport, reasoning: reasoning) {
                                 let secs = ScoreSource.seconds(matchReport: job.matchReport)
-                                Label(secs.map { "\(source.label) · \(String(format: "%.1f", $0)) s" } ?? source.label,
+                                let name = ScoreSource.previewOnly(matchReport: job.matchReport)
+                                    ? "\(source.label) · preview only" : source.label
+                                Label(secs.map { "\(name) · \(String(format: "%.1f", $0)) s" } ?? name,
                                       systemImage: source.systemImage)
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
-                                    .accessibilityLabel("Scored by \(source.label)")
+                                    .accessibilityLabel("Scored by \(name)")
                             }
                         }
                         Text(reasoning)

@@ -80,6 +80,13 @@ public enum ScoreSource: Equatable, Sendable {
         LocalNLI.enabled(config) && config.ai.usesLocalMatchModel
     }
 
+    /// Whether a stored Quick match score came from a feed preview (no requirement lines).
+    public static func previewOnly(matchReport: String?) -> Bool {
+        guard let data = matchReport?.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return obj["preview"] as? Bool == true
+    }
+
     /// Seconds the stored score took, when recorded.
     public static func seconds(matchReport: String?) -> Double? {
         guard let data = matchReport?.data(using: .utf8),
@@ -256,10 +263,12 @@ public enum ScoringService {
     /// "Refine top matches with the detailed model" (`AIConfig.triageRefine`, default off): after
     /// a scoring run, the NLI model re-scores the top `refineShare` of that run's Quick match
     /// scores, when it is switched on and installed. Returns the new results to persist.
+    /// Preview-only jobs (no requirement lines) are skipped: the NLI model has nothing to judge there either.
     public static let refineShare = 0.15
 
     public static func refineTop(_ scored: [(job: Job, score: Double)], profile: Profile, config: AppConfig,
                                  nli: LocalNLI.Provider = LocalNLI.live) async -> [(job: Job, result: FitResult)] {
+        let scored = scored.filter { !LocalNLI.requirementLines($0.job.description).isEmpty }
         guard config.ai.triageRefine, !scored.isEmpty, let scorer = await nli(config) else { return [] }
         let top = scored.enumerated().sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
             .prefix(Int((refineShare * Double(scored.count)).rounded(.up))).map(\.element.job)

@@ -13,13 +13,17 @@ extension LocalNLI {
     static let bulletRe = Extractive.rx(#"^[\s•\-\*·▪◦●]+"#)
     static let lineSplitRe = Extractive.rx(#"\n+|(?<=[.!?;])\s+(?=[A-Z•\-\*])"#, caseInsensitive: false)
 
-    /// Candidate requirement lines: split on newlines and sentence ends, 25-300 chars, keyword-bearing.
-    static func requirementLines(_ description: String) -> [String] {
-        let lines = Extractive.split(description, lineSplitRe)
+    /// The posting split on newlines and sentence ends, bullets stripped, 25-300 chars (no keyword filter).
+    static func candidateLines(_ description: String) -> [String] {
+        Extractive.split(description, lineSplitRe)
             .map { bulletRe.stringByReplacingMatches(in: $0, range: NSRange($0.startIndex..., in: $0), withTemplate: "")
                 .trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { (25...300).contains($0.unicodeScalars.count) }
-        return Array(lines.filter { Extractive.search(keywordRe, $0) }.prefix(maxLines))
+    }
+
+    /// Candidate requirement lines: split on newlines and sentence ends, 25-300 chars, keyword-bearing.
+    static func requirementLines(_ description: String) -> [String] {
+        Array(candidateLines(description).filter { Extractive.search(keywordRe, $0) }.prefix(maxLines))
     }
 
     /// Premise + hypothesis are kept within this many tokens: the fixed input length of the

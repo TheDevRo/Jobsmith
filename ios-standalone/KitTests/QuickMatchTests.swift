@@ -12,6 +12,7 @@ enum TriageGolden {
         let profile: String, job: String, lines: [String]
         let p: [Double]?
         let score_raw: Double?
+        let preview: Bool?
     }
     struct PostingJSON: Decodable { let title: String, description: String }
     struct File: Decodable {
@@ -81,6 +82,7 @@ final class QuickMatchTests: XCTestCase {
             guard let want = c.score_raw else { XCTAssertNil(ev, "\(c.profile)-\(c.job)"); continue }
             let got = try XCTUnwrap(ev, "\(c.profile)-\(c.job)")
             XCTAssertEqual(got.lines, c.lines, "\(c.profile)-\(c.job)")
+            XCTAssertEqual(got.preview, c.preview ?? false, "\(c.profile)-\(c.job)")
             for (a, b) in zip(got.p, c.p!) { XCTAssertEqual(a, b, accuracy: 1e-4, "\(c.profile)-\(c.job)") }
             XCTAssertEqual(got.raw, want, accuracy: 0.01, "\(c.profile)-\(c.job)")
         }
@@ -95,13 +97,37 @@ final class QuickMatchTests: XCTestCase {
             let result = try XCTUnwrap(r)
             XCTAssertEqual(result.score, (min(100, max(0, raw)) * 10).rounded() / 10, accuracy: 0.051)
             let want = result.score >= b.great ? "Great" : result.score >= b.good ? "Good" : result.score >= b.possible ? "Possible" : "Poor"
-            XCTAssertTrue(result.reasoning.hasPrefix("Quick match: \(want) fit"), result.reasoning)
+            let prefix = c.preview == true ? "Quick match (preview only)" : "Quick match"
+            XCTAssertTrue(result.reasoning.hasPrefix("\(prefix): \(want) fit"), result.reasoning)
+            XCTAssertEqual(ScoreSource.previewOnly(matchReport: result.matchReportJSON), c.preview ?? false)
             let report = try JSONSerialization.jsonObject(with: Data(result.matchReportJSON!.utf8)) as! [String: Any]
             XCTAssertEqual(report["bucket"] as? String, want)
             let met = zip(c.lines, c.p!).filter { $0.1 > 0.5 }.map(\.0)
             XCTAssertEqual(Set(report["matched_skills"] as! [String]), Set(met.map { String($0.prefix(80)) }))
         }
         XCTAssertTrue(TriageGolden.file.cases.contains { ($0.score_raw ?? 0) > 100 })  // the clamp is exercised
+        XCTAssertTrue(TriageGolden.file.cases.contains { $0.preview == true })  // preview-only scoring is exercised
+    }
+
+    /// Same as test_preview_lines_when_there_are_no_requirement_lines (triage.job_lines).
+    func testPreviewLinesWhenThereAreNoRequirementLines() {
+        let d = TriageGolden.file.jobs["preview"]!.description
+        XCTAssertEqual(LocalNLI.requirementLines(d), [])
+        let (lines, preview) = QuickMatch.jobLines(d)
+        XCTAssertTrue(preview)
+        XCTAssertEqual(lines.count, 4)
+        XCTAssertTrue(lines.allSatisfy { (25...300).contains($0.unicodeScalars.count) })
+        XCTAssertEqual(QuickMatch.jobLines("Make great coffee. Smile a lot.").lines, ["Make great coffee. Smile a lot."])
+        XCTAssertEqual(QuickMatch.jobLines(String(repeating: "x", count: 400)).lines, [String(repeating: "x", count: 300)])
+        XCTAssertEqual(QuickMatch.jobLines(String(repeating: "• One two three four five six seven\n", count: 30)).lines,
+                       Array(repeating: "One two three four five six seven", count: 20))
+        let bi = TriageGolden.file.jobs["bi"]!.description
+        XCTAssertEqual(QuickMatch.jobLines(bi).lines, LocalNLI.requirementLines(bi))
+        XCTAssertFalse(QuickMatch.jobLines(bi).preview)
+        for empty in ["", "   \n ", "Now hiring!"] {
+            XCTAssertEqual(QuickMatch.jobLines(empty).lines, [])
+            XCTAssertFalse(QuickMatch.jobLines(empty).preview)
+        }
     }
 
     func testEmbeddingsAreCachedPerText() throws {
@@ -163,11 +189,24 @@ final class QuickMatchTests: XCTestCase {
                                                     config: picked, engine: llm(), nli: { _ in FakeNLI(fixed: 0.9) }, quick: { _ in nil })
         XCTAssertEqual(source(viaNLI), .localModel)
         let engine = llm()
-        let viaLLM = try await ScoringService.score(job: TriageGolden.job("empty"), profile: TriageGolden.profiles["devops"]!,
+        let viaLLM = try await ScoringService.score(job: TriageGolden.job("blank"), profile: TriageGolden.profiles["devops"]!,
                                                     config: picked, engine: engine, nli: { _ in nil },
                                                     quick: { _ in try? TriageGolden.engine() })
         XCTAssertEqual(viaLLM.score, 42)  // nothing to judge -> the LLM
         XCTAssertEqual(engine.requests.count, 1)
+    }
+
+    func testAPreviewIsScoredByQuickMatchAndMarked() async throws {
+        let engine = llm(), q = try TriageGolden.engine()
+        let r = try await ScoringService.score(job: TriageGolden.job("preview"), profile: TriageGolden.profiles["devops"]!,
+                                               config: picked, engine: engine, nli: { _ in nil }, quick: { _ in q })
+        XCTAssertEqual(source(r), .quickMatch)
+        XCTAssertTrue(r.reasoning.hasPrefix("Quick match (preview only): "), r.reasoning)
+        XCTAssertTrue(ScoreSource.previewOnly(matchReport: r.matchReportJSON))
+        XCTAssertEqual(engine.requests.count, 0)
+        let full = try await ScoringService.score(job: TriageGolden.job("sre"), profile: TriageGolden.profiles["devops"]!,
+                                                  config: picked, engine: engine, nli: { _ in nil }, quick: { _ in q })
+        XCTAssertFalse(ScoreSource.previewOnly(matchReport: full.matchReportJSON))
     }
 
     func testQuickMatchOnlyWhenTheLocalMatchModelIsPicked() async throws {
@@ -199,6 +238,15 @@ final class QuickMatchTests: XCTestCase {
         XCTAssertTrue(off.isEmpty, "off by default")
         let noModel = await ScoringService.refineTop(jobs, profile: Profile(), config: on, nli: { _ in nil })
         XCTAssertTrue(noModel.isEmpty, "needs the detailed model")
+    }
+
+    func testRefineSkipsPreviewOnlyJobs() async {
+        let previews = (0..<10).map { i in (job: TriageGolden.job("preview").renamed("p\(i)"), score: 99.0) }
+        let jobs = (0..<20).map { i in (job: TriageGolden.job("sre").renamed("job\(i)"), score: Double(i)) }
+        var on = picked; on.ai.triageRefine = true
+        let out = await ScoringService.refineTop(previews + jobs, profile: TriageGolden.profiles["devops"]!, config: on,
+                                                 nli: { _ in FakeNLI(fixed: 0.9) })
+        XCTAssertEqual(out.map(\.job.title), ["job19", "job18", "job17"])
     }
 
     func testConfigRoundTripsTheNewSettings() throws {

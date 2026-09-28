@@ -126,10 +126,24 @@ public final class QuickMatch: @unchecked Sendable {
         }
     }
 
-    /// (requirement lines, P(met) per line, raw job score), or nil when there is nothing to judge.
+    /// (lines to judge, preview only). The requirement lines; when there are none (a short feed
+    /// preview, e.g. Adzuna's 500 chars), every 25-300 char line, else the whole text (first 300
+    /// chars) as one line when it is at least 25 chars. ([], false) when there is no usable text.
+    static func jobLines(_ description: String) -> (lines: [String], preview: Bool) {
+        let req = LocalNLI.requirementLines(description)
+        if !req.isEmpty { return (req, false) }
+        var lines = Array(LocalNLI.candidateLines(description).prefix(LocalNLI.maxLines))
+        let text = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if lines.isEmpty, text.unicodeScalars.count >= 25 {
+            lines = [String(String.UnicodeScalarView(text.unicodeScalars.prefix(300)))]
+        }
+        return (lines, !lines.isEmpty)
+    }
+
+    /// (lines, P(met) per line, raw job score, preview only), or nil when there is nothing to judge.
     func evaluate(title: String, description: String, profile p: Profile,
-                  today: Extractive.Today) throws -> (lines: [String], p: [Double], raw: Double)? {
-        let lines = LocalNLI.requirementLines(description)
+                  today: Extractive.Today) throws -> (lines: [String], p: [Double], raw: Double, preview: Bool)? {
+        let (lines, preview) = Self.jobLines(description)
         guard !lines.isEmpty, !Self.chunks(p).isEmpty else { return nil }
         let lf = try lineFeatures(p, lines: lines, today: today)
         let pm = lf.map { row in
@@ -149,10 +163,10 @@ public final class QuickMatch: @unchecked Sendable {
             feats["title"] = try titles.isEmpty ? 0 : vectors(titles).map { Self.dot(tv, $0) }.max() ?? 0
         }
         let raw = zip(data.job.cols, data.job.w).reduce(data.job.intercept) { $0 + feats[$1.0]! * $1.1 }
-        return (lines, pm, raw)
+        return (lines, pm, raw, preview)
     }
 
-    /// The fit result, or nil when the posting has no requirement lines (or the profile is empty).
+    /// The fit result, or nil when the posting has no usable text (or the profile is empty).
     public func fitScore(job: Job, profile: Profile) throws -> FitResult? {
         try fitScore(job: job, profile: profile, today: Extractive.Today(Date()))
     }
@@ -160,7 +174,7 @@ public final class QuickMatch: @unchecked Sendable {
     func fitScore(job: Job, profile: Profile, today: Extractive.Today) throws -> FitResult? {
         guard let ev = try evaluate(title: job.title, description: job.description,
                                     profile: profile, today: today) else { return nil }
-        let (lines, pm, raw) = ev
+        let (lines, pm, raw, preview) = ev
         let score = (min(100, max(0, raw)) * 10).rounded(.toNearestOrEven) / 10
         let b = data.buckets
         let bucket = Self.buckets[[b.possible, b.good, b.great].filter { score >= $0 }.count]
@@ -168,10 +182,12 @@ public final class QuickMatch: @unchecked Sendable {
         let met = order.filter { pm[$0] > 0.5 }.map { lines[$0] }
         let missing = order.reversed().filter { pm[$0] <= 0.5 }.map { lines[$0] }
         let report: [String: Any] = ["matched_skills": met, "missing_skills": missing, "keywords": [String]()]
-        return FitResult(score: score,
-                         reasoning: "\(Self.reasoningPrefix): \(bucket) fit, meets about \(met.count) of \(lines.count) requirement lines.",
+        let reasoning = preview
+            ? "\(Self.reasoningPrefix) (preview only): \(bucket) fit, meets about \(met.count) of \(lines.count) preview lines."
+            : "\(Self.reasoningPrefix): \(bucket) fit, meets about \(met.count) of \(lines.count) requirement lines."
+        return FitResult(score: score, reasoning: reasoning,
                          matchReportJSON: ScoreResponseParser.sanitizedMatchReportJSON(report))
-            .adding(["bucket": bucket])
+            .adding(preview ? ["bucket": bucket, "preview": true] : ["bucket": bucket])
     }
 }
 
