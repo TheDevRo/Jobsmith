@@ -25,7 +25,7 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 | M3 desktop fixes | DONE | (see git log "M3") |
 | M4 iOS step 0 | DONE | 1c6d609 (coordinator WIP checkpoint) + "M4+M5" commit |
 | M5 iOS fixes | DONE | same "M4+M5" commit |
-| M6 hardening | todo | |
+| M6 hardening | DONE | "M6" commit |
 
 ## Provider URL check (M1, 2026-09-28, `curl -s -o /dev/null -w '%{http_code}' <base>/models`)
 | Provider | Base URL | HTTP | Verdict |
@@ -156,3 +156,32 @@ No row needed fixing.
   three cards, Local greyed with reason + Check again, no-choice message, Cloud → Custom with empty key,
   searchable list, no auto-pick, mock ping, moves to import) and updated testOnboardingAIStepPrecedesImport
   / testSettingsTabShowsSections. pytest 1109 passed (crosslang 5/5 incl. registry match), frontend 492 PASS.
+
+## Final report (M6)
+
+**Self-review pass** over `git diff 18adfc2` (51 files): checked the empty-model guard against every
+`_model()` caller (all inside try/except paths that surface the message; endpoint resolution uses the
+non-raising `_configured_model`), the wizard's save points (only `obAIContinue`, `obContinueAnyway`, the
+re-run `obApplyDiff`, and Change setup… write AI config), Python/Swift parity (presets, error codes and
+wording, chunk budget + merge, "Scored by Local match"), and iOS save paths (`hasAppeared` guard kept on
+the debounced save). No further defects found.
+
+**Final suite results**
+| Suite | Baseline (18adfc2) | Final |
+|---|---|---|
+| pytest | 1073 passed, 3 skipped | 1109 passed, 3 skipped |
+| npm run test:frontend | 423 PASS, 13 files | 492 PASS, 14 files (+test_setup_modes.js) |
+| JobsmithKit | 507 (3 skipped) | 520 (3 skipped), 0 failures |
+| UI (JobsmithStandalone) | 25 (3 skipped), 0 failures | 26 (3 skipped), 0 failures |
+
+**Known gaps / open questions**
+- The desktop download chip starts after the wizard save and polls while downloading; it is not
+  re-shown on a later page load (Settings → AI still shows both download states).
+- Only the iOS AI settings screen saves debounced; other iOS settings screens still save on disappear.
+- This Mac resolves generativelanguage.googleapis.com to 0.0.0.0 (DNS block), so Gemini can't be
+  used from it until that is lifted; the preset URL itself is correct.
+- Background downloads, the cellular prompt and real Apple Intelligence need a device (manual check 6).
+
+**Manual checks for the planner**: PRD "Manual (planner)" 1–6, plus: Settings → AI → Job scoring set to
+Quick match, Save, delete it (the select returns to AI model with a toast); iOS Settings → AI connection →
+Quick match toggle off restores the previous Scoring model.
