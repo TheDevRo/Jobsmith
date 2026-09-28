@@ -413,6 +413,6 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["Set up"].waitForExistence(timeout: 5),
                       "welcome step of the setup flow")
         app.buttons["Set up"].tap()
-        XCTAssertTrue(app.staticTexts["Connect your AI"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["How should Jobsmith think?"].waitForExistence(timeout: 5))
     }
 }

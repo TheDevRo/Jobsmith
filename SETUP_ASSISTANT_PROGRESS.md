@@ -13,7 +13,9 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
   failures (TestDashboardAuthGate x3, TestCsrfGate x1, TestCookieExchange x1) seen in 1 of 3 full
   runs; the file passes 28/28 alone. Pre-existing, not caused by this work.
 - frontend: 423 PASS lines, all files "all checks passed".
-- iOS: (recorded at M4)
+- iOS (18adfc2, sim iPhone 17 Pro C060AC80…, pre-booted): JobsmithKit 507 tests, 3 skipped, 0 failures.
+  UI (scheme JobsmithStandalone): 25 tests, 3 skipped (live LinkedIn), 0 failures —
+  EndToEndWalkthroughTests.testFullPipelineWalkthrough PASSED on this machine (not the expected failure).
 
 ## Milestones
 | # | Status | Commit |
@@ -21,8 +23,8 @@ Worktree `~/jobsmith-setup`, branch `feat/setup-assistant` (from origin/main 18a
 | M1 shared plumbing (desktop backend) | DONE | (see git log "M1") |
 | M2 desktop wizard step 0 | DONE | (see git log "M2") |
 | M3 desktop fixes | DONE | (see git log "M3") |
-| M4 iOS step 0 | todo | |
-| M5 iOS fixes | todo | |
+| M4 iOS step 0 | DONE | 1c6d609 (coordinator WIP checkpoint) + "M4+M5" commit |
+| M5 iOS fixes | DONE | same "M4+M5" commit |
 | M6 hardening | todo | |
 
 ## Provider URL check (M1, 2026-09-28, `curl -s -o /dev/null -w '%{http_code}' <base>/models`)
@@ -96,6 +98,45 @@ No row needed fixing.
   `scoring_tier_reset` and the UI resets the select + toasts.
 - D18 Key fields: wizard Adzuna/BLS and Settings USAJobs key are password inputs; `realKey()` blanks the
   old example placeholders (your-app-id / your-app-key / your-api-key / your-email@example.com).
+- D19 iOS M4 and M5 landed together (the coordinator checkpointed mid-work as 1c6d609); one follow-up
+  commit completes both. `SetupModeStep` (new) replaces the embedded settings form in OnboardingFlow.
+- D20 iOS presets: `AIProviderPreset.all` in AppConfig.swift; KitTests.SetupAssistantTests reads
+  backend/ai_providers.json and asserts same names/URLs/key pages in the same order.
+- D21 `AIEngine.pingChat(model:config:)` (protocol requirement + default). OpenAICompatibleEngine sends
+  `max_tokens: 1`, 20 s timeout, and checks only the HTTP status; EngineRouter routes the sentinel to
+  Apple. `AIErrorMapper` mirrors desktop codes/wording (auth/credit/model/rate_limit/unreachable/no_url).
+- D22 onboarding gate: AppModel exposes `configLoad` (the launch load Task); RootTabView awaits it, then
+  shows the wizard when `!config.onboardingComplete`. `onboardingComplete` decodes as `!profile.isEmpty`
+  when missing (existing users migrate to true). The sheet's onDismiss sets it (Finish, Skip-through,
+  Start scouting, swipe-down). A kill mid-wizard does not dismiss, so the wizard returns; if step 0 was
+  already saved (`setupMode` set) it reopens at the import step.
+- D23 `setupMode` / `onboardingComplete` are top-level AppConfig fields (device-local: not in
+  SettingsSync). `ai.provider` is synced (row added in M1). New installs: `AIConfig.baseURL` default is ""
+  (was localhost:1234), so nothing auto-tests on first view.
+- D24 Local card on iOS: all three tiers = sentinel, except fastModel = local-match-model when the
+  recommended box is on (+ nliBetaEnabled). Scoring falls back to the Writing tier = Apple until Quick
+  match is ready. `ScoreSource.prefersLocal` now needs only the Quick match pick (bug 6: a downloaded
+  Quick match was ignored unless Local match was also on); the NLI step still needs its switch.
+- D25 Simulator reports Apple Intelligence AVAILABLE on this AI-enabled Mac, so the UI smoke test forces
+  the unavailable state with a DEBUG-only `-NoAppleIntelligence` launch arg (also `-SimulateCellular` for
+  the cellular prompt). Local unavailable copy: "Needs an iPhone with Apple Intelligence on iOS 26+" /
+  turned-off / still-downloading, with Check again.
+- D26 Background downloads: NLIModelStore now uses `URLSessionConfiguration.background` (one identifier per
+  model revision) with a delegate; task paths ride in `taskDescription` so a relaunch re-attaches; a
+  finished `.verified` file is re-verified (size + SHA-256 kept) and reused. App delegate adaptor stores
+  the system's background completion handler. On launch, a wanted-but-missing model resumes (not on
+  cellular). Tests keep injecting an ephemeral configuration (`init(configuration:)`).
+- D27 Settings → AI connection (iOS): separate Quick match and Local match sections; Quick match toggle
+  is the Scoring choice and restores the previous Scoring model when turned off (`@AppStorage
+  quickMatchPreviousFastModel`); ProgressView + Stop for both; Delete only when on disk, confirmed;
+  cellular confirmation before any download. Fields save debounced (600 ms) plus on disappear (guarded
+  by hasAppeared). "Change setup…" row pushes SetupModeStep. Tiers: Writing / Scoring / Quick helpers.
+  Removed the auto-pick of the first listed model. Writing tier shows a warning when empty.
+- D28 iOS résumé chunking mirrors desktop (same headings, budget min(7000, 8000 − template − 200),
+  same merge). Parse failures now carry the engine's reason; two existing Kit tests updated to the new
+  (non-generic) wording.
+- D29 Only AIConnectionSettingsView got "save on change, debounced"; other iOS settings screens were
+  left as they are (the PRD bug names the AI settings path).
 
 ## Verification log
 - M1: pytest 1101 passed, 3 skipped (baseline 1073; +28 in tests/test_setup_assistant.py). The only
@@ -109,3 +150,9 @@ No row needed fixing.
   limits, merge rule, real parse error, Quick-match delete reset, server label). tests/test_nli_beta.py
   reasoning prefix updated. frontend 492 PASS: test_triage_ui (no install on pick, Save installs, delete
   resets, Basic placement, labels), test_nli_beta (Retry/Delete with switch off + failed download).
+- M4+M5: JobsmithKit 520 tests (3 skipped, 0 failures; +13: SetupAssistantTests 10 incl. preset parity,
+  mapper, migration, ping, router; ResumeChunkingTests 3 incl. 20k résumé through a fake 8k engine).
+  UI 26 tests (3 skipped, 0 failures), incl. new SmokeTests.testSetupAssistantCards (no -SkipOnboarding:
+  three cards, Local greyed with reason + Check again, no-choice message, Cloud → Custom with empty key,
+  searchable list, no auto-pick, mock ping, moves to import) and updated testOnboardingAIStepPrecedesImport
+  / testSettingsTabShowsSections. pytest 1109 passed (crosslang 5/5 incl. registry match), frontend 492 PASS.

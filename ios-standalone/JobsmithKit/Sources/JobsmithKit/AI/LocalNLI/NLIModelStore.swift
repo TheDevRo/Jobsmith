@@ -294,12 +294,21 @@ public final class NLIModelStore: ObservableObject {
 /// Delegate for the (background) model-download session. Background sessions
 /// only report through a delegate, and may report after a relaunch, so each
 /// task carries its destination + resume-data paths in `taskDescription`.
-final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+public final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var waiters: [Int: CheckedContinuation<Void, Error>] = [:]
     private var moveErrors: [Int: Error] = [:]
 
     static func label(dest: URL, resume: URL) -> String { dest.path + "\n" + resume.path }
+
+    /// iOS hands the app a completion handler when it relaunches it for a
+    /// background session's events; call it once those events are delivered.
+    @MainActor public static var backgroundCompletions: [String: () -> Void] = [:]
+
+    public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        guard let id = session.configuration.identifier else { return }
+        Task { @MainActor in DownloadDelegate.backgroundCompletions.removeValue(forKey: id)?() }
+    }
 
     private static func paths(_ task: URLSessionTask) -> (dest: URL, resume: URL)? {
         let parts = (task.taskDescription ?? "").components(separatedBy: "\n")
@@ -312,7 +321,7 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked S
         waiters[task.taskIdentifier] = cont
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let (dest, resume) = Self.paths(downloadTask) else { return }
         if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { return }
         let fm = FileManager.default
@@ -325,7 +334,7 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked S
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock()
         let cont = waiters.removeValue(forKey: task.taskIdentifier)
         let moveError = moveErrors.removeValue(forKey: task.taskIdentifier)

@@ -275,8 +275,9 @@ final class ResumeProfileParserTests: XCTestCase {
         mock.register("résumé parser", .text("I cannot parse this resume, sorry."))
         let result = await ResumeProfileParser.parse(text: "resume", config: AppConfig(), engine: mock)
         XCTAssertTrue(result.profile.isEmpty)
+        // The real reply is quoted, never a generic message (desktop parity).
         XCTAssertEqual(result.warnings,
-                       ["Could not extract structured data automatically. Fill the form manually or try again."])
+                       ["The AI's reply was not valid JSON (it began: \"I cannot parse this resume, sorry.\"). Fill the form manually or try again."])
     }
 
     func testEngineFailureNeverThrows() async {
@@ -284,7 +285,7 @@ final class ResumeProfileParserTests: XCTestCase {
         let result = await ResumeProfileParser.parse(text: "resume", config: AppConfig(), engine: mock)
         XCTAssertTrue(result.profile.isEmpty)
         XCTAssertEqual(result.warnings.count, 1)
-        XCTAssertTrue(result.warnings[0].hasPrefix("AI extraction failed ("))
+        XCTAssertTrue(result.warnings[0].hasPrefix("AI extraction failed: "))
         XCTAssertTrue(result.warnings[0].hasSuffix("). Fill the form manually."))
     }
 

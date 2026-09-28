@@ -23,35 +23,163 @@ public enum ResumeProfileParser {
         if text.isEmpty {
             return ResumeParseResult(profile: Profile(), warnings: ["No résumé text to parse."])
         }
-        if text.count > maxChars {
-            text = String(text.prefix(maxChars))
-            warnings.append("The text was long; only the first part was parsed. Review fields carefully.")
+        let chunks: [String]
+        if config.ai.usesOnDevice(for: .strong) {
+            // Apple's model takes at most 8,000 characters of input, prompt included.
+            let overhead = PromptRegistry.render(promptKey, ["resume": ""], config: config).count
+            chunks = chunk(text, limit: min(appleChunkChars, appleInputCap - overhead - 200))
+        } else {
+            if text.count > maxChars {
+                text = String(text.prefix(maxChars))
+                warnings.append("The text was long; only the first part was parsed. Review fields carefully.")
+            }
+            chunks = [text]
         }
 
-        let prompt = PromptRegistry.render(promptKey, ["resume": text], config: config)
-        let request = CompletionRequest(user: prompt, tier: .strong,
-                                        temperature: 0.1, maxTokens: 4096)
-        let rawText: String
-        do {
-            rawText = try await engine.complete(request, config: config.ai)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
+        var parts: [Profile] = []
+        var badJSON: [String] = []
+        for piece in chunks {
+            let prompt = PromptRegistry.render(promptKey, ["resume": piece], config: config)
+            let request = CompletionRequest(user: prompt, tier: .strong,
+                                            temperature: 0.1, maxTokens: 4096)
+            let rawText: String
+            do {
+                rawText = try await engine.complete(request, config: config.ai)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                // The engine's own reason, in plain English where we have one.
+                let d = AIErrorMapper.describe(error, baseURL: config.ai.baseURL,
+                                               onDevice: config.ai.usesOnDevice(for: .strong))
+                let reason = d.code == "error" || d.code == "unavailable"
+                    ? error.localizedDescription : "\(d.message) (\(error.localizedDescription))"
+                return ResumeParseResult(
+                    profile: Profile(),
+                    warnings: ["AI extraction failed: \(reason). Fill the form manually."])
+            }
+            guard let data = LenientJSON.parseObject(rawText) else {
+                badJSON.append(String(rawText.prefix(120)))
+                continue
+            }
+            parts.append(sanitize(data))
+        }
+
+        guard !parts.isEmpty else {
             return ResumeParseResult(
                 profile: Profile(),
-                warnings: ["AI extraction failed (\(String(describing: error))). Fill the form manually."])
+                warnings: ["The AI's reply was not valid JSON (it began: \"\(badJSON.first ?? "")\"). Fill the form manually or try again."])
         }
-
-        guard let data = LenientJSON.parseObject(rawText) else {
-            return ResumeParseResult(
-                profile: Profile(),
-                warnings: ["Could not extract structured data automatically. Fill the form manually or try again."])
+        if !badJSON.isEmpty {
+            warnings.append("\(badJSON.count) of \(chunks.count) parts of the résumé could not be read — check the fields.")
         }
-
-        let profile = sanitize(data)
+        let profile = merge(parts)
         if profile.fullName.isEmpty && profile.experience.isEmpty {
             warnings.append("Little structured data was found — double-check every field below.")
         }
         return ResumeParseResult(profile: profile, warnings: warnings)
+    }
+
+    // MARK: - Apple on-device chunking (mirror of desktop resume_parser.chunk_resume / merge_profiles)
+
+    static let appleInputCap = 8000
+    public static let appleChunkChars = 7000
+    static let headings: Set<String> = [
+        "summary", "professional summary", "profile", "objective", "experience", "work experience",
+        "professional experience", "relevant experience", "employment", "employment history", "work history",
+        "education", "skills", "technical skills", "core skills", "certifications", "certificates",
+        "licenses", "licenses and certifications", "projects", "awards", "publications", "volunteer",
+        "volunteer experience", "languages", "interests", "references",
+    ]
+
+    static func isHeading(_ line: String) -> Bool {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        while t.hasSuffix(":") { t.removeLast() }
+        t = t.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, t.count <= 40 else { return false }
+        return headings.contains(t.lowercased()) || (t == t.uppercased() && t.contains { $0.isLetter })
+    }
+
+    static func pack(_ pieces: [String], limit: Int) -> [String] {
+        var out: [String] = [], cur = ""
+        for piece in pieces {
+            if !cur.isEmpty, cur.count + piece.count > limit { out.append(cur); cur = "" }
+            cur += piece
+        }
+        if !cur.isEmpty { out.append(cur) }
+        return out
+    }
+
+    /// Lines with their newline kept, so pieces concatenate back to the text.
+    static func lines(_ text: String) -> [String] {
+        var out: [String] = [], cur = ""
+        for ch in text { cur.append(ch); if ch == "\n" { out.append(cur); cur = "" } }
+        if !cur.isEmpty { out.append(cur) }
+        return out
+    }
+
+    /// An oversized section: split on blank lines (a role stays whole), a still
+    /// oversized paragraph on lines, a single huge line on characters.
+    static func splitHard(_ block: String, limit: Int) -> [String] {
+        var paras: [String] = [], cur = ""
+        for line in lines(block) {
+            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !cur.isEmpty {
+                paras.append(cur); cur = ""
+            }
+            cur += line
+        }
+        if !cur.isEmpty { paras.append(cur) }
+        var pieces: [String] = []
+        for para in paras {
+            if para.count <= limit { pieces.append(para); continue }
+            for line in lines(para) {
+                var rest = Substring(line)
+                while !rest.isEmpty { pieces.append(String(rest.prefix(limit))); rest = rest.dropFirst(limit) }
+            }
+        }
+        return pack(pieces, limit: limit)
+    }
+
+    /// Split résumé text on section headings into chunks of at most `limit`
+    /// characters, packing whole sections together where they fit.
+    public static func chunk(_ text: String, limit: Int = appleChunkChars) -> [String] {
+        var sections: [String] = [], cur = ""
+        for line in lines(text) {
+            if isHeading(line), !cur.isEmpty { sections.append(cur); cur = "" }
+            cur += line
+        }
+        if !cur.isEmpty { sections.append(cur) }
+        let pieces = sections.flatMap { $0.count <= limit ? [$0] : splitHard($0, limit: limit) }
+        return pack(pieces, limit: limit)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// First non-empty scalar wins; lists concatenated and de-duplicated
+    /// (skills/certs case-insensitively, experience by title+company with
+    /// bullets merged, education by degree+school).
+    public static func merge(_ parts: [Profile]) -> Profile {
+        var out = Profile()
+        func key(_ a: String, _ b: String) -> String { a.lowercased() + "\u{1}" + b.lowercased() }
+        for p in parts {
+            let scalars: [WritableKeyPath<Profile, String>] = [\.fullName, \.email, \.phone, \.location, \.streetAddress,
+                                                            \.city, \.state, \.zipCode, \.linkedin, \.github,
+                                                            \.portfolio, \.summary]
+            for kp in scalars where out[keyPath: kp].isEmpty { out[keyPath: kp] = p[keyPath: kp] }
+            for kp in [\Profile.skills, \Profile.certifications] as [WritableKeyPath<Profile, [String]>] {
+                var seen = Set(out[keyPath: kp].map { $0.lowercased() })
+                for v in p[keyPath: kp] where seen.insert(v.lowercased()).inserted { out[keyPath: kp].append(v) }
+            }
+            for e in p.experience {
+                if let i = out.experience.firstIndex(where: { key($0.title, $0.company) == key(e.title, e.company) }) {
+                    for b in e.bullets where !out.experience[i].bullets.contains(b) { out.experience[i].bullets.append(b) }
+                } else {
+                    out.experience.append(e)
+                }
+            }
+            for e in p.education where !out.education.contains(where: { key($0.degree, $0.school) == key(e.degree, e.school) }) {
+                out.education.append(e)
+            }
+        }
+        return out
     }
 
     /// Coerce the model's JSON onto the partial Profile shape: fix types and

@@ -56,11 +56,7 @@ struct AIConnectionSettingsView: View {
         probe.baseURL = baseURL.trimmingCharacters(in: .whitespaces)
         probe.apiKey = apiKey
         let result = await OpenAICompatibleEngine().testConnection(config: probe)
-        status = result
-        // Preselect the first model so the strong dropdown never sits blank.
-        if result.connected, strongModel.isEmpty, let first = result.models.first {
-            strongModel = first
-        }
+        status = result  // no auto-pick: the user chooses every tier
     }
 
     /// Endpoint dropdown options: the live model list, plus the current value
@@ -267,7 +263,7 @@ struct AIConnectionSettingsView: View {
         } header: {
             Eyebrow(text: "Saved endpoints")
         } footer: {
-            Text("Keep LM Studio, OpenRouter, and any other servers here — keys and model choices included — and switch between them in one tap. Saved only on this device.")
+            Text("Keep every server you use here — keys and model choices included — and switch between them in one tap. Saved only on this device.")
         }
         .alert("Save endpoint", isPresented: $showSavePrompt) {
             TextField("Name", text: $presetName)
@@ -334,7 +330,7 @@ struct AIConnectionSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Endpoint URL")
-            SecureField("API key (blank for LM Studio)", text: $apiKey)
+            SecureField("API key (optional for your own server)", text: $apiKey)
                 .accessibilityLabel("API key")
             Button {
                 Task { await test() }
@@ -366,9 +362,9 @@ struct AIConnectionSettingsView: View {
             Eyebrow(text: "OpenAI-compatible endpoint")
         } footer: {
             if onDeviceAvailable {
-                Text("LM Studio, Ollama, OpenRouter, or any chat-completions server. You can also assign Apple's on-device model to any task below — it's private, offline, and free.")
+                Text("Any OpenAI-compatible server, hosted or your own. You can also assign Apple's on-device model to any task below — it's private, offline, and free.")
             } else {
-                Text("LM Studio, Ollama, OpenRouter, or any chat-completions server. (Apple's on-device model would appear as an option below on an iOS 26 Apple Intelligence device.)")
+                Text("Any OpenAI-compatible server, hosted or your own. (Apple's on-device model would appear as an option below on an iOS 26 Apple Intelligence device.)")
             }
         }
     }
@@ -389,7 +385,7 @@ struct AIConnectionSettingsView: View {
                         Text("Apple Intelligence").tag(AIConfig.onDeviceModelID)
                     }
                     if tier == .fast {
-                        Text("Local match model").tag(AIConfig.localMatchModelID)
+                        Text("Quick match").tag(AIConfig.localMatchModelID)
                     }
                     ForEach(endpointOptions(current: selection.wrappedValue), id: \.self) { name in
                         Text(name).tag(name)
@@ -408,23 +404,82 @@ struct AIConnectionSettingsView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(blurb)
-                Text(whereRuns(tier)).fontWeight(.medium)
+                if tier == .strong, strongModel.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Label("No Writing model — profile import, résumés and cover letters won't work until you pick one.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                } else {
+                    Text(whereRuns(tier)).fontWeight(.medium)
+                }
             }
         }
     }
 
-    /// "Local AI model (beta)": saved immediately like the batch cap (no
-    /// onDisappear flush), and turning it on starts the one-time download.
+    /// Progress, Stop, Retry and Delete for one downloadable model. Delete only
+    /// when the model is on disk, and always behind a confirmation.
+    @ViewBuilder
+    private func downloadRows(_ store: NLIModelStore, status: String, canDownload: Bool) -> some View {
+        HStack {
+            Text("Model")
+            Spacer()
+            Text(status).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        if case .downloading(let p) = store.state {
+            ProgressView(value: p)
+            Button("Stop download") { store.cancel() }
+        }
+        if case .failed(let message) = store.state {
+            Text(message).font(.footnote).foregroundStyle(.red)
+        }
+        if canDownload, !store.isDownloading, store.state != .ready {
+            Button(store.state == .notInstalled ? "Download" : "Retry download") { requestDownload(store) }
+        }
+        if store.state == .ready {
+            Button("Delete \(name(of: store)) model", role: .destructive) { confirmDelete = store }
+        }
+    }
+
+    /// Quick match: one switch that IS the Scoring choice (fastModel =
+    /// local-match-model); off restores the previous Scoring model.
+    private var quickMatchSection: some View {
+        Section {
+            Toggle("Quick match (on-device, free)", isOn: Binding(
+                get: { fastModel == AIConfig.localMatchModelID },
+                set: { on in
+                    if on {
+                        if fastModel != AIConfig.localMatchModelID { previousFast = fastModel }
+                        fastModel = AIConfig.localMatchModelID
+                    } else {
+                        fastModel = previousFast == AIConfig.localMatchModelID ? "" : previousFast
+                        quickModel.cancel()
+                    }
+                }
+            ))
+            if fastModel == AIConfig.localMatchModelID {
+                Toggle("Run Quick match on the Neural Engine (experimental)", isOn: Binding(
+                    get: { model.config.ai.triageUseNeuralEngine },
+                    set: { on in model.saveConfig { $0.ai.triageUseNeuralEngine = on } }
+                ))
+            }
+            downloadRows(quickModel, status: quickModelStatus,
+                         canDownload: fastModel == AIConfig.localMatchModelID)
+        } header: {
+            Eyebrow(text: "Quick match")
+        } footer: {
+            Text("Scores every job on this device in a fraction of a second, from how well your profile covers each requirement. Jobs it can't judge go to your Writing model. One-time download of \(ByteCountFormatter.string(fromByteCount: QuickMatchModel.sizeBytes, countStyle: .file)); it keeps downloading if you leave this screen.")
+        }
+    }
+
+    /// Local match: saved immediately like the batch cap, and turning it on
+    /// starts the one-time download.
     private var localModelSection: some View {
         Section {
-            Toggle("Local match model (beta)", isOn: Binding(
+            Toggle("Local match (beta)", isOn: Binding(
                 get: { model.config.ai.nliBetaEnabled },
                 set: { on in
-                    // Off also un-picks it for scoring, back to "Same as Resume model".
-                    if !on, fastModel == AIConfig.localMatchModelID { fastModel = "" }
-                    let fast = fastModel
-                    model.saveConfig { $0.ai.nliBetaEnabled = on; if !on { $0.ai.fastModel = fast } }
-                    if on { quickModel.install(); localModel.install() } else { quickModel.cancel(); localModel.cancel() }
+                    model.saveConfig { $0.ai.nliBetaEnabled = on }
+                    if on { requestDownload(localModel) } else { localModel.cancel() }
                 }
             ))
             if model.config.ai.nliBetaEnabled {
@@ -432,52 +487,16 @@ struct AIConnectionSettingsView: View {
                     get: { model.config.ai.nliUseNeuralEngine },
                     set: { on in model.saveConfig { $0.ai.nliUseNeuralEngine = on } }
                 ))
-                Toggle("Refine top matches with the detailed model", isOn: Binding(
+                Toggle("Refine top matches with Local match", isOn: Binding(
                     get: { model.config.ai.triageRefine },
                     set: { on in model.saveConfig { $0.ai.triageRefine = on } }
                 ))
-                Toggle("Run Quick match on the Neural Engine (experimental)", isOn: Binding(
-                    get: { model.config.ai.triageUseNeuralEngine },
-                    set: { on in model.saveConfig { $0.ai.triageUseNeuralEngine = on } }
-                ))
-                HStack {
-                    Text("Quick match")
-                    Spacer()
-                    Text(quickModelStatus).foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                if case .failed(let message) = quickModel.state {
-                    Text(message).font(.footnote).foregroundStyle(.red)
-                }
-                if !quickModel.isDownloading, quickModel.state != .ready {
-                    Button(quickModel.state == .notInstalled ? "Download Quick match" : "Retry Quick match download") { quickModel.install() }
-                }
             }
-            HStack {
-                Text("Model")
-                Spacer()
-                Text(localModelStatus).foregroundStyle(.secondary)
-            }
-            .accessibilityElement(children: .combine)
-            if case .failed(let message) = localModel.state {
-                Text(message).font(.footnote).foregroundStyle(.red)
-            }
-            if model.config.ai.nliBetaEnabled, !localModel.isDownloading, localModel.state != .ready {
-                Button(localModel.state == .notInstalled ? "Download model" : "Retry download") { localModel.install() }
-            }
-            if localModel.isDownloading {
-                Button("Stop download") { localModel.cancel() }
-            }
-            if localModel.state == .ready {
-                Button("Delete model", role: .destructive) { Task { await localModel.delete() } }
-            }
-            if quickModel.state == .ready {
-                Button("Delete Quick match", role: .destructive) { Task { await quickModel.delete() } }
-            }
+            downloadRows(localModel, status: localModelStatus, canDownload: model.config.ai.nliBetaEnabled)
         } header: {
-            Eyebrow(text: "Local match model")
+            Eyebrow(text: "Local match")
         } footer: {
-            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota) — or all the time, when you pick “Local match model” for Scoring & form-fill above. Every score is labeled with what produced it: “Quick match”, “Local match model”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. Quick match, a small separate model (\(ByteCountFormatter.string(fromByteCount: QuickMatchModel.sizeBytes, countStyle: .file))), scores every job in a fraction of a second when “Local match model” is picked; “Refine top matches” then re-checks the top 15% of each run with the detailed model. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); Wi-Fi recommended, and keep Jobsmith open until it finishes (a stopped download resumes where it left off).")
+            Text("Jobsmith’s own on-device model — separate from Apple Intelligence. It checks your profile against each requirement: it fills application forms only from your profile (options, profile values, years of experience), and scores jobs whenever your AI model fails (unreachable, misconfigured, or out of quota). With Quick match on, it also judges the jobs Quick match can't, and “Refine top matches” re-checks the top 15% of each run. Every score is labeled with what produced it: “Quick match”, “Local match”, “Apple Intelligence”, or your endpoint’s model name. Essay questions still use your AI model and are marked as drafts. One-time download of \(ByteCountFormatter.string(fromByteCount: NLIModel.sizeBytes, countStyle: .file)); it keeps downloading if you leave this screen or the app.")
         }
     }
 

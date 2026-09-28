@@ -31,7 +31,9 @@ struct OnboardingFlow: View {
             .onAppear {
                 // Relaunched mid-wizard after the AI step was saved: pick up at
                 // the import instead of starting over.
-                if step == .welcome, !model.config.setupMode.isEmpty { step = .resume }
+                if step == .welcome, !model.config.onboardingComplete, !model.config.setupMode.isEmpty {
+                    step = .resume
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

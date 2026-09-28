@@ -4,6 +4,7 @@ import JobsmithKit
 
 @main
 struct JobsmithStandaloneApp: App {
+    @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @State private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
@@ -71,7 +72,17 @@ struct JobsmithStandaloneApp: App {
                         break
                     }
                 }
-                .task { model.startAutoSync() }  // cover the initial launch
+                .task {
+                    model.startAutoSync()  // cover the initial launch
+                    // Resume a model download the user asked for (the background
+                    // session may have kept it going, or it stopped with the app).
+                    await model.configLoad?.value
+                    let ai = model.config.ai
+                    if !DownloadPolicy.isExpensiveNetwork {
+                        if ai.usesLocalMatchModel, !QuickMatchModel.isInstalled { NLIModelStore.quickMatch.install() }
+                        if ai.nliBetaEnabled, !NLIModel.isInstalled { NLIModelStore.shared.install() }
+                    }
+                }
         }
     }
 }
@@ -164,4 +175,15 @@ struct RootTabView: View {
     }
 
     @State private var showApplyPrompt = false
+}
+
+/// Receives the system's "background download events are ready" relaunch and
+/// re-creates the model stores (their background sessions) to take them.
+final class DownloadAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        DownloadDelegate.backgroundCompletions[identifier] = completionHandler
+        _ = NLIModelStore.shared
+        _ = NLIModelStore.quickMatch
+    }
 }

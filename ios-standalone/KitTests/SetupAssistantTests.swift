@@ -166,3 +166,73 @@ final class PingStub: URLProtocol {
 
     override func stopLoading() {}
 }
+
+/// Résumé chunking for Apple's 8,000-character input cap — same rule as desktop
+/// tests/test_setup_assistant.py::test_resume_chunked_for_apple_8k_engine.
+final class ResumeChunkingTests: XCTestCase {
+    static func longResume() -> String {
+        var roles: [String] = []
+        for i in 0..<12 {
+            let bullets = (0..<9).map { "- Delivered outcome \(i).\($0) " + String(repeating: "x", count: 160) }.joined(separator: "\n")
+            roles.append("Engineer \(i) at Company\(i)\n2010 - 2012\n\(bullets)\n")
+        }
+        return "Jane Real\njane@real.dev\n\nSUMMARY\nBuilds things.\n\nEXPERIENCE\n" + roles.joined(separator: "\n")
+            + "\nEDUCATION\nBSc Computer Science, State University, 2009\n\nSKILLS\nPython, Go, SQL\n"
+    }
+
+    /// Rejects any prompt over 8,000 characters, like the real on-device model.
+    final class Fake8k: AIEngine, @unchecked Sendable {
+        var sizes: [Int] = []
+        func listModels(config: AIConfig) async throws -> [String] { [] }
+        func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
+            sizes.append(req.user.count)
+            if req.user.count > 8000 { throw AIEngineError.refused("too long") }
+            var out: [String: Any] = ["experience": [[String: String]](), "education": [[String: String]](), "skills": [String]()]
+            if req.user.contains("jane@real.dev") { out["full_name"] = "Jane Real"; out["email"] = "jane@real.dev" }
+            out["experience"] = (0..<12).filter { req.user.contains("Engineer \($0) at Company\($0)") }
+                .map { ["title": "Engineer \($0)", "company": "Company\($0)"] }
+            if req.user.contains("State University") {
+                out["education"] = [["degree": "BSc Computer Science", "school": "State University"]]
+            }
+            if req.user.contains("Python, Go") { out["skills"] = ["Python", "Go", "python"] }
+            return String(data: try JSONSerialization.data(withJSONObject: out), encoding: .utf8)!
+        }
+    }
+
+    func testTwentyThousandCharsThroughAnEightThousandCharEngine() async {
+        let text = Self.longResume()
+        XCTAssertGreaterThanOrEqual(text.count, 20000)
+        var config = AppConfig()
+        config.ai.strongModel = AIConfig.onDeviceModelID
+        let engine = Fake8k()
+        let result = await ResumeProfileParser.parse(text: text, config: config, engine: engine)
+        XCTAssertGreaterThanOrEqual(engine.sizes.count, 3)
+        XCTAssertLessThanOrEqual(engine.sizes.max() ?? 0, 8000)
+        XCTAssertEqual(result.profile.fullName, "Jane Real")
+        XCTAssertEqual(result.profile.experience.map(\.title), (0..<12).map { "Engineer \($0)" })
+        XCTAssertEqual(result.profile.education.first?.school, "State University")
+        XCTAssertEqual(result.profile.skills, ["Python", "Go"])
+        XCTAssertFalse(result.warnings.contains { $0.contains("only the first part") })
+    }
+
+    func testChunksRespectTheLimit() {
+        let chunks = ResumeProfileParser.chunk(Self.longResume(), limit: 7000)
+        XCTAssertTrue(chunks.allSatisfy { $0.count <= 7000 })
+        XCTAssertEqual(chunks.joined().components(separatedBy: "Engineer 11 at Company11").count, 2)
+    }
+
+    struct Off: AIEngine {
+        func listModels(config: AIConfig) async throws -> [String] { [] }
+        func complete(_ req: CompletionRequest, config: AIConfig) async throws -> String {
+            throw AIEngineError.unreachable("Apple Intelligence is turned off")
+        }
+    }
+
+    func testParseFailureSurfacesTheRealError() async {
+        var config = AppConfig()
+        config.ai.strongModel = AIConfig.onDeviceModelID
+        let result = await ResumeProfileParser.parse(text: "Jane\njane@x.dev", config: config, engine: Off())
+        XCTAssertTrue(result.profile.isEmpty)
+        XCTAssertTrue(result.warnings.first?.contains("Apple Intelligence is turned off") == true, result.warnings.first ?? "")
+    }
+}
