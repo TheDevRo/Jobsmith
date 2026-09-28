@@ -46,8 +46,8 @@ def test_golden_matches_the_bench(case):
     if case["score_raw"] is None:
         assert ev is None
         return
-    lines, p, raw = ev
-    assert lines == case["lines"]
+    lines, p, raw, preview = ev
+    assert lines == case["lines"] and preview == case.get("preview", False)
     assert np.allclose(p, case["p"], atol=1e-4)
     assert raw == pytest.approx(case["score_raw"], abs=0.01)
 
@@ -64,11 +64,28 @@ def test_score_report_bucket_and_clamp():
         score, reasoning, report = out
         assert score == round(min(100, max(0, case["score_raw"])), 1)
         want = "Great" if score >= b["great"] else "Good" if score >= b["good"] else "Possible" if score >= b["possible"] else "Poor"
-        assert report["bucket"] == want and reasoning.startswith(f"Quick match: {want} fit")
+        prefix = "Quick match (preview only)" if case.get("preview") else "Quick match"
+        assert report["bucket"] == want and reasoning.startswith(f"{prefix}: {want} fit")
+        assert report.get("preview", False) == case.get("preview", False)
         met = [ln for ln, p in zip(case["lines"], case["p"], strict=True) if p > 0.5]
         assert sorted(report["matched_skills"]) == sorted(met)
         assert sorted(report["missing_skills"]) == sorted(set(case["lines"]) - set(met))
     assert any(c["score_raw"] and c["score_raw"] > 100 for c in GOLDEN["cases"])  # the clamp is exercised
+    assert any(c.get("preview") for c in GOLDEN["cases"])  # preview-only scoring is exercised
+
+
+def test_preview_lines_when_there_are_no_requirement_lines():
+    d = GOLDEN["jobs"]["preview"]["description"]
+    assert TR.req_lines(d) == []
+    lines, preview = TR.job_lines(d)
+    assert preview and len(lines) == 4 and all(25 <= len(x) <= 300 for x in lines)
+    assert TR.job_lines("Make great coffee. Smile a lot.") == (["Make great coffee. Smile a lot."], True)  # whole text
+    assert TR.job_lines("x" * 400) == (["x" * 300], True)  # whole text, first 300 chars
+    assert TR.job_lines("• One two three four five six seven\n" * 30)[0] == ["One two three four five six seven"] * 20
+    bi = GOLDEN["jobs"]["bi"]["description"]
+    assert TR.job_lines(bi) == (TR.req_lines(bi), False)  # requirement lines win, unmarked
+    for empty in ("", "   \n ", "Now hiring!", None):
+        assert TR.job_lines(empty) == ([], False)
 
 
 def test_embeddings_are_cached_per_text():
@@ -113,8 +130,19 @@ def test_nothing_to_judge_goes_to_the_llm(monkeypatch):
     _quick_ready(monkeypatch)
     calls = []
     _llm(monkeypatch, calls)
-    assert asyncio.run(ai_engine.score_job_fit(GOLDEN["jobs"]["empty"], GOLDEN["profiles"]["devops"], QUICK))[0] == 42.0
+    assert asyncio.run(ai_engine.score_job_fit(GOLDEN["jobs"]["blank"], GOLDEN["profiles"]["devops"], QUICK))[0] == 42.0
     assert calls == ["Barista"]
+
+
+def test_a_preview_is_scored_by_quick_match_and_marked(monkeypatch):
+    _quick_ready(monkeypatch)
+    calls = []
+    _llm(monkeypatch, calls)
+    _, reasoning, report = asyncio.run(ai_engine.score_job_fit(GOLDEN["jobs"]["preview"], GOLDEN["profiles"]["devops"], QUICK))
+    assert calls == [] and reasoning.startswith("Quick match (preview only): ")
+    assert report["scored_by"] == "triage" and report["preview"] is True and report["bucket"] in TR.BUCKETS
+    _, _, full = asyncio.run(ai_engine.score_job_fit(GOLDEN["jobs"]["sre"], GOLDEN["profiles"]["devops"], QUICK))
+    assert "preview" not in full
 
 
 def test_not_downloaded_starts_the_download_and_uses_the_llm(monkeypatch):
@@ -167,6 +195,18 @@ def test_refine_rescores_the_top_share_with_the_detailed_model(monkeypatch):
     out = _refine(monkeypatch, {"ai": {**QUICK["ai"], "triage_refine": True, "nli_beta": {"enabled": True}}}, FixedNLI())
     assert [j["title"] for j, *_ in out] == ["job19", "job18", "job17"]  # ceil(15% of 20)
     assert all(r["scored_by"] == "local_model" and s == pytest.approx(90) for _, s, _, r in out)
+
+
+def test_refine_skips_preview_only_jobs(monkeypatch):
+    monkeypatch.setattr(nli, "get_scorer", lambda c: FixedNLI())
+    prev = GOLDEN["jobs"]["preview"]["description"]
+    scored = [({"title": f"p{i}", "description": prev}, 99.0) for i in range(10)]
+    scored += [({"title": f"job{i}", "description": GOLDEN["jobs"]["sre"]["description"]}, float(i)) for i in range(20)]
+    cfg = {"ai": {**QUICK["ai"], "triage_refine": True, "nli_beta": {"enabled": True}}}
+
+    async def run():
+        return [x async for x in ai_engine.refine_top_matches(scored, GOLDEN["profiles"]["devops"], cfg)]
+    assert [j["title"] for j, *_ in asyncio.run(run())] == ["job19", "job18", "job17"]
 
 
 @pytest.mark.parametrize("refine,scorer", [(False, FixedNLI()), (True, None)])

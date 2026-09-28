@@ -53,6 +53,7 @@ const base = { size_bytes: 134041736, progress: 0, error: null };
 
   const src = r => window.scoreSourceLine(r);
   checks.push(["Quick match label", /Scored by Quick match · Good fit · 0.04 s/.test(src({ scored_by: "triage", bucket: "Good", score_seconds: 0.04 }))]);
+  checks.push(["preview-only label", /Scored by Quick match · preview only · Poor fit/.test(src({ scored_by: "triage", bucket: "Poor", preview: true }))]);
   checks.push(["NLI label", /Scored by Local match model · 8.2 s/.test(src({ scored_by: "local_model", score_seconds: 8.2 }))]);
   checks.push(["endpoint label", /Scored by qwen3/.test(src({ scored_by: "endpoint:qwen3" }))]);
   checks.push(["old scores: no label", src({ matched_skills: [] }) === "" && src(null) === ""]);

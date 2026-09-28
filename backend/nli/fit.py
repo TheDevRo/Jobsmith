@@ -15,11 +15,15 @@ KEYWORDS = re.compile(r"\b(experience|years|degree|bachelor|master|proficien|kno
 _BULLET = re.compile(r"^[\s•\-\*·▪◦●]+")
 
 
+def candidate_lines(desc: str) -> list[str]:
+    """The posting split on newlines and sentence ends, bullets stripped, 25-300 chars (no keyword filter)."""
+    parts = re.split(r"\n+|(?<=[.!?;])\s+(?=[A-Z•\-\*])", desc or "")
+    return [p for p in (_BULLET.sub("", p).strip() for p in parts) if 25 <= len(p) <= 300]
+
+
 def req_lines(desc: str) -> list[str]:
     """Candidate requirement lines: split on newlines and sentence ends, 25-300 chars, keyword-bearing."""
-    parts = re.split(r"\n+|(?<=[.!?;])\s+(?=[A-Z•\-\*])", desc or "")
-    lines = [p for p in (_BULLET.sub("", p).strip() for p in parts) if 25 <= len(p) <= 300]
-    return [line for line in lines if KEYWORDS.search(line)][:MAX_LINES]
+    return [line for line in candidate_lines(desc) if KEYWORDS.search(line)][:MAX_LINES]
 
 
 # One premise per requirement line (one model run per line): roles, education and certifications, then the

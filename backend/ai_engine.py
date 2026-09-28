@@ -609,12 +609,16 @@ async def _score_job_fit_triage(job: dict, profile: dict):
         return None
     score, reasoning, report = result
     clean = _sanitize_match_report(report)
-    return score, reasoning, _tagged(clean and {**clean, "bucket": report["bucket"]}, triage.SCORED_BY, t0)
+    extra = {k: report[k] for k in ("bucket", "preview") if k in report}
+    return score, reasoning, _tagged(clean and {**clean, **extra}, triage.SCORED_BY, t0)
 
 
 async def refine_top_matches(scored: list[tuple[dict, float]], profile: dict, config: dict):
     """"Refine top matches with the detailed model" (ai.triage_refine, default off): the local NLI model re-scores
-    the top REFINE_SHARE of a run's Quick match scores when it is installed. Yields (job, score, reasoning, report)."""
+    the top REFINE_SHARE of a run's Quick match scores when it is installed. Yields (job, score, reasoning, report).
+    Preview-only jobs (no requirement lines) are skipped: the NLI model has nothing to judge there either."""
+    from .nli.fit import req_lines
+    scored = [(j, s) for j, s in scored if req_lines(j.get("description") or "")]
     if not (config.get("ai") or {}).get("triage_refine") or not scored or nli.get_scorer(config) is None:
         return
     top = sorted(scored, key=lambda js: js[1], reverse=True)[:math.ceil(REFINE_SHARE * len(scored))]

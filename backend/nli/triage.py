@@ -22,7 +22,7 @@ from typing import Callable
 
 import numpy as np
 
-from .fit import req_lines
+from .fit import MAX_LINES, candidate_lines, req_lines
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,20 @@ def _years_with(profile: dict, skills: list[str] | None, today: date) -> float |
     return facts.years_with(up, skills, today)
 
 
+def job_lines(desc: str) -> tuple[list[str], bool]:
+    """(lines to judge, preview only). The requirement lines; when there are none (a short feed preview, e.g.
+    Adzuna's 500 chars), every 25-300 char line, else the whole text (first 300 chars) as one line when it is at
+    least 25 chars: the title + preview still say what the job is. ([], False) when there is no usable text."""
+    lines = req_lines(desc)
+    if lines:
+        return lines, False
+    lines = candidate_lines(desc)[:MAX_LINES]
+    text = (desc or "").strip()
+    if not lines and len(text) >= 25:
+        lines = [text[:300]]
+    return lines, bool(lines)
+
+
 class Triage:
     """Scores jobs against a profile. embed(texts) -> unit vectors [n, dim] (the model has pooling + norm inside).
     Embeddings are cached per text: the profile's chunks once per profile, each job's lines and title once."""
@@ -115,9 +129,9 @@ class Triage:
                          float((Lv[i] @ self.soft.T).max()), float(bool(hit)), hy, yr])
         return np.array(rows, dtype=np.float64)
 
-    def evaluate(self, job: dict, profile: dict, today: date) -> tuple[list[str], np.ndarray, float] | None:
-        """(requirement lines, P(met) per line, raw job score) or None when there is nothing to judge."""
-        lines = req_lines(job.get("description") or "")
+    def evaluate(self, job: dict, profile: dict, today: date) -> tuple[list[str], np.ndarray, float, bool] | None:
+        """(lines, P(met) per line, raw job score, preview only) or None when there is nothing to judge."""
+        lines, preview = job_lines(job.get("description") or "")
         if not lines or not chunks(profile):
             return None
         lf = self.line_features(profile, lines, today)
@@ -131,22 +145,26 @@ class Triage:
             titles = [r["title"] for r in profile.get("experience") or [] if r.get("title")]
             feats["title"] = float((self.vectors([job.get("title") or ""]) @ self.vectors(titles).T).max()) if titles else 0.0
         jw = self.d["job"]
-        return lines, p, float(np.dot([feats[c] for c in jw["cols"]], jw["weights"]) + jw["intercept"])
+        return lines, p, float(np.dot([feats[c] for c in jw["cols"]], jw["weights"]) + jw["intercept"]), preview
 
     def score(self, job: dict, profile: dict, today: date | None = None) -> tuple[float, str, dict] | None:
-        """(score 0-100, reasoning, report) or None when the posting has no requirement lines or the profile is empty."""
+        """(score 0-100, reasoning, report) or None when the posting has no usable text or the profile is empty."""
         ev = self.evaluate(job, profile, today or date.today())
         if ev is None:
             return None
-        lines, p, raw = ev
+        lines, p, raw, preview = ev
         score = round(min(100.0, max(0.0, raw)), 1)
         b = self.d["buckets"]
         bucket = BUCKETS[sum(score >= b[k] for k in ("possible", "good", "great"))]
         order = np.argsort(-p, kind="stable")
         met = [lines[i] for i in order if p[i] > 0.5]
         missing = [lines[i] for i in order[::-1] if p[i] <= 0.5]
-        reasoning = f"{REASONING}: {bucket} fit, meets about {len(met)} of {len(lines)} requirement lines."
-        return score, reasoning, {"matched_skills": met, "missing_skills": missing, "keywords": [], "bucket": bucket}
+        if preview:
+            reasoning = f"{REASONING} (preview only): {bucket} fit, meets about {len(met)} of {len(lines)} preview lines."
+        else:
+            reasoning = f"{REASONING}: {bucket} fit, meets about {len(met)} of {len(lines)} requirement lines."
+        report = {"matched_skills": met, "missing_skills": missing, "keywords": [], "bucket": bucket}
+        return score, reasoning, {**report, "preview": True} if preview else report
 
 
 class OnnxEmbedder:

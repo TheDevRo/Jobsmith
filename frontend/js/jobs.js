@@ -403,7 +403,7 @@ function buildJobDetailHtml(job) {
 function scoreSourceLine(report) {
     const tag = report && report.scored_by;
     if (!tag) return '';
-    const label = tag === 'triage' ? 'Quick match'
+    const label = tag === 'triage' ? (report.preview ? 'Quick match · preview only' : 'Quick match')
         : tag === 'local_model' ? 'Local match model'
         : tag === 'apple_intelligence' ? 'Apple Intelligence'
         : tag.startsWith('endpoint:') ? (tag.slice(9) || 'AI endpoint') : '';
