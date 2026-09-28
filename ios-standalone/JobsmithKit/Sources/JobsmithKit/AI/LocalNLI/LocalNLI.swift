@@ -36,7 +36,7 @@ public enum LocalNLI {
 
     public static let live: Provider = { config in
         guard enabled(config) else { return nil }
-        return await NLIRuntime.shared.scorer()
+        return await NLIRuntime.shared.scorer(neuralEngine: config.ai.nliUseNeuralEngine)
     }
 }
 
@@ -45,17 +45,20 @@ public enum LocalNLI {
 public actor NLIRuntime {
     public static let shared = NLIRuntime()
     private var cached: CoreMLNLI?
+    private var cachedOnNeuralEngine = false
     /// Times the model was actually loaded (the off-mode test asserts 0).
     public private(set) var loads = 0
     /// Why the last load attempt failed (shown when scoring can't use the model).
     public private(set) var lastLoadError: String?
 
-    public func scorer() -> CoreMLNLI? {
-        if let cached { return cached }
+    public func scorer(neuralEngine: Bool = false) -> CoreMLNLI? {
+        if let cached, cachedOnNeuralEngine == neuralEngine { return cached }
+        cached = nil
         guard NLIModel.isInstalled else { return nil }
         do {
             loads += 1
-            cached = try CoreMLNLI(directory: NLIModel.directory)
+            cached = try CoreMLNLI(directory: NLIModel.directory, neuralEngine: neuralEngine)
+            cachedOnNeuralEngine = neuralEngine
             lastLoadError = nil
         } catch {
             lastLoadError = error.localizedDescription

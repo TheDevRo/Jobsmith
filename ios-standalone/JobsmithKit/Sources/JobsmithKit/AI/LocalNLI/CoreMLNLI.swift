@@ -12,7 +12,7 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
     private let tokenizer: DebertaTokenizer
     private let lock = NSLock()  // one prediction at a time
 
-    public init(directory: URL) throws {
+    public init(directory: URL, neuralEngine: Bool = false) throws {
         let t0 = Date()
         tokenizer = try DebertaTokenizer(contentsOf: directory.appendingPathComponent(NLIModel.tokenizerFile))
         let config = MLModelConfiguration()
@@ -20,9 +20,10 @@ public final class CoreMLNLI: NLIScorer, @unchecked Sendable {
         // on the first prediction (TestFlight build 44) — an abort the app can't catch — though it
         // runs on an M-series Mac GPU. fp16 on the CPU: 174 ms/pair on an M3 Pro, loads in 0.1 s;
         // the Neural Engine was slower (509 ms) and can't run fp32 at all.
-        config.computeUnits = .cpuOnly
+        // The Neural Engine is opt-in (Settings) while its speed on iPhone is measured.
+        config.computeUnits = neuralEngine ? .cpuAndNeuralEngine : .cpuOnly
         model = try MLModel(contentsOf: directory.appendingPathComponent(NLIModel.modelDirName), configuration: config)
-        NSLog("Local AI model loaded in %.1fs", Date().timeIntervalSince(t0))
+        NSLog("Local AI model loaded in %.1fs (%@)", Date().timeIntervalSince(t0), neuralEngine ? "Neural Engine" : "CPU")
     }
 
     public func probs(_ pairs: [NLIPair]) throws -> [[Double]] {

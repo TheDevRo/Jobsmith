@@ -75,6 +75,13 @@ public enum ScoreSource: Equatable, Sendable {
         LocalNLI.enabled(config) && config.ai.usesLocalMatchModel
     }
 
+    /// Seconds the stored score took, when recorded.
+    public static func seconds(matchReport: String?) -> Double? {
+        guard let data = matchReport?.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return (obj["score_seconds"] as? NSNumber)?.doubleValue
+    }
+
     public var label: String {
         switch self {
         case .localModel: return "Local match model"
@@ -96,11 +103,16 @@ public enum ScoreSource: Equatable, Sendable {
 
 extension FitResult {
     /// This result with `source` recorded in its match report.
-    func scored(by source: ScoreSource) -> FitResult {
+    func scored(by source: ScoreSource) -> FitResult { adding(["scored_by": source.tag]) }
+
+    /// This result with how long scoring took, shown next to the source ("· 8.2 s").
+    func timed(_ seconds: Double) -> FitResult { adding(["score_seconds": (seconds * 10).rounded() / 10]) }
+
+    private func adding(_ fields: [String: Any]) -> FitResult {
         var report: [String: Any] = [:]
         if let data = matchReportJSON?.data(using: .utf8),
            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { report = obj }
-        report["scored_by"] = source.tag
+        report.merge(fields) { _, new in new }
         var out = self
         if let json = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) {
             out.matchReportJSON = String(data: json, encoding: .utf8)
@@ -161,6 +173,14 @@ public enum ScoringService {
     /// (the app being suspended, or Stop): that still pauses the batch.
     public static func score(job: Job, profile: Profile, config: AppConfig,
                              engine: AIEngine, nli: LocalNLI.Provider = LocalNLI.live) async throws -> FitResult {
+        let start = ContinuousClock.now
+        let result = try await route(job: job, profile: profile, config: config, engine: engine, nli: nli)
+        let elapsed = ContinuousClock.now - start
+        return result.timed(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
+
+    private static func route(job: Job, profile: Profile, config: AppConfig,
+                              engine: AIEngine, nli: LocalNLI.Provider) async throws -> FitResult {
         let local = LocalNLI.enabled(config)
         let preferLocal = ScoreSource.prefersLocal(config)
         var localMiss: LocalMiss?

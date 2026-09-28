@@ -218,6 +218,10 @@ public struct AIConfig: Codable, Equatable, Sendable {
     /// scoring LLM is unavailable. Device-local (the model lives on this device),
     /// so it is not in the settings-sync registry. See `LocalNLI`.
     public var nliBetaEnabled: Bool
+    /// Run the Local match model on the Neural Engine instead of the CPU (experimental;
+    /// Core ML falls back to the CPU for anything the Neural Engine can't run). Never the
+    /// GPU: it aborts in Metal on an A17. Device-local.
+    public var nliUseNeuralEngine: Bool
 
     public init(engine: EngineKind = .openAICompatible,
                 baseURL: String = "http://localhost:1234/v1", apiKey: String = "",
@@ -226,7 +230,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
                 preferOnDeviceForLightTasks: Bool = false,
                 scoreAllCap: Int = 25,
                 savedEndpoints: [SavedEndpoint] = [],
-                nliBetaEnabled: Bool = false) {
+                nliBetaEnabled: Bool = false, nliUseNeuralEngine: Bool = false) {
         self.engine = engine; self.baseURL = baseURL; self.apiKey = apiKey
         self.utilityModel = utilityModel; self.fastModel = fastModel
         self.strongModel = strongModel
@@ -235,6 +239,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         self.scoreAllCap = scoreAllCap
         self.savedEndpoints = savedEndpoints
         self.nliBetaEnabled = nliBetaEnabled
+        self.nliUseNeuralEngine = nliUseNeuralEngine
     }
 
     // Tolerant decoding: fields added or removed across builds must not fail
@@ -255,6 +260,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
         scoreAllCap = try c.decodeIfPresent(Int.self, forKey: .scoreAllCap) ?? d.scoreAllCap
         savedEndpoints = try c.decodeIfPresent([SavedEndpoint].self, forKey: .savedEndpoints) ?? []
         nliBetaEnabled = c.lenient(Bool.self, .nliBetaEnabled, false)
+        nliUseNeuralEngine = c.lenient(Bool.self, .nliUseNeuralEngine, false)
         migrateLegacyOnDeviceRouting()
         // Retired "Use it for all job scoring" toggle → the fast-tier picker choice.
         let legacy = try decoder.container(keyedBy: LegacyKeys.self)
@@ -348,7 +354,7 @@ public struct AIConfig: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case engine, baseURL, apiKey, utilityModel, fastModel, strongModel
         case temperature, maxTokens, preferOnDeviceForLightTasks, scoreAllCap
-        case savedEndpoints, nliBetaEnabled
+        case savedEndpoints, nliBetaEnabled, nliUseNeuralEngine
     }
 
     /// Keys still read (never written) so old configs migrate.

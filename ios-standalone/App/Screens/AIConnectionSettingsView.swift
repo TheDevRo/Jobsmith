@@ -334,6 +334,12 @@ struct AIConnectionSettingsView: View {
                     if on { localModel.install() } else { localModel.cancel() }
                 }
             ))
+            if model.config.ai.nliBetaEnabled {
+                Toggle("Run on the Neural Engine (experimental)", isOn: Binding(
+                    get: { model.config.ai.nliUseNeuralEngine },
+                    set: { on in model.saveConfig { $0.ai.nliUseNeuralEngine = on } }
+                ))
+            }
             HStack {
                 Text("Model")
                 Spacer()

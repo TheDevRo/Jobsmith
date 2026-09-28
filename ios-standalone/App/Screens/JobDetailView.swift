@@ -47,7 +47,9 @@ struct JobDetailView: View {
                         HStack {
                             Eyebrow(text: "Why this score")
                             if let source = ScoreSource.of(matchReport: job.matchReport, reasoning: reasoning) {
-                                Label(source.label, systemImage: source.systemImage)
+                                let secs = ScoreSource.seconds(matchReport: job.matchReport)
+                                Label(secs.map { "\(source.label) · \(String(format: "%.1f", $0)) s" } ?? source.label,
+                                      systemImage: source.systemImage)
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
