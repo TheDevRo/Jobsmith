@@ -53,7 +53,12 @@ Then the **setup wizard** opens. Five steps:
    work authorization, salary target). This is the only data the AI is allowed
    to use; it never invents facts about you.
 4. **Job Search** — keywords, locations, and a salary floor.
-5. **Finish** — save and go.
+5. **Sources** — nothing to set up. The step lists the sources that already
+   work, then (if AI is connected) suggests companies to follow from your
+   profile and keywords, each checked against a live job board. They come in
+   ticked; untick any you don't want. Sources that need a free API key
+   (Adzuna, USAJobs) sit in a collapsed section with sign-up links and a
+   **Test** button. Finish saves and goes.
 
 There is no config file to edit. `config.yaml` is created on first boot and the
 wizard writes every answer into it.
@@ -130,7 +135,7 @@ sending the work to your server.
 
 ## 3. First fetch
 
-Job sources are all **on by default**, so there is nothing to configure. Click
+The sources that need no setup are **on by default**, so there is nothing to configure. Click
 **Fetch Jobs** in the Inbox toolbar, or **Fetch & Score** in the Activity run
 console — that one button fetches and then scores everything it found. (The
 individual **Fetch** and **Score** buttons are right next to it if you want the
@@ -138,11 +143,17 @@ steps separately.)
 
 These sources work with no API key at all:
 
-- LinkedIn, Indeed, RemoteOK, WeWorkRemotely, Arbeitnow
-- Per-company ATS boards: Greenhouse, Lever, Ashby, Workable, Recruitee
+- LinkedIn, RemoteOK, WeWorkRemotely, Arbeitnow
+- Per-company ATS boards: Greenhouse, Lever, Ashby, Workable, Recruitee (for
+  the companies you follow)
 
-Adzuna and USAJobs need free API keys, added later in **Settings → Job Search**
-if you want them. Skip them for now.
+**LinkedIn and Indeed are slow and brittle.** Both are scraped from pages built
+for people, so a fetch can take minutes and breaks when the site changes or
+blocks bots. Indeed is off by default; turn it on in **Settings → Job Search**.
+
+Adzuna and USAJobs need free API keys. Until you add them (in the wizard or
+**Settings → Job Search**, each with a **Test** button) they show as "needs
+key" in the fetch picker and are skipped.
 
 The run chip at the top shows live progress — click it to see every running
 and recently finished run in one panel. A first fetch typically returns a

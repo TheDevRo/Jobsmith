@@ -33,7 +33,7 @@ const CFG_IDS = [
   "cfg-certifications", "cfg-city", "cfg-context-window", "cfg-country",
   "cfg-desired-salary", "cfg-disability", "cfg-email", "cfg-exclude",
   "cfg-flaresolverr-url", "cfg-gender", "cfg-github", "cfg-greenhouse",
-  "cfg-keywords", "cfg-lever", "cfg-linkedin", "cfg-live-refresh", "cfg-locations",
+  "cfg-indeed-enabled", "cfg-keywords", "cfg-lever", "cfg-linkedin", "cfg-live-refresh", "cfg-locations",
   "cfg-location", "cfg-middle-name", "cfg-name", "cfg-notice-period",
   "cfg-over-18", "cfg-phone", "cfg-portfolio", "cfg-race", "cfg-recruitee",
   "cfg-salary", "cfg-salary-auto-ingest", "cfg-scoring-tier", "cfg-server-host",

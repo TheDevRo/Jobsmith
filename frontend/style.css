@@ -802,6 +802,8 @@ main:has(> #review.tab-content.active.view-board) {
     margin-bottom: 8px;
 }
 .run-popover .source-checkboxes { margin-bottom: 8px; }
+.source-checkboxes .source-tag { font-size: 10px; padding: 0 5px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-secondary); }
+.source-checkboxes label.source-locked { opacity: 0.55; cursor: default; }
 .run-popover-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer; margin-bottom: 10px; }
 .run-popover-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
 .run-popover-row select { width: 100px; }
@@ -3549,6 +3551,19 @@ body[data-theme="light"] .tour-overlay .tour-dim {
 .ob-diff-vals { flex: 1; font-size: 12.5px; line-height: 1.5; min-width: 0; }
 .ob-diff-old { color: var(--accent-red); text-decoration: line-through; word-break: break-word; opacity: 0.85; }
 .ob-diff-new { color: var(--accent-green); word-break: break-word; }
+
+/* Wizard Sources step */
+.ob-ready-sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.ob-source-chip {
+    font-size: 12.5px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--bg-secondary);
+}
+.ob-company-row {
+    display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    margin-bottom: 6px; cursor: pointer; font-size: 13px; background: var(--bg-secondary);
+}
+.ob-company-row input { margin-top: 3px; }
 
 /* In-page replacements for window.confirm/prompt/alert — the desktop
    shell's webview doesn't implement native JS dialogs. */

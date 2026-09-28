@@ -313,7 +313,7 @@ search:
   lever_companies:        # Company slugs from jobs.lever.co/<slug>
     - openai
   indeed:
-    enabled: true         # Playwright scraper, no API key needed
+    enabled: false        # Playwright scraper, no API key; slow and brittle, opt-in
     max_pages: 5
 ```
 

@@ -12,7 +12,8 @@ const OB_STEPS = 5;
 // Settings → AI → Change setup… (step 0 alone, back to Settings when done).
 // aiPending: a re-run's tested-but-unsaved AI choice, written by the Review step.
 let _obState = { step: 0, parsed: null, open: false, rerun: false, diff: [],
-                 ai: { mode: '' }, onDeviceStatus: null, only: '', aiPending: null, aiLater: false, cloudWriting: '' };
+                 ai: { mode: '' }, onDeviceStatus: null, only: '', aiPending: null, aiLater: false, cloudWriting: '',
+                 savedSearch: {}, companies: null };
 
 document.addEventListener('DOMContentLoaded', () => { obCheckStatus(); });
 
@@ -78,6 +79,7 @@ function obOpen({ status, only = '' } = {}) {
     _obState.aiPending = null;
     _obState.aiLater = false;
     _obState.cloudWriting = '';
+    _obState.companies = null;
     _obState.ai = _obNewAI();
     document.getElementById('onboarding-overlay').style.display = 'flex';
     document.getElementById('ob-stepper').style.display = only ? 'none' : '';
@@ -164,6 +166,7 @@ async function obLoadPrefill() {
             obRenderEducation([]);
         }
         const s = cfg.search || {};
+        _obState.savedSearch = s;
         document.getElementById('ob-keywords').value = (s.keywords || []).join(', ');
         document.getElementById('ob-locations').value = (s.locations || []).join('\n');
         document.getElementById('ob-salary').value = s.min_salary || '';
@@ -171,6 +174,8 @@ async function obLoadPrefill() {
         const k = cfg.api_keys || {};
         document.getElementById('ob-adzuna-app-id').value = realKey(k.adzuna_app_id);
         document.getElementById('ob-adzuna-app-key').value = realKey(k.adzuna_app_key);
+        document.getElementById('ob-usajobs-email').value = realKey(k.usajobs_email);
+        document.getElementById('ob-usajobs-key').value = realKey(k.usajobs_api_key);
         document.getElementById('ob-bls-key').value = cfg.salary_estimator?.bls?.api_key || '';
     } catch (e) { console.error('obLoadPrefill failed', e); }
     return cfg;
@@ -190,6 +195,7 @@ function obGoto(step) {
     else if (step === OB_STEPS - 1) nextBtn.textContent = _obState.rerun ? 'Review changes →' : 'Finish ✓';
     else nextBtn.textContent = 'Next →';
     if (step === 1) obResumePrivacy();
+    if (step === 4) obEnterSources();
     const body = document.querySelector('.ob-body');
     if (body) body.scrollTop = 0;
 }
@@ -886,6 +892,138 @@ function obValidateProfile() {
 function obSplitCsv(v) { return (v || '').split(',').map(s => s.trim()).filter(Boolean); }
 function obSplitLines(v) { return (v || '').split('\n').map(s => s.trim()).filter(Boolean); }
 
+// ---- Sources step ----
+// [config key, label] for the company watchlists, in Settings' order.
+const OB_WATCHLIST_KEYS = [
+    ['greenhouse_boards', 'Greenhouse boards'],
+    ['lever_companies', 'Lever companies'],
+    ['ashby_boards', 'Ashby boards'],
+    ['workable_accounts', 'Workable accounts'],
+    ['recruitee_companies', 'Recruitee companies'],
+];
+
+function obEnterSources() {
+    obRenderReadySources();
+    // Once per wizard run: coming Back to this step keeps the user's ticks.
+    if (_obState.companies === null) obSuggestCompanies();
+}
+
+async function obRenderReadySources() {
+    const el = document.getElementById('ob-ready-sources');
+    if (!el) return;
+    let names = ['linkedin', 'remoteok', 'weworkremotely', 'arbeitnow'];
+    try {
+        const r = await api('/api/sources');
+        if (r.details) names = r.details.filter(d => d.kind === 'feed').map(d => d.name);
+    } catch (e) { /* the default list above is accurate enough */ }
+    el.innerHTML = names.map(n =>
+        `<span class="ob-source-chip">${esc(SOURCE_LABELS[n] || n)}${n === 'linkedin' ? ' <span class="hint">(slow)</span>' : ''}</span>`).join('');
+}
+
+// Whether a suggestion call can reach an AI. "Set up later" has nothing to
+// ask, so don't spend ~20s finding that out. A re-run's new AI choice isn't
+// saved until the Review step, so the server still answers with the saved one.
+function _obHasAI() {
+    if (_obState.rerun) return !!(_obState.savedAI && _obState.savedAI.mode);
+    return !_obState.aiLater && !!_obState.ai?.mode;
+}
+
+async function obSuggestCompanies({ more = false } = {}) {
+    const box = document.getElementById('ob-companies');
+    if (!box) return;
+    if (!_obHasAI()) {
+        _obState.companies = [];
+        box.innerHTML = '<p class="ob-hint" style="margin:0">Connect an AI (step 1) and Jobsmith picks companies for you here. You can also find any company\'s board by name later in Settings &rarr; Job Search.</p>';
+        return;
+    }
+    const prior = more ? (_obState.companies || []) : [];
+    _obState.companies = prior;
+    const status = document.createElement('p');
+    status.className = 'ob-hint';
+    status.id = 'ob-companies-status';
+    status.textContent = 'Finding companies that fit your profile and checking their job boards… (about 20 seconds)';
+    if (!more) box.innerHTML = '';
+    else document.getElementById('ob-companies-more')?.remove();
+    box.appendChild(status);
+    const draft = obBuildPayload();
+    // The suggester reads the profile only; keep credentials out of the request.
+    const { workday_email, workday_password, ...profile } = draft.profile;
+    let r;
+    try {
+        r = await api('/api/sources/suggest-companies', {
+            method: 'POST',
+            body: JSON.stringify({
+                exclude: prior.map(c => c.name),
+                profile,
+                search: { keywords: draft.search.keywords, locations: draft.search.locations },
+            }),
+        });
+    } catch (e) {
+        r = { suggestions: [], ai_error: e.message || String(e) };
+    }
+    if (!_obState.open) return;
+    status.remove();
+    const fresh = (r.suggestions || []).map(c => ({ ...c, checked: true }));
+    _obState.companies = prior.concat(fresh);
+    obRenderCompanies(fresh.length ? '' : (r.ai_error
+        ? 'Couldn\'t get suggestions right now (' + r.ai_error + '). Skip this and use Settings → Job Search later.'
+        : 'No companies with a live job board this round. Try again, or skip and add companies later.'));
+}
+
+function obRenderCompanies(emptyNote = '') {
+    const box = document.getElementById('ob-companies');
+    const list = _obState.companies || [];
+    const rows = list.map((c, i) => {
+        const boards = (c.boards || []).map(b =>
+            `${esc(SOURCE_LABELS[b.source] || b.source)} · ${b.jobs} open`).join(', ');
+        return `<label class="ob-company-row">
+            <input type="checkbox" data-company-idx="${i}"${c.checked ? ' checked' : ''}>
+            <div><strong>${esc(c.name)}</strong>${c.why ? `<div class="ob-hint" style="margin:2px 0 0">${esc(c.why)}</div>` : ''}<div class="hint">${boards}</div></div>
+        </label>`;
+    }).join('');
+    const note = emptyNote ? `<p class="ob-hint" style="margin:6px 0">${esc(emptyNote)}</p>` : '';
+    box.innerHTML = rows + note +
+        '<button type="button" class="btn btn-ghost btn-sm" id="ob-companies-more" onclick="obSuggestCompanies({ more: true })">' +
+        (list.length ? 'Suggest more' : 'Try again') + '</button>';
+    box.querySelectorAll('input[data-company-idx]').forEach(cb => {
+        cb.addEventListener('change', () => obToggleCompany(parseInt(cb.dataset.companyIdx, 10), cb.checked));
+    });
+}
+
+function obToggleCompany(i, checked) {
+    const c = (_obState.companies || [])[i];
+    if (c) c.checked = checked;
+}
+
+// search.* watchlist lists with the ticked suggestions merged into the saved
+// ones. Only lists that gain a slug are returned, so an untouched step leaves
+// the saved watchlists alone (and the re-run diff shows no row for them).
+function obFollowedBoards() {
+    const saved = _obState.savedSearch || {};
+    const out = {};
+    (_obState.companies || []).filter(c => c.checked).forEach(c => {
+        (c.boards || []).forEach(b => {
+            if (!OB_WATCHLIST_KEYS.some(([k]) => k === b.config_key)) return;
+            if (!out[b.config_key]) {
+                const base = b.config_key === 'greenhouse_boards'
+                    ? (saved.greenhouse_boards || saved.greenhouse_companies || [])
+                    : (saved[b.config_key] || []);
+                out[b.config_key] = base.filter(x => x && x !== 'example-company');
+            }
+            if (!out[b.config_key].includes(b.slug)) out[b.config_key].push(b.slug);
+        });
+    });
+    if (out.greenhouse_boards) out.greenhouse_companies = out.greenhouse_boards.slice();
+    return out;
+}
+
+function obTestSourceKey(source) {
+    const fields = source === 'adzuna'
+        ? { adzuna_app_id: 'ob-adzuna-app-id', adzuna_app_key: 'ob-adzuna-app-key' }
+        : { usajobs_email: 'ob-usajobs-email', usajobs_api_key: 'ob-usajobs-key' };
+    return testSourceKey(source, fields, `ob-${source}-test-status`);
+}
+
 function obBuildPayload() {
     return {
         profile: {
@@ -907,6 +1045,7 @@ function obBuildPayload() {
             locations: obSplitLines(document.getElementById('ob-locations').value),
             min_salary: parseInt(document.getElementById('ob-salary').value, 10) || 0,
             exclude_keywords: obSplitCsv(document.getElementById('ob-exclude').value),
+            ...obFollowedBoards(),
         },
         // AI is saved by step 0's shared exit; only a re-run carries it here,
         // for the Review step to diff.
@@ -914,6 +1053,8 @@ function obBuildPayload() {
         api_keys: {
             adzuna_app_id: document.getElementById('ob-adzuna-app-id').value.trim(),
             adzuna_app_key: document.getElementById('ob-adzuna-app-key').value.trim(),
+            usajobs_email: document.getElementById('ob-usajobs-email').value.trim(),
+            usajobs_api_key: document.getElementById('ob-usajobs-key').value.trim(),
         },
         salary_estimator: { bls: { api_key: document.getElementById('ob-bls-key').value.trim() } },
     };
@@ -1009,8 +1150,18 @@ const OB_DIFF_FIELDS = [
       eq: (cur, nxt) => !nxt || (cur || 'strong') === nxt },
     { label: 'Local match', path: ['ai', 'nli_beta', 'enabled'],
       eq: (cur, nxt) => nxt === undefined || !!cur === nxt },
+    // Watchlist rows exist only when a suggested company was ticked on the
+    // Sources step; absent is "no change". Greenhouse also writes the legacy
+    // key so a stale list there can't shadow the new one (as Settings does).
+    ...OB_WATCHLIST_KEYS.map(([key, label]) => ({
+        label, path: ['search', key],
+        also: key === 'greenhouse_boards' ? [['search', 'greenhouse_companies']] : undefined,
+        eq: (cur, nxt) => nxt === undefined || JSON.stringify(cur || []) === JSON.stringify(nxt),
+    })),
     { label: 'Adzuna App ID', path: ['api_keys', 'adzuna_app_id'] },
     { label: 'Adzuna App Key', path: ['api_keys', 'adzuna_app_key'], secret: true },
+    { label: 'USAJobs email', path: ['api_keys', 'usajobs_email'] },
+    { label: 'USAJobs API key', path: ['api_keys', 'usajobs_api_key'], secret: true },
     { label: 'BLS API key', path: ['salary_estimator', 'bls', 'api_key'], secret: true },
 ];
 
@@ -1090,7 +1241,10 @@ async function obApplyDiff() {
         for (let i = 0; i < path.length - 1; i++) { o[path[i]] = o[path[i]] || {}; o = o[path[i]]; }
         o[path[path.length - 1]] = val;
     };
-    selected.forEach(r => setIn(payload, r.field.path, r.nxt));
+    selected.forEach(r => {
+        setIn(payload, r.field.path, r.nxt);
+        (r.field.also || []).forEach(p => setIn(payload, p, r.nxt));
+    });
     const nextBtn = document.getElementById('ob-next');
     nextBtn.disabled = true;
     nextBtn.textContent = 'Saving…';

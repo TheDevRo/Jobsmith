@@ -86,6 +86,9 @@ async function loadSettings() {
         document.getElementById('cfg-adzuna-app-key').value = realKey(cfg.api_keys?.adzuna_app_key);
         document.getElementById('cfg-usajobs-email').value = realKey(cfg.api_keys?.usajobs_email);
         document.getElementById('cfg-usajobs-key').value = realKey(cfg.api_keys?.usajobs_api_key);
+        window._loadedIndeedCfg = cfg.search?.indeed || {};
+        const indeedCb = document.getElementById('cfg-indeed-enabled');
+        if (indeedCb) indeedCb.checked = !!window._loadedIndeedCfg.enabled;
         const blsKeyEl = document.getElementById('cfg-bls-api-key');
         if (blsKeyEl) blsKeyEl.value = cfg.salary_estimator?.bls?.api_key || '';
 
@@ -292,6 +295,31 @@ function addBoardSlug(configKey, slug, btn) {
     btn.textContent = 'Added ✓';
     btn.disabled = true;
     toast('Added to watchlist — click Save Settings to apply', 'info');
+}
+
+// ---- Keyed source test (Adzuna / USAJobs) ----
+// One live query with what's in the fields; writes nothing.
+const _SOURCE_KEY_FIELDS = {
+    adzuna: { adzuna_app_id: 'cfg-adzuna-app-id', adzuna_app_key: 'cfg-adzuna-app-key' },
+    usajobs: { usajobs_email: 'cfg-usajobs-email', usajobs_api_key: 'cfg-usajobs-key' },
+};
+
+async function testSourceKey(source, fields = _SOURCE_KEY_FIELDS[source], statusId = `${source}-test-status`) {
+    const status = document.getElementById(statusId);
+    const body = { source };
+    Object.entries(fields).forEach(([k, id]) => { body[k] = (document.getElementById(id)?.value || '').trim(); });
+    if (status) { status.className = 'ai-status'; status.textContent = 'Testing…'; }
+    try {
+        const r = await api('/api/sources/test-key', { method: 'POST', body: JSON.stringify(body) });
+        if (status) {
+            status.className = 'ai-status ' + (r.ok ? 'connected' : 'disconnected');
+            status.textContent = r.ok ? `${r.message} Save to start fetching from it.` : r.message;
+        }
+        return r;
+    } catch (e) {
+        if (status) { status.className = 'ai-status disconnected'; status.textContent = `Test failed: ${e.message}`; }
+        return { ok: false, message: e.message };
+    }
 }
 
 // ---- AI company recommender ----
@@ -790,6 +818,8 @@ async function saveSettings() {
             ashby_boards: splitTrim(document.getElementById('cfg-ashby').value),
             workable_accounts: splitTrim(document.getElementById('cfg-workable').value),
             recruitee_companies: splitTrim(document.getElementById('cfg-recruitee').value),
+            // search merges shallowly, so carry Indeed's other keys (max_pages).
+            indeed: { ...(window._loadedIndeedCfg || {}), enabled: !!document.getElementById('cfg-indeed-enabled')?.checked },
         },
         // auto_apply intentionally omitted — the backend merges per-section,
         // so existing config.json values are preserved.

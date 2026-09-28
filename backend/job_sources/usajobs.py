@@ -62,8 +62,10 @@ def detect_usajobs_apply_type(job: dict) -> str:
 
 async def fetch_jobs(config: dict) -> list[dict]:
     """Fetch jobs from USAJobs for each configured keyword."""
-    email = config.get("api_keys", {}).get("usajobs_email", "")
-    api_key = config.get("api_keys", {}).get("usajobs_api_key", "")
+    from . import real_key
+
+    email = real_key(config.get("api_keys", {}).get("usajobs_email", ""))
+    api_key = real_key(config.get("api_keys", {}).get("usajobs_api_key", ""))
 
     if not email or not api_key:
         logger.info("USAJobs credentials not configured — skipping source")
