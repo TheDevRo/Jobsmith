@@ -970,6 +970,45 @@ async def update_job_status(job_id: str, status: str) -> bool:
         await db.close()
 
 
+async def mark_job_applied(job_id: str, job_status: str = "manual") -> bool:
+    """Record a human submission in both the job and application pipeline.
+
+    A job can be submitted without first generating a tailored application.
+    Reuse its latest application when one exists; repeated clicks must not
+    create duplicate Applied cards or reset the original submission time.
+    """
+    if job_status not in ("manual", "applied"):
+        raise ValueError("job_status must be manual or applied")
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT id FROM jobs WHERE id = ?", (job_id,))
+        if not await cursor.fetchone():
+            return False
+
+        cursor = await db.execute(
+            "SELECT id, status FROM applications WHERE job_id = ? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (job_id,),
+        )
+        app = await cursor.fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        if app is None:
+            await db.execute(
+                "INSERT INTO applications (id, job_id, status, applied_at, created_at) "
+                "VALUES (?, ?, 'applied', ?, ?)",
+                (str(uuid.uuid4()), job_id, now, now),
+            )
+        elif app["status"] != "applied":
+            await db.execute(
+                "UPDATE applications SET status = 'applied', applied_at = ?, error_message = NULL "
+                "WHERE id = ?", (now, app["id"]),
+            )
+        await db.execute("UPDATE jobs SET status = ? WHERE id = ?", (job_status, job_id))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
 async def update_job_score(
     job_id: str, score: float, reasoning: str, match_report: Optional[dict] = None
 ) -> None:
