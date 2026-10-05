@@ -397,7 +397,7 @@ def test_long_profiles_get_a_premise_per_line_that_fits():
     assert PROFILE["summary"].split()[-1] in short and all(s in short for s in PROFILE["skills"])
 
 
-PREMISE_FIXTURE = ROOT / "ios-standalone" / "KitTests" / "Fixtures" / "nli_line_premises.json"
+PREMISE_FIXTURE = ROOT / "tests" / "fixtures" / "nli_line_premises.json"
 PREMISE_JOBS = [
     JOB["description"],
     "Customer Success Manager, mid-market SaaS.\n\u2022 3+ years of experience in customer success or account "

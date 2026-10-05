@@ -8,11 +8,10 @@
 #   package.json                  .version              (the SSOT everything else follows)
 #   backend/version.py            APP_VERSION
 #   src-tauri/Cargo.toml          [package] version     (tauri.conf.json reads package.json)
-#   ios-standalone/project.yml    MARKETING_VERSION
 #   extension/src/manifest.*.json .version              (chrome/firefox/safari/ios-standalone)
 #
-# Not touched: CURRENT_PROJECT_VERSION (the iOS build number — that's a
-# per-upload counter, pass it to xcodebuild, don't commit it).
+# Not touched: the iOS app, which lives in TheDevRo/jobsmith-ios and versions
+# itself.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,7 +33,6 @@ fi
 current_pkg()   { node -p "require('./package.json').version"; }
 current_py()    { sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' backend/version.py; }
 current_cargo() { sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml; }
-current_yml()   { sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*\(.*\)$/\1/p' "$1"; }
 current_ext()   { node -p "require('./$1').version"; }
 
 # Every extension manifest ships to a store independently, but the release
@@ -51,7 +49,6 @@ report() {
     printf '  %-28s %s\n' "package.json" "$(current_pkg)"
     printf '  %-28s %s\n' "backend/version.py" "$(current_py)"
     printf '  %-28s %s\n' "src-tauri/Cargo.toml" "$(current_cargo)"
-    printf '  %-28s %s\n' "ios-standalone/project.yml" "$(current_yml ios-standalone/project.yml)"
     for m in "${EXT_MANIFESTS[@]}"; do
         [ -f "$m" ] && printf '  %-28s %s\n' "$m" "$(current_ext "$m")"
     done
@@ -59,8 +56,7 @@ report() {
 
 if [ "$MODE" = "--check" ]; then
     ok=1
-    for got in "$(current_pkg)" "$(current_py)" "$(current_cargo)" \
-               "$(current_yml ios-standalone/project.yml)"; do
+    for got in "$(current_pkg)" "$(current_py)" "$(current_cargo)"; do
         [ "$got" = "$VERSION" ] || ok=0
     done
     for m in "${EXT_MANIFESTS[@]}"; do
@@ -95,11 +91,6 @@ sed -i '' -e "s/^APP_VERSION = \".*\"/APP_VERSION = \"${VERSION}\"/" backend/ver
 # Only the [package] block — dependency versions must not be touched.
 sed -i '' -e "/^\[package\]/,/^\[dependencies\]/ s/^version = \".*\"/version = \"${VERSION}\"/" \
     src-tauri/Cargo.toml
-
-for yml in ios-standalone/project.yml; do
-    [ -f "$yml" ] || continue
-    sed -i '' -e "s/^\([[:space:]]*MARKETING_VERSION:[[:space:]]*\).*$/\1${VERSION}/" "$yml"
-done
 
 # Extension manifests: edit via node so formatting/ordering survive.
 for m in "${EXT_MANIFESTS[@]}"; do

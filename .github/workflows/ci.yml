@@ -91,46 +91,26 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  js-sync:
-    name: Injected Apply JS is in sync
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # snapshot.js/fill.js are hand-copied from the extension into the iOS app.
-      # This is the check that they haven't drifted apart.
-      - run: python3 scripts/check_apply_js_sync.py
-
-  ios:
-    name: iOS (xcodebuild)
+  crosslang:
+    name: Cross-language convergence (Swift vs Python)
+    # The iOS app lives in TheDevRo/jobsmith-ios. These tests compile its real
+    # sync and score-parsing Swift sources and require them to agree with the
+    # Python engine, so a format change on either side fails here. Checked out
+    # at ios-standalone/ so a local clone in the same spot works the same way.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
-      - name: Install xcodegen
-        run: brew install xcodegen
-      - name: Generate project
-        working-directory: ios-standalone
-        run: xcodegen generate
-      - name: Test JobsmithKit
-        working-directory: ios-standalone
-        run: |
-          DEST=$(xcrun simctl list devices available \
-            | grep -m1 -o 'iPhone [0-9]\+' || echo 'iPhone 16')
-          xcodebuild -scheme JobsmithKit \
-            -destination "platform=iOS Simulator,name=$DEST" \
-            test CODE_SIGNING_ALLOWED=NO | xcpretty || exit 1
-
-      # tests/test_sync_crosslang.py compiles the real JobsmithKit sync sources and
-      # checks the Swift merge agrees with the Python oracle. It only builds on
-      # Darwin (JSONValue.swift needs CoreFoundation), so it self-skips on the
-      # Linux backend job — this is the job where it runs.
+      - uses: actions/checkout@v7
+        with:
+          repository: TheDevRo/jobsmith-ios
+          path: ios-standalone
+      # Darwin-only: JSONValue.swift needs CoreFoundation, so these self-skip
+      # on the Linux backend job.
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
       - name: Cross-language convergence (sync + AI parsing)
-        # test_crosslang_ai.py additionally compiles the real ScoreResponseParser
-        # sources and requires the Swift parse chain to match the Python one on
-        # the shared fixtures — the guard against iOS/desktop scoring drift.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt

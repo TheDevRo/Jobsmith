@@ -12,8 +12,8 @@
 // duplicated here (Workday is React; a plain `.value =` snaps back on render).
 //
 // SINGLE SOURCE: extension/src/common/workday_auth.js is the original. A
-// verbatim copy is bundled for iOS at ios-standalone/App/Apply/JS/workday_auth.js.
-// Keep the two in sync when either changes.
+// verbatim copy is bundled in TheDevRo/jobsmith-ios at App/Apply/JS/workday_auth.js;
+// its CI fails when the two drift. Change it here first.
 //
 // The password is never stored, logged, or persisted — it lives only as a call
 // argument for the duration of one submit.
