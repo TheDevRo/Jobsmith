@@ -24,7 +24,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      # Pinned: an unpinned ruff picked up a new rule and turned main red with no
+      # code change. Bump deliberately.
+      - run: pip install ruff==0.15.20
       - run: ruff check --output-format=github
 
   backend:
