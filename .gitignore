@@ -25,8 +25,8 @@ apple-bridge/.build/
 extension/dist/
 
 # TestFlight upload script — carries App Store Connect key/issuer/team ids.
-# Copy ios-standalone/scripts/testflight-upload.sh.example and fill in via env.
-ios-standalone/scripts/testflight-upload.sh
+# Local clone of TheDevRo/jobsmith-ios, for tests/test_*crosslang*.py.
+ios-standalone/
 
 # Runtime data (repo-root dirs only — anchored so they don't match nested
 # source dirs like ios-standalone/.../JobsmithKit/Data on a case-insensitive FS)
@@ -60,8 +60,6 @@ Thumbs.db
 # Claude Code local settings (may contain local paths)
 .claude/
 
-# iOS signing config (set your own DEVELOPMENT_TEAM here — see README-IOS-STANDALONE.md)
-ios-standalone/Local.xcconfig
 
 # Beta release kit (listing copy + screenshots) — local-only, never committed
 beta-release/

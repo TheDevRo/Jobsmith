@@ -6,9 +6,8 @@ change.
 
 ## What this repo builds
 
-Jobsmith ships three artifacts, all built from `main`:
+Jobsmith ships two artifacts from this repo, both built from `main`:
 
-- **iOS app** — `ios-standalone/` (xcodegen + xcodebuild; see `README-IOS-STANDALONE.md`)
 - **Desktop app** — `frontend/` + `src-tauri/` plus the PyInstaller backend sidecar (`scripts/build_desktop.sh`)
 - **Docker image** — `Dockerfile`, the self-hosted server
 
@@ -36,11 +35,12 @@ npm test                                                    # extension + fronte
 ```
 
 Tests marked `integration` need live external services (a running LLM endpoint, a
-real browser) and are deselected by default. The iOS test suites run through
-Xcode — see `README-IOS-STANDALONE.md`.
+real browser) and are deselected by default. The iOS app lives in
+[TheDevRo/jobsmith-ios](https://github.com/TheDevRo/jobsmith-ios) with its own tests.
 
-CI runs the backend suite, the Node suites, an extension↔iOS JavaScript drift
-check, and the iOS simulator tests. Please make sure the two commands above pass
+CI runs the backend suite, the Node suites, and the Swift↔Python cross-language
+tests (which check out jobsmith-ios). Drift between the extension's Apply JS and
+the iOS copies is caught by jobsmith-ios's own CI. Please make sure the two commands above pass
 locally before opening a pull request.
 
 ## Branches and pull requests

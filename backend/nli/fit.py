@@ -75,12 +75,12 @@ def line_premises(profile: dict, lines: list[str], count=None) -> list[str]:
         n = [0, 0, 0, 0]  # matching skills, matching sentences, other skills, other sentences
 
         def build(n) -> str:
-            sk, un = sk_hit[:n[0]] + sk_rest[:n[2]], un_hit[:n[1]] + un_rest[:n[3]]
+            sk, un = sk_hit[:n[0]] + sk_rest[:n[2]], un_hit[:n[1]] + un_rest[:n[3]]  # noqa: B023 -- called within this iteration
             return (f"The candidate's skills: {', '.join(sk)}. Experience: {'; '.join(roles)}. "
                     f"Education: {edu}. Certifications: {certs}. {' '.join(un)}").strip()
 
         for i, hi in enumerate((len(sk_hit), len(un_hit), len(sk_rest), len(un_rest))):
-            n[i] = _most(lambda k: size(build(n[:i] + [k] + n[i + 1:]), hyp) <= MAX_PAIR_TOKENS, hi)
+            n[i] = _most(lambda k: size(build(n[:i] + [k] + n[i + 1:]), hyp) <= MAX_PAIR_TOKENS, hi)  # noqa: B023 -- consumed synchronously by _most
         out.append(build(n))
     return out
 

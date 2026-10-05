@@ -33,10 +33,14 @@ TOOL_SRC = REPO / "tools/sync-crosslang/main.swift"
 # CoreFoundation, and JSONValue.swift needs CFGetTypeID/CFBooleanGetTypeID to tell
 # a Bool from an NSNumber. On the Linux CI runner swiftc exists and the compile
 # fails; the macOS job is where this test earns its keep.
-pytestmark = pytest.mark.skipif(
-    shutil.which("swiftc") is None or sys.platform != "darwin",
-    reason="needs swiftc on macOS (JSONValue.swift depends on CoreFoundation)",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("swiftc") is None or sys.platform != "darwin",
+        reason="needs swiftc on macOS (JSONValue.swift depends on CoreFoundation)",
+    ),
+    # The iOS app lives in TheDevRo/jobsmith-ios; CI checks it out here.
+    pytest.mark.skipif(not SYNC_SRC.is_dir(), reason="needs TheDevRo/jobsmith-ios cloned at ios-standalone/"),
+]
 
 
 @pytest.fixture(scope="module")

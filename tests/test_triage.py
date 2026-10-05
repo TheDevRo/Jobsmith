@@ -18,7 +18,7 @@ from backend import ai_engine, nli
 from backend.nli import triage as TR
 from backend.nli import triage_model as TM
 
-GOLDEN = json.loads((Path(__file__).resolve().parent.parent / "ios-standalone/KitTests/Fixtures/triage_golden.json")
+GOLDEN = json.loads((Path(__file__).resolve().parent / "fixtures" / "triage_golden.json")
                     .read_text())
 QUICK = {"ai": {"base_url": "http://mock.invalid/v1", "scoring_tier": "local-match-model"}}
 
