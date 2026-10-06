@@ -841,7 +841,7 @@ async def _bg_apply(app_id: str):
 
 async def _bg_refetch_descriptions():
     """Re-run LinkedIn detail fetch against jobs whose description is empty."""
-    import aiohttp
+    from .http_client import async_client
     from .job_sources.linkedin import _fetch_job_detail
 
     state.cancel_refetch.clear()
@@ -873,7 +873,7 @@ async def _bg_refetch_descriptions():
         failed = 0
         processed = 0
 
-        async with aiohttp.ClientSession() as session:
+        async with async_client() as session:
             async def worker(row):
                 nonlocal updated, failed, processed
                 if state.cancel_refetch.is_set():

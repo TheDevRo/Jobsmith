@@ -44,6 +44,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# httpx logs every request URL at INFO. Job-source URLs can carry API keys in
+# the query string (Adzuna app_key), and this log is user-visible.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Also log to a rotating file: the desktop app's stdout is invisible, and
 # Settings → Logs tails this file (served by /api/logs/tail).
