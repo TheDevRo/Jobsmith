@@ -1,24 +1,24 @@
 # Human-edited dependency floor. The reproducible, fully-pinned set lives in
 # requirements.lock (what Docker installs) — regenerate it after editing this file.
 # Optional extras (browser-use) live in requirements-optional.txt.
-fastapi>=0.141.1
-uvicorn>=0.52.1
+fastapi>=0.142.2
+uvicorn>=0.54.0
 aiosqlite>=0.22.1
-openai>=2.53.0
+openai>=3.24.0
 httpx>=0.28.1  # imported directly (apple_bridge, system, salary_estimator); openai 3.x no longer pulls it in
 python-docx>=1.2.0
-reportlab>=5.0.0
+reportlab>=5.0.1
 pyyaml>=6.0.3
 # Pinned to match the browsers bundled in the Docker base image
 # (mcr.microsoft.com/playwright/python — keep the tag in the Dockerfile in sync).
 playwright==1.62.0
 playwright-stealth>=2.0.3
 beautifulsoup4>=4.15.0
-lxml>=6.1.1
+lxml>=6.1.3
 # browser-use moved to requirements-optional.txt (feature-flagged, heavy tree;
 # backend/browser_use_agent.py imports it lazily).
-python-dotenv>=1.2.2
-pypdf>=6.15.0
+python-dotenv>=1.2.4
+pypdf>=6.19.0
 python-multipart>=0.0.32
 # Local AI model (beta, off by default): NLI inference without PyTorch. Imported only when the
 # Settings switch is on (backend/nli/runtime.py).
