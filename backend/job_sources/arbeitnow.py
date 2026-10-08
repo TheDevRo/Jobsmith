@@ -8,8 +8,9 @@ Focuses on remote and tech jobs. Returns paginated JSON.
 import json
 import logging
 
-import aiohttp
+import httpx
 
+from ..http_client import async_client
 from . import clean_description
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
+        async with async_client() as session:
             # Fetch up to 3 pages
             for page in range(1, 4):
                 status, body = await fetch_with_retries(
@@ -54,7 +55,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                     API_URL,
                     params={"page": page},
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=30,
                 )
                 if status != 200:
                     logger.warning("Arbeitnow returned %d on page %d", status, page)
@@ -104,7 +105,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                 if not data.get("links", {}).get("next"):
                     break
 
-    except aiohttp.ClientError as e:
+    except httpx.HTTPError as e:
         logger.warning("Arbeitnow request failed: %s", str(e))
         return []
 

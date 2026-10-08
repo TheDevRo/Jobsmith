@@ -69,20 +69,11 @@ class TestSsrfGuard:
 
 
 class _FakeResp:
-    """Minimal aiohttp-response stand-in for the redirect-guard tests."""
+    """Minimal httpx-response stand-in for the redirect-guard tests."""
     def __init__(self, status, headers=None, body=""):
-        self.status = status
+        self.status_code = status
         self.headers = headers or {}
-        self._body = body
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def text(self):
-        return self._body
+        self.text = body
 
 
 class _FakeSession:
@@ -90,9 +81,10 @@ class _FakeSession:
         self._responses = list(responses)
         self.requested = []
 
-    def get(self, url, **kwargs):
-        # The guard must disable aiohttp's own redirect following.
-        assert kwargs.get("allow_redirects") is False
+    async def request(self, method, url, **kwargs):
+        # The guard must disable the client's own redirect following.
+        assert method == "GET"
+        assert kwargs.get("follow_redirects") is False
         self.requested.append(url)
         return self._responses.pop(0)
 
