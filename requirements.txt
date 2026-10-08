@@ -11,7 +11,7 @@ reportlab>=5.0.1
 pyyaml>=6.0.3
 # Pinned to match the browsers bundled in the Docker base image
 # (mcr.microsoft.com/playwright/python — keep the tag in the Dockerfile in sync).
-playwright==1.63.0
+playwright==1.62.0
 playwright-stealth>=2.0.3
 beautifulsoup4>=4.15.0
 lxml>=6.1.3
