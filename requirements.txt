@@ -9,7 +9,6 @@ openai>=2.53.0
 httpx>=0.28.1  # imported directly (apple_bridge, system, salary_estimator); openai 3.x no longer pulls it in
 python-docx>=1.2.0
 reportlab>=5.0.0
-feedparser>=6.0.14
 pyyaml>=6.0.3
 # Pinned to match the browsers bundled in the Docker base image
 # (mcr.microsoft.com/playwright/python — keep the tag in the Dockerfile in sync).

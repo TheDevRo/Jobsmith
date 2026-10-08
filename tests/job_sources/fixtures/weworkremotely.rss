@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>We Work Remotely: Remote jobs in design, programming, marketing and more</title>
+    <link>https://weworkremotely.com/remote-jobs.rss</link>
+    <description>We Work Remotely: Remote jobs in design, programming, marketing and more</description>
+    <language>en-US</language>
+    <ttl>60</ttl>
+    <item>
+      <title>Acme Corp: Senior Security Engineer</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <skills>Python, AWS</skills>
+      <category>DevOps and Sysadmin</category>
+      <type>Full-Time</type>
+      <description><![CDATA[<p><strong>Headquarters:</strong> Denver, CO</p><p>We are hiring a security engineer to run our SIEM.<br>Python &amp; AWS required.</p>]]></description>
+      <pubDate>Mon, 05 Oct 2026 14:12:03 +0000</pubDate>
+      <expires_at>Wed, 04 Nov 2026 14:12:03 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/acme-corp-senior-security-engineer</guid>
+      <link>https://weworkremotely.com/remote-jobs/acme-corp-senior-security-engineer</link>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/acme.png" type="image/png"/>
+    </item>
+    <item>
+      <title>Smith &amp; Jones LLC: Python Developer</title>
+      <region>USA Only</region>
+      <category>Back-End Programming</category>
+      <type>Contract</type>
+      <description>&lt;p&gt;Build Python services. Salary: $120k&lt;/p&gt;</description>
+      <pubDate>Sun, 04 Oct 2026 09:00:00 +0000</pubDate>
+      <guid>https://weworkremotely.com/remote-jobs/smith-jones-llc-python-developer</guid>
+      <link>
+        https://weworkremotely.com/remote-jobs/smith-jones-llc-python-developer
+      </link>
+    </item>
+    <item>
+      <title>Untitled Role Without Company</title>
+      <description><![CDATA[<p>Python generalist.</p>]]></description>
+      <link>https://weworkremotely.com/remote-jobs/untitled-role</link>
+    </item>
+    <item>
+      <title>Acme Corp: Senior Security Engineer</title>
+      <description><![CDATA[<p>Duplicate of the first item (same link) from an overlapping feed.</p>]]></description>
+      <link>https://weworkremotely.com/remote-jobs/acme-corp-senior-security-engineer</link>
+    </item>
+    <item>
+      <title>Globex: Python Sales Engineer</title>
+      <description><![CDATA[<p>Python demos for customers.</p>]]></description>
+      <pubDate>Sat, 03 Oct 2026 08:00:00 +0000</pubDate>
+      <link>https://weworkremotely.com/remote-jobs/globex-python-sales-engineer</link>
+    </item>
+    <item>
+      <title>Initech: Marketing Lead</title>
+      <description><![CDATA[<p>No matching keyword here.</p>]]></description>
+      <link>https://weworkremotely.com/remote-jobs/initech-marketing-lead</link>
+    </item>
+  </channel>
+</rss>
