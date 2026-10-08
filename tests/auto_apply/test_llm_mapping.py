@@ -317,21 +317,19 @@ async def test_complete_sends_configured_fast_model_and_max_tokens():
     captured_payload: list[dict] = []
 
     class _MockResponse:
-        status = 200
-        async def json(self):
+        status_code = 200
+        def json(self):
             return {"choices": [{"message": {"content": "ok"}}]}
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): pass
         def raise_for_status(self): pass
 
     class _MockSession:
-        def post(self, url, json=None, headers=None, timeout=None):
+        async def request(self, method, url, json=None, headers=None, timeout=None):
             captured_payload.append(json or {})
             return _MockResponse()
         async def __aenter__(self): return self
         async def __aexit__(self, *_): pass
 
-    with patch("backend.auto_apply.llm_client.aiohttp.ClientSession", return_value=_MockSession()):
+    with patch("backend.auto_apply.llm_client.async_client", return_value=_MockSession()):
         await llm.complete("sys", "user")
 
     assert captured_payload, "No HTTP call was made"
@@ -364,21 +362,19 @@ async def test_complete_override_max_tokens_takes_priority():
     captured_payload: list[dict] = []
 
     class _MockResponse:
-        status = 200
-        async def json(self):
+        status_code = 200
+        def json(self):
             return {"choices": [{"message": {"content": "ok"}}]}
-        async def __aenter__(self): return self
-        async def __aexit__(self, *_): pass
         def raise_for_status(self): pass
 
     class _MockSession:
-        def post(self, url, json=None, headers=None, timeout=None):
+        async def request(self, method, url, json=None, headers=None, timeout=None):
             captured_payload.append(json or {})
             return _MockResponse()
         async def __aenter__(self): return self
         async def __aexit__(self, *_): pass
 
-    with patch("backend.auto_apply.llm_client.aiohttp.ClientSession", return_value=_MockSession()):
+    with patch("backend.auto_apply.llm_client.async_client", return_value=_MockSession()):
         await llm.complete("sys", "user", override_max_tokens=512)
 
     assert captured_payload[0]["max_tokens"] == 512

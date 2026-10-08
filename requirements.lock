@@ -17,24 +17,17 @@
 # (mcr.microsoft.com/playwright/python:v<PLAYWRIGHT_VERSION>-noble) and with
 # requirements.txt.
 
-aiohappyeyeballs==2.7.1
-aiohttp==3.14.3
-aiosignal==1.4.0
 aiosqlite==0.22.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
-attrs==26.1.0
 beautifulsoup4==4.15.0
 certifi==2026.7.22
 charset-normalizer==3.5.1
 click==8.5.0
-fastapi==0.141.1
-feedparser==6.0.14
-feedparser-sgmllib==2.1.0
+fastapi==0.142.2
 filelock==4.0.4
 flatbuffers==25.12.19
-frozenlist==1.8.0
 fsspec==2026.9.0
 greenlet==3.5.6
 h11==0.16.0
@@ -47,22 +40,21 @@ huggingface-hub==1.33.0
 idna==3.20
 jiter==0.17.0
 lxml==6.1.3
-multidict==6.9.1
 numpy==2.5.3
 onnxruntime==1.30.0
-openai==3.19.1
+openai==3.24.0
+opentelemetry-api==1.45.1
 packaging==26.3
 pillow==12.3.0
 playwright==1.62.0
 playwright-stealth==2.0.3
-propcache==0.5.4
 protobuf==6.33.6
 pydantic==2.13.5
 pydantic-core==2.46.5
 pyee==13.0.1
 pypdf==6.19.0
 python-docx==1.2.0
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 python-multipart==0.0.32
 pyyaml==6.0.3
 reportlab==5.0.1
@@ -74,5 +66,4 @@ tqdm==4.70.1
 truststore==0.10.4
 typing-extensions==4.16.0
 typing-inspection==0.4.4
-uvicorn==0.53.0
-yarl==1.25.1
+uvicorn==0.54.0

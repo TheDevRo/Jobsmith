@@ -409,8 +409,7 @@ class TestSourceKeyRequest(BaseModel):
 async def test_source_key(body: TestSourceKeyRequest):
     """One minimal live query against a keyed source with the given (or saved)
     credentials. Writes no config. Returns {ok, message}."""
-    import aiohttp
-
+    from ..http_client import async_client, send
     from ..job_sources import real_key
     from .settings import SECRET_MASK
 
@@ -420,25 +419,25 @@ async def test_source_key(body: TestSourceKeyRequest):
         v = (getattr(body, field) or "").strip()
         return real_key(saved.get(field) if v == SECRET_MASK else v)
 
-    timeout = aiohttp.ClientTimeout(total=20)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with async_client() as session:
             if body.source == "adzuna":
                 app_id, app_key = _pick("adzuna_app_id"), _pick("adzuna_app_key")
                 if not app_id or not app_key:
                     return {"ok": False, "message": "Enter both the App ID and the App Key."}
                 params = {"app_id": app_id, "app_key": app_key, "results_per_page": 1,
                           "what": "engineer", "content-type": "application/json"}
-                async with session.get("https://api.adzuna.com/v1/api/jobs/us/search/1", params=params) as r:
-                    status = r.status
+                r = await send(session, "GET", "https://api.adzuna.com/v1/api/jobs/us/search/1",
+                               params=params, timeout=20)
+                status = r.status_code
             elif body.source == "usajobs":
                 email, key = _pick("usajobs_email"), _pick("usajobs_api_key")
                 if not email or not key:
                     return {"ok": False, "message": "Enter both the registered email and the API key."}
                 headers = {"Host": "data.usajobs.gov", "User-Agent": email, "Authorization-Key": key}
-                async with session.get("https://data.usajobs.gov/api/search",
-                                       params={"ResultsPerPage": 1}, headers=headers) as r:
-                    status = r.status
+                r = await send(session, "GET", "https://data.usajobs.gov/api/search",
+                               params={"ResultsPerPage": 1}, headers=headers, timeout=20)
+                status = r.status_code
             else:
                 raise HTTPException(400, f"No key test for source {body.source!r}")
     except HTTPException:
@@ -526,14 +525,14 @@ async def _probe_ats(source: str, spec: dict, slug: str, session) -> Optional[di
     """One (ATS, slug) probe: 200 + parseable board payload → match dict."""
     import json
 
-    import aiohttp
+    from ..http_client import send
 
     url = spec["url"].format(slug=slug)
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-            if resp.status != 200:
-                return None
-            data = json.loads(await resp.text())
+        resp = await send(session, "GET", url, timeout=8)
+        if resp.status_code != 200:
+            return None
+        data = json.loads(resp.text)
     except Exception:
         return None
     count = spec["count"](data)
@@ -578,13 +577,13 @@ async def detect_boards(body: DetectBoardsRequest):
     """Probe the public APIs of all supported ATSes with slug guesses derived
     from a company name. Returns every (source, slug) that answers with a
     live board so the user never has to know slugs up front."""
-    import aiohttp
+    from ..http_client import async_client
 
     slugs = _slug_candidates(body.company)
     if not slugs:
         raise HTTPException(400, "Give me a company name to look for")
 
-    async with aiohttp.ClientSession(headers={"User-Agent": "Jobsmith/1.0"}) as session:
+    async with async_client(headers={"User-Agent": "Jobsmith/1.0"}) as session:
         matches = await _detect_boards_for(body.company, session)
     return {"matches": matches, "tried_slugs": slugs}
 
@@ -610,9 +609,8 @@ async def suggest_companies(body: SuggestCompaniesRequest):
     LLM suggestions from their profile, then validate every candidate against
     the live ATS board probes. Only companies with a reachable board are
     returned, so a hallucinated suggestion costs nothing."""
-    import aiohttp
-
     from .. import ai_engine
+    from ..http_client import async_client
 
     cfg = state.load_config()
     if body.profile is not None:
@@ -667,7 +665,7 @@ async def suggest_companies(body: SuggestCompaniesRequest):
 
     # 3. Validate every candidate against the live board probes (bounded).
     sem = asyncio.Semaphore(4)
-    async with aiohttp.ClientSession(headers={"User-Agent": "Jobsmith/1.0"}) as session:
+    async with async_client(headers={"User-Agent": "Jobsmith/1.0"}) as session:
         async def _validate(cand: dict) -> Optional[dict]:
             async with sem:
                 boards = await _detect_boards_for(cand["name"], session)
@@ -717,7 +715,7 @@ async def resolve_linkedin_locations(body: dict):
 
     Lets the user verify their search.locations entries before kicking off a fetch.
     """
-    import aiohttp
+    from ..http_client import async_client
     from ..job_sources.linkedin import _resolve_geo_id, _SEED_GEO_IDS, _load_geo_cache, _normalize_location
 
     locations = body.get("locations") or []
@@ -735,7 +733,7 @@ async def resolve_linkedin_locations(body: dict):
 
     results = []
     cache_before = dict(_load_geo_cache())  # snapshot to label cache vs live
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         for loc in locations:
             if not isinstance(loc, str) or not loc.strip():
                 continue

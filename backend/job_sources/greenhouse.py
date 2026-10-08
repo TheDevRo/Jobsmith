@@ -17,7 +17,9 @@ import asyncio
 import json
 import logging
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ def _matches_keywords(title: str, description: str, keywords: list[str]) -> bool
 
 
 async def _fetch_greenhouse_company(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     slug: str,
     keywords: list[str],
     exclude_patterns: tuple,
@@ -61,7 +63,7 @@ async def _fetch_greenhouse_company(
         # content=true payloads for large boards run to several MB — allow
         # more than the usual 30s.
         status, body = await fetch_with_retries(
-            session, url, timeout=aiohttp.ClientTimeout(total=45),
+            session, url, timeout=45,
         )
         if status != 200:
             logger.warning("Greenhouse board %s returned %d", slug, status)
@@ -119,7 +121,7 @@ async def _fetch_greenhouse_company(
 
 
 async def _fetch_lever_company(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     slug: str,
     keywords: list[str],
     exclude_patterns: tuple,
@@ -133,7 +135,7 @@ async def _fetch_lever_company(
 
     try:
         status, body = await fetch_with_retries(
-            session, url, timeout=aiohttp.ClientTimeout(total=30),
+            session, url, timeout=30,
         )
         if status != 200:
             logger.warning("Lever board %s returned %d", slug, status)
@@ -279,7 +281,7 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
     deadline = loop.time() + _INTERNAL_BUDGET
     sem = asyncio.Semaphore(_BOARD_CONCURRENCY)
 
-    async with aiohttp.ClientSession(
+    async with async_client(
         headers={"User-Agent": "Jobsmith/1.0"}
     ) as session:
         async def _run_board(fetcher, slug: str) -> None:
