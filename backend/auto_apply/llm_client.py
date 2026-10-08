@@ -22,9 +22,8 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-import aiohttp
-
 from .. import nli, prompt_registry
+from ..http_client import async_client, send
 
 if TYPE_CHECKING:
     from .models import FieldDescriptor, FieldValue, JobApplicationRequest, UserProfile
@@ -92,16 +91,17 @@ class LLMClient:
         last_exc: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
+                async with async_client() as session:
+                    resp = await send(
+                        session, "POST",
                         f"{self.base_url}/chat/completions",
                         json=payload,
                         headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=90),
-                    ) as resp:
-                        resp.raise_for_status()
-                        data = await resp.json()
-                        return data["choices"][0]["message"]["content"]
+                        timeout=90,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
             except Exception as exc:
                 last_exc = exc
                 if attempt < max_retries:

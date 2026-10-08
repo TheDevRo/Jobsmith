@@ -62,7 +62,7 @@ def test_adzuna_skips_placeholder_keys_without_a_request(monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("no request expected")
 
-    monkeypatch.setattr(adzuna.aiohttp, "ClientSession", _boom)
+    monkeypatch.setattr(adzuna, "async_client", _boom)
     cfg = {"api_keys": {"adzuna_app_id": "your-app-id", "adzuna_app_key": "your-app-key"}}
     assert asyncio.run(adzuna.fetch_jobs(cfg)) == []
 
@@ -98,13 +98,7 @@ def test_list_sources_keeps_names_and_adds_details(client):
 
 class _Resp:
     def __init__(self, status):
-        self.status = status
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
+        self.status_code = status
 
 
 class _Session:
@@ -121,17 +115,17 @@ class _Session:
     async def __aexit__(self, *a):
         return False
 
-    def get(self, url, params=None, headers=None):
+    async def request(self, method, url, params=None, headers=None, timeout=None):
         _Session.seen.append({"url": url, "params": params or {}, "headers": headers or {}})
         return _Resp(_Session.status)
 
 
 @pytest.fixture
 def fake_http(monkeypatch):
-    import aiohttp
+    import httpx
     _Session.seen = []
     _Session.status = 200
-    monkeypatch.setattr(aiohttp, "ClientSession", _Session)
+    monkeypatch.setattr(httpx, "AsyncClient", _Session)
     return _Session
 
 

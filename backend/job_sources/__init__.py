@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-import aiohttp
+import httpx
+
+from ..http_client import send
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +31,10 @@ class SourceBlockedError(RuntimeError):
 
 
 async def fetch_with_retries(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     url: str,
     *,
+    timeout: float,
     retries: int = 2,
     backoff_base: float = 1.0,
     **kwargs,
@@ -48,23 +51,23 @@ async def fetch_with_retries(
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
         try:
-            async with session.get(url, **kwargs) as resp:
-                body = await resp.text()
-                if resp.status == 429 and attempt < retries:
-                    try:
-                        retry_after = float(resp.headers.get("Retry-After", 0))
-                    except ValueError:
-                        retry_after = 0.0
-                    wait = max(retry_after, 2.0 * backoff_base * (2 ** attempt)) + random.uniform(0, 0.5)
-                    logger.debug("GET %s returned 429 — retrying in %.1fs", url, wait)
-                    await asyncio.sleep(wait)
-                    continue
-                if resp.status >= 500 and attempt < retries:
-                    logger.debug("GET %s returned %d — retrying", url, resp.status)
-                    await asyncio.sleep(backoff_base * (2 ** attempt) + random.uniform(0, 0.5))
-                    continue
-                return resp.status, body
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            resp = await send(session, "GET", url, timeout=timeout, **kwargs)
+            body = resp.text
+            if resp.status_code == 429 and attempt < retries:
+                try:
+                    retry_after = float(resp.headers.get("Retry-After", 0))
+                except ValueError:
+                    retry_after = 0.0
+                wait = max(retry_after, 2.0 * backoff_base * (2 ** attempt)) + random.uniform(0, 0.5)
+                logger.debug("GET %s returned 429 — retrying in %.1fs", url, wait)
+                await asyncio.sleep(wait)
+                continue
+            if resp.status_code >= 500 and attempt < retries:
+                logger.debug("GET %s returned %d — retrying", url, resp.status_code)
+                await asyncio.sleep(backoff_base * (2 ** attempt) + random.uniform(0, 0.5))
+                continue
+            return resp.status_code, body
+        except (httpx.HTTPError, asyncio.TimeoutError) as exc:
             last_exc = exc
             if attempt < retries:
                 logger.debug("GET %s failed (%s) — retrying", url, exc)

@@ -9,7 +9,9 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +106,12 @@ async def fetch_jobs(config: dict) -> list[dict]:
         "Accept": "application/rss+xml, application/xml, text/xml, */*",
     }
 
-    async def _fetch_feed(session: aiohttp.ClientSession, feed_url: str) -> None:
+    async def _fetch_feed(session: httpx.AsyncClient, feed_url: str) -> None:
         try:
             async with sem:
                 status, body = await fetch_with_retries(
                     session, feed_url, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                    allow_redirects=True,
+                    timeout=30,
                 )
             if status != 200:
                 logger.warning("WeWorkRemotely feed %s returned %d", feed_url, status)
@@ -154,7 +155,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                 "is_remote": True,
             })
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         outcomes = await asyncio.gather(
             *[_fetch_feed(session, url) for url in FEEDS],
             return_exceptions=True,
