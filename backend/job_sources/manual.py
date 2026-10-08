@@ -17,9 +17,10 @@ import re
 import socket
 from urllib.parse import urljoin, urlparse
 
-import aiohttp
+import httpx
 from bs4 import BeautifulSoup
 
+from ..http_client import async_client, send
 from . import linkedin as _linkedin
 from . import clean_description
 from ._generic import parse_jsonld_jobposting
@@ -57,14 +58,15 @@ async def _fetch_via_greenhouse(url: str) -> dict:
         raise ValueError("Could not parse Greenhouse slug/job id from URL")
     slug, job_id = pair
     api_url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
+    async with async_client() as session:
+        resp = await send(
+            session, "GET",
             api_url,
-            timeout=aiohttp.ClientTimeout(total=30),
-        ) as resp:
-            if resp.status != 200:
-                raise ValueError(f"Greenhouse API returned HTTP {resp.status}")
-            detail = await resp.json()
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise ValueError(f"Greenhouse API returned HTTP {resp.status_code}")
+        detail = resp.json()
 
     location_name = ""
     if isinstance(detail.get("location"), dict):
@@ -93,7 +95,7 @@ def _extract_linkedin_job_id(url: str) -> str | None:
 
 
 async def _fetch_linkedin_topcard(
-    session: aiohttp.ClientSession, job_id: str, job: dict
+    session: httpx.AsyncClient, job_id: str, job: dict
 ) -> None:
     """Populate title/company/location from LinkedIn's public guest endpoint.
 
@@ -104,16 +106,16 @@ async def _fetch_linkedin_topcard(
     """
     api_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
     try:
-        async with session.get(
+        resp = await send(
+            session, "GET",
             api_url,
             headers=_HEADERS,
-            timeout=aiohttp.ClientTimeout(total=20),
-            allow_redirects=True,
-        ) as resp:
-            if resp.status != 200:
-                logger.warning("LinkedIn guest endpoint returned %d for job %s", resp.status, job_id)
-                return
-            html = await resp.text()
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            logger.warning("LinkedIn guest endpoint returned %d for job %s", resp.status_code, job_id)
+            return
+        html = resp.text
     except Exception:
         logger.debug("LinkedIn guest fetch failed for %s", job_id, exc_info=True)
         return
@@ -147,7 +149,7 @@ async def _fetch_via_linkedin(url: str) -> dict:
         # Use the canonical guest-view URL for best parser hit-rate
         job["url"] = f"https://www.linkedin.com/jobs/view/{job_id}"
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         # Manual ingestion has no search card, so fetch title/company/location
         # from the public guest topcard endpoint before enrichment.
         if job_id:
@@ -159,38 +161,39 @@ async def _fetch_via_linkedin(url: str) -> dict:
 
 
 async def _fetch_generic(url: str) -> dict:
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         html, final_url = await _get_following_redirects(session, url)
     return parse_jsonld_jobposting(html, final_url)
 
 
-async def _get_following_redirects(session: aiohttp.ClientSession, url: str,
+async def _get_following_redirects(session: httpx.AsyncClient, url: str,
                                    *, max_hops: int = 5) -> tuple[str, str]:
     """GET `url`, following redirects MANUALLY so every hop's target is re-checked
     by assert_public_http_url before we connect to it.
 
-    aiohttp's own redirect handling (allow_redirects=True) resolves and fetches a
+    The client's own redirect handling (follow_redirects=True) resolves and fetches a
     Location we never validated — the classic SSRF-via-redirect / TOCTOU bypass
     where a public URL passes the guard, then 302s the server to
     169.254.169.254 or 127.0.0.1. Returns (body, final_url)."""
     for _ in range(max_hops + 1):
-        async with session.get(
+        resp = await send(
+            session, "GET",
             url,
             headers=_HEADERS,
-            timeout=aiohttp.ClientTimeout(total=30),
-            allow_redirects=False,
-        ) as resp:
-            if resp.status in (301, 302, 303, 307, 308):
-                location = resp.headers.get("Location")
-                if not location:
-                    raise ValueError(f"URL returned HTTP {resp.status} with no Location")
-                # Resolve relative redirects against the current URL, then re-run
-                # the SSRF guard on the absolute target before following it.
-                url = assert_public_http_url(urljoin(url, location))
-                continue
-            if resp.status != 200:
-                raise ValueError(f"URL returned HTTP {resp.status}")
-            return await resp.text(), url
+            timeout=30,
+            follow_redirects=False,
+        )
+        if resp.status_code in (301, 302, 303, 307, 308):
+            location = resp.headers.get("Location")
+            if not location:
+                raise ValueError(f"URL returned HTTP {resp.status_code} with no Location")
+            # Resolve relative redirects against the current URL, then re-run
+            # the SSRF guard on the absolute target before following it.
+            url = assert_public_http_url(urljoin(url, location))
+            continue
+        if resp.status_code != 200:
+            raise ValueError(f"URL returned HTTP {resp.status_code}")
+        return resp.text, url
     raise ValueError(f"Too many redirects (> {max_hops})")
 
 

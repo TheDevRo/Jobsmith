@@ -1,13 +1,14 @@
 """
 tests/auto_apply/test_extract_json.py
 
-Unit tests for _extract_json() and _trim_trailing_prose() in llm_client.py.
+Unit tests for _extract_json() in llm_client.py.
 
 All tests run offline — no LM Studio or network required.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -15,45 +16,41 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from backend.auto_apply.llm_client import _extract_json, _trim_trailing_prose
+from backend.auto_apply.llm_client import _extract_json
 
 
 # ---------------------------------------------------------------------------
-# _trim_trailing_prose
+# Trailing prose after the JSON value (was _trim_trailing_prose, now
+# JSONDecoder.raw_decode inside _extract_json)
 # ---------------------------------------------------------------------------
 
-class TestTrimTrailingProse:
+class TestTrailingProseIgnored:
     def test_no_trailing_prose(self):
-        text = '[{"a": 1}]'
-        assert _trim_trailing_prose(text) == text
+        assert _extract_json('[{"a": 1}]') == [{"a": 1}]
 
     def test_trailing_explanation(self):
         text = '[{"field": "name", "value": "John"}] Here is the explanation of my choices.'
-        assert _trim_trailing_prose(text) == '[{"field": "name", "value": "John"}]'
+        assert _extract_json(text) == [{"field": "name", "value": "John"}]
 
     def test_trailing_newline_and_text(self):
-        text = '[{"x": 1}]\nSome trailing text\non multiple lines.'
-        assert _trim_trailing_prose(text) == '[{"x": 1}]'
+        assert _extract_json('[{"x": 1}]\nSome trailing text\non multiple lines.') == [{"x": 1}]
 
     def test_object_with_trailing_prose(self):
-        text = '{"key": "value"} extra stuff here'
-        assert _trim_trailing_prose(text) == '{"key": "value"}'
+        assert _extract_json('{"key": "value"} extra stuff here') == {"key": "value"}
 
     def test_bracket_inside_string_not_counted(self):
         # The ] inside the string value must not close the array early.
-        text = '[{"v": "a[b]c"}] trailing'
-        assert _trim_trailing_prose(text) == '[{"v": "a[b]c"}]'
+        assert _extract_json('[{"v": "a[b]c"}] trailing') == [{"v": "a[b]c"}]
 
     def test_empty_array_with_trailing(self):
-        assert _trim_trailing_prose("[] oops") == "[]"
+        assert _extract_json("[] oops") == []
 
-    def test_no_opener_returns_as_is(self):
-        text = "just plain text"
-        assert _trim_trailing_prose(text) == text
+    def test_no_opener_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _extract_json("just plain text")
 
     def test_nested_array(self):
-        text = '[[1, 2], [3, 4]] trailing'
-        assert _trim_trailing_prose(text) == '[[1, 2], [3, 4]]'
+        assert _extract_json("[[1, 2], [3, 4]] trailing") == [[1, 2], [3, 4]]
 
 
 # ---------------------------------------------------------------------------
