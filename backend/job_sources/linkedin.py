@@ -15,8 +15,10 @@ import re
 from pathlib import Path
 from urllib.parse import quote_plus
 
-import aiohttp
+import httpx
 from bs4 import BeautifulSoup
+
+from ..http_client import async_client, send
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +96,7 @@ def _save_geo_cache() -> None:
 
 
 async def _resolve_geo_id(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     location: str,
     headers: dict,
 ) -> str:
@@ -127,18 +129,18 @@ async def _resolve_geo_id(
 
         url = f"https://www.linkedin.com/jobs/search?location={quote_plus(location)}"
         try:
-            async with session.get(
+            resp = await send(
+                session, "GET",
                 url,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=15),
-                allow_redirects=True,
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(
-                        "LinkedIn geoId lookup for '%s' returned %d", location, resp.status,
-                    )
-                    return ""
-                html = await resp.text()
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "LinkedIn geoId lookup for '%s' returned %d", location, resp.status_code,
+                )
+                return ""
+            html = resp.text
         except Exception:
             logger.exception("LinkedIn geoId lookup failed for '%s'", location)
             return ""
@@ -397,7 +399,7 @@ def _extract_salary_from_ld(ld: dict) -> tuple[int | None, int | None, str]:
 
 
 async def _fetch_job_detail(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     job: dict,
     headers: dict,
     throttle: _DetailThrottle | None = None,
@@ -418,33 +420,33 @@ async def _fetch_job_detail(
         if throttle is not None:
             await throttle.wait()
         try:
-            async with session.get(
+            resp = await send(
+                session, "GET",
                 job_url,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=20),
-                allow_redirects=True,
-            ) as resp:
-                if resp.status == 429:
-                    retry_after = float(resp.headers.get("Retry-After", 0))
-                    wait = max(retry_after, _RETRY_BASE * (2 ** attempt))
-                    if attempt < _MAX_RETRIES:
-                        logger.warning(
-                            "LinkedIn 429 for %s — retrying in %.0fs (attempt %d/%d)",
-                            job_url, wait, attempt + 1, _MAX_RETRIES,
-                        )
-                        if throttle is not None:
-                            throttle.backoff(wait)
-                        else:
-                            await asyncio.sleep(wait)
-                        continue
+                timeout=20,
+            )
+            if resp.status_code == 429:
+                retry_after = float(resp.headers.get("Retry-After", 0))
+                wait = max(retry_after, _RETRY_BASE * (2 ** attempt))
+                if attempt < _MAX_RETRIES:
+                    logger.warning(
+                        "LinkedIn 429 for %s — retrying in %.0fs (attempt %d/%d)",
+                        job_url, wait, attempt + 1, _MAX_RETRIES,
+                    )
+                    if throttle is not None:
+                        throttle.backoff(wait)
                     else:
-                        logger.warning("LinkedIn 429 for %s — giving up after %d retries", job_url, _MAX_RETRIES)
-                        return
-                if resp.status != 200:
-                    logger.warning("LinkedIn detail page returned %d for %s", resp.status, job_url)
+                        await asyncio.sleep(wait)
+                    continue
+                else:
+                    logger.warning("LinkedIn 429 for %s — giving up after %d retries", job_url, _MAX_RETRIES)
                     return
-                html = await resp.text()
-                break
+            if resp.status_code != 200:
+                logger.warning("LinkedIn detail page returned %d for %s", resp.status_code, job_url)
+                return
+            html = resp.text
+            break
         except Exception:
             logger.debug("LinkedIn detail fetch failed for %s", job_url, exc_info=True)
             return
@@ -706,7 +708,7 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
     hard_deadline = loop.time() + _TOTAL_BUDGET
     search_deadline = loop.time() + _SEARCH_PHASE_BUDGET
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         # ----- Phase 1: Collect job cards from search results -----
         for query in queries:
             if loop.time() >= search_deadline:
@@ -768,33 +770,33 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
                     html = None
                     for attempt in range(_MAX_RETRIES + 1):
                         try:
-                            async with session.get(
+                            resp = await send(
+                                session, "GET",
                                 page_url,
                                 headers=headers,
-                                timeout=aiohttp.ClientTimeout(total=30),
-                                allow_redirects=True,
-                            ) as resp:
-                                if resp.status == 429:
-                                    retry_after = float(resp.headers.get("Retry-After", 0))
-                                    wait = max(retry_after, _RETRY_BASE * (2 ** attempt))
-                                    if attempt < _MAX_RETRIES:
-                                        logger.warning(
-                                            "LinkedIn 429 on search — retrying in %.0fs (attempt %d/%d)",
-                                            wait, attempt + 1, _MAX_RETRIES,
-                                        )
-                                        await asyncio.sleep(wait)
-                                        continue
-                                    else:
-                                        logger.warning("LinkedIn 429 on search — giving up after %d retries", _MAX_RETRIES)
-                                        break
-                                if resp.status != 200:
+                                timeout=30,
+                            )
+                            if resp.status_code == 429:
+                                retry_after = float(resp.headers.get("Retry-After", 0))
+                                wait = max(retry_after, _RETRY_BASE * (2 ** attempt))
+                                if attempt < _MAX_RETRIES:
                                     logger.warning(
-                                        "LinkedIn returned %d for query=%s location=%s start=%d",
-                                        resp.status, query, location, start,
+                                        "LinkedIn 429 on search — retrying in %.0fs (attempt %d/%d)",
+                                        wait, attempt + 1, _MAX_RETRIES,
                                     )
+                                    await asyncio.sleep(wait)
+                                    continue
+                                else:
+                                    logger.warning("LinkedIn 429 on search — giving up after %d retries", _MAX_RETRIES)
                                     break
-                                html = await resp.text()
+                            if resp.status_code != 200:
+                                logger.warning(
+                                    "LinkedIn returned %d for query=%s location=%s start=%d",
+                                    resp.status_code, query, location, start,
+                                )
                                 break
+                            html = resp.text
+                            break
                         except Exception:
                             logger.exception("LinkedIn request failed for query=%s start=%d", query, start)
                             break
@@ -938,7 +940,7 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
                 )
                 for t in pending:
                     t.cancel()
-                # Let cancellations settle so aiohttp connections close cleanly
+                # Let cancellations settle so HTTP connections close cleanly
                 await asyncio.gather(*pending, return_exceptions=True)
 
             filled = sum(1 for j in results if j.get("description"))

@@ -14,7 +14,9 @@ import logging
 
 from . import clean_description
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
     seen_ids: set[str] = set()
     sem = asyncio.Semaphore(_CONCURRENCY)
 
-    async def _fetch_combo(session: aiohttp.ClientSession, keyword: str, location: str) -> None:
+    async def _fetch_combo(session: httpx.AsyncClient, keyword: str, location: str) -> None:
         # Paginate up to 3 pages for broader results; pages within a combo
         # stay sequential because each page's emptiness ends the walk.
         for page_num in range(1, 4):
@@ -65,7 +67,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                 async with sem:
                     status, body = await fetch_with_retries(
                         session, f"{BASE_URL}/{page_num}", params=params,
-                        timeout=aiohttp.ClientTimeout(total=30),
+                        timeout=30,
                     )
                 if status != 200:
                     logger.warning("Adzuna returned %d for keyword=%s page=%d", status, keyword, page_num)
@@ -108,7 +110,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                     "is_remote": "remote" in title.lower() or "remote" in location_info.get("display_name", "").lower(),
                 })
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         outcomes = await asyncio.gather(
             *[_fetch_combo(session, kw, loc) for kw in keywords for loc in locations],
             return_exceptions=True,
