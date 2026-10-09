@@ -756,7 +756,10 @@ async def resolve_linkedin_locations(body: dict):
 
 @router.patch("/api/jobs/{job_id}/status")
 async def update_job_status(job_id: str, body: StatusUpdate):
-    updated = await db.update_job_status(job_id, body.status)
+    if body.status in ("applied", "manual"):
+        updated = await db.mark_job_applied(job_id, body.status)
+    else:
+        updated = await db.update_job_status(job_id, body.status)
     if not updated:
         raise HTTPException(404, "Job not found")
     if body.status in ("applied", "manual"):
