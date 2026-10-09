@@ -26,12 +26,18 @@
       return { ok: false, reason: "storage" };
     }
     stored = stored || {};
-    const hasToken = !!stored.token;
+    // Credentials belong to an exact origin, including scheme and port.
+    // A different instance (or any other localhost server) must only receive
+    // the setup token from its own launch page, never the saved credential.
+    let sameOrigin = false;
+    try { sameOrigin = new URL(stored.backendUrl).origin === origin; } catch (_) {}
+    const hasToken = sameOrigin && !!stored.token;
     say("stored token present:", hasToken);
 
     async function checkin(tok) {
       const resp = await fetch(origin + "/api/ext/assist/checkin", {
         method: "POST",
+        redirect: "error",
         headers: { "Content-Type": "application/json", "X-Jobsmith-Token": tok },
         body: JSON.stringify({ session_id: sessionId, had_token: hasToken }),
       });
