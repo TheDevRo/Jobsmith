@@ -104,11 +104,36 @@ $("grantSite").addEventListener("click", async () => {
 });
 
 $("save").addEventListener("click", async () => {
+  let base;
+  try {
+    const u = new URL($("backendUrl").value.trim() || Jobsmith.DEFAULT_BACKEND);
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    if (u.username || u.password || u.pathname !== "/" || u.search || u.hash ||
+        (u.protocol !== "https:" && !(loopback && u.protocol === "http:"))) {
+      throw new Error("Use an HTTPS origin (HTTP is only allowed for localhost), without a path or credentials.");
+    }
+    base = u.origin;
+    // Request from this click handler: only the selected backend's host, using
+    // the optional permissions already declared for ATS sites in the manifest.
+    if (!loopback && !(await JobsmithPermissions.requestSiteAccess(base))) {
+      setStatus("Backend access not granted. Settings were not saved.", "warn");
+      return;
+    }
+  } catch (e) {
+    setStatus(e.message, "err");
+    return;
+  }
+  const previous = await Jobsmith.jobsmithGetConfig();
+  let token = $("token").value.trim();
+  // Editing only the URL must not relabel another instance's saved credential.
+  // An explicitly entered different token is still allowed for manual pairing.
+  if (base !== previous.backendUrl.replace(/\/+$/, "") && token === previous.token) token = "";
   await Jobsmith.jobsmithSetConfig({
-    backendUrl: $("backendUrl").value.trim() || Jobsmith.DEFAULT_BACKEND,
-    token: $("token").value.trim(),
+    backendUrl: base,
+    token,
     deepScan: $("deepScan").checked,
   });
+  $("token").value = token;
   setStatus("Saved.", "ok");
 });
 

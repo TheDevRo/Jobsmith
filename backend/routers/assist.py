@@ -10,6 +10,7 @@ import logging
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,6 +23,23 @@ from .. import database as db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _external_base_url() -> str:
+    """Explicit HTTPS origin for handoffs opened by a remote dashboard."""
+    value = os.environ.get("JOBSMITH_EXTERNAL_URL", "").strip().rstrip("/")
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.path or parsed.query or parsed.fragment):
+        raise ValueError("JOBSMITH_EXTERNAL_URL must be an HTTPS origin without a path")
+    return value
+
+
+def _is_external_request(request: Request) -> bool:
+    base = _external_base_url()
+    return bool(base and request.headers.get("host", "") == urlsplit(base).netloc)
 
 
 def _resume_dir_path(job_id: str, name: str) -> Path:
@@ -496,14 +514,16 @@ async def assist_launch(req: AssistLaunchRequest):
     # preferred port, so the env var must win or the launch URL points at the
     # wrong (or no) server.
     port = int(os.environ.get("JOBSMITH_PORT") or cfg.get("server", {}).get("port", 8888))
-    launch_url = f"http://127.0.0.1:{port}/assist/launch/{record['id']}"
+    external_base = _external_base_url()
+    launch_url = f"{external_base or f'http://127.0.0.1:{port}'}/assist/launch/{record['id']}"
 
     opened = False
-    try:
-        import webbrowser
-        opened = webbrowser.open(launch_url, new=2)
-    except Exception as exc:
-        logger.warning("assist_launch: webbrowser.open failed: %s", exc)
+    if not external_base:
+        try:
+            import webbrowser
+            opened = webbrowser.open(launch_url, new=2)
+        except Exception as exc:
+            logger.warning("assist_launch: webbrowser.open failed: %s", exc)
 
     return {
         "mode": "handoff",
@@ -531,8 +551,8 @@ async def assist_launch_page(session_id: str, request: Request):
     polls /api/assist/session/{id}/state and redirects to the job apply URL
     once the extension checks in.
     """
-    if not _is_loopback_request(request):
-        raise HTTPException(403, "This page is only available on localhost")
+    if not (_is_loopback_request(request) or _is_external_request(request)):
+        raise HTTPException(403, "This page is only available on the configured Jobsmith host")
     rec = applicant_assist.get_handoff_session(session_id)
     if not rec:
         raise HTTPException(404, "Assist session expired or not found")
