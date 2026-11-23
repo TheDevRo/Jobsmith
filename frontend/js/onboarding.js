@@ -1298,7 +1298,7 @@ const TOUR_STEPS = [
         hash: '#jobs',
         selector: '.filter-bar',
         title: 'Your Inbox',
-        body: 'Newly fetched jobs land here to scout. Shortlist the ones worth pursuing (→ or S) and pass on the rest (← or P) — keyboard or buttons. Filter by keyword, location, salary, score, and more; the advanced toggle exposes source, status, and date range.',
+        body: 'Newly fetched jobs land here to scout. Shortlist the ones worth pursuing (→ or S) and pass on the rest (← or P) — keyboard or buttons. Filter by keyword, location, salary, score, and more; the advanced toggle exposes source, status, and date range. When a posting lists requirements, its card shows an N/M badge — how many of them your profile covers — and sorting by Best Coverage puts the closest fits first. Open a job to see the list, and click "I don\'t have this" on a gap you already know about.',
     },
     {
         hash: '#jobs',
@@ -1310,7 +1310,7 @@ const TOUR_STEPS = [
         hash: '#review',
         selector: '#pipeline-funnel',
         title: 'Your Pipeline',
-        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied, with Failed and In Progress for auditing. This funnel is the one stage summary in both views: click a segment to filter the board to that stage (click it again, or the ✕ chip, to clear) — or, in Table view, to open that stage’s table. The board (default) lets you drag a job between stages; "Table view" (or the L key) gives you the classic stage tabs and lists. Tailor a shortlisted job to generate its resume and cover letter, use AI Edit to revise, then launch Apply Assist from here or from the Inbox.',
+        body: 'Everything you shortlisted flows through here by stage: Shortlisted → Ready to Review → Applied, with Failed and In Progress for auditing. This funnel is the one stage summary in both views: click a segment to filter the board to that stage (click it again, or the ✕ chip, to clear) — or, in Table view, to open that stage’s table. Drag jobs between stages on the board, or press L for the classic stage tabs. Tailor a shortlisted job to write its resume and cover letter, then use AI Edit to revise: rewrite one section, add facts for this application, undo from History. \"Check this\" flags names or numbers your profile doesn\'t back. Then launch Apply Assist.',
     },
     {
         hash: '#settings',
@@ -1320,9 +1320,16 @@ const TOUR_STEPS = [
     },
     {
         hash: '#settings',
+        selector: '#profile-facts',
+        title: 'Facts about me',
+        body: 'Short, true things the AI should always know — "I led the billing migration", "I\'m authorised to work here". They go into every resume, cover letter and AI Edit, so the writing stays true to you. Changes save as you make them.',
+        before: () => _tourSwitchSettingsTab('stab-profile'),
+    },
+    {
+        hash: '#settings',
         selector: '#stab-search',
         title: 'Job Search',
-        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, and exclusion terms — plus company watchlists that follow specific Greenhouse, Lever, Ashby, Workable, and Recruitee boards. Your job sources live here too: LinkedIn and Indeed sign-in for authenticated scraping, and Adzuna / USAJobs API keys for extra feeds. Tighten these if your feed is too noisy; loosen them if you\'re not seeing enough.',
+        body: 'Controls what jobs Jobsmith ingests: keywords, locations, min salary, and exclusion terms — plus company watchlists that follow specific Greenhouse, Lever, Ashby, Workable, and Recruitee boards. Your job sources live here too: LinkedIn and Indeed sign-in for authenticated scraping, and Adzuna / USAJobs API keys for extra feeds. In Advanced mode, a Job portals card adds free remote-job portals (Remotive, Himalayas, Jobicy) — all off until you tick them. Tighten these settings if your feed is too noisy; loosen them if you\'re not seeing enough.',
         before: () => _tourSwitchSettingsTab('stab-search'),
     },
     {

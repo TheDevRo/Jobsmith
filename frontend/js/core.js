@@ -1140,6 +1140,9 @@ const SOURCE_LABELS = {
     arbeitnow: 'Arbeitnow',
     usajobs: 'USAJobs',
     indeed: 'Indeed',
+    remotive: 'Remotive',
+    himalayas: 'Himalayas',
+    jobicy: 'Jobicy',
 };
 
 // Defaults when the backend can't say: keyless feeds and watchlists on;

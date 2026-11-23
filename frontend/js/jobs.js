@@ -24,6 +24,7 @@ const _SOURCE_LABELS = {
     adzuna: 'Adzuna', arbeitnow: 'Arbeitnow', ashby: 'Ashby', greenhouse: 'Greenhouse',
     indeed: 'Indeed', lever: 'Lever', linkedin: 'LinkedIn', recruitee: 'Recruitee',
     remoteok: 'RemoteOK', usajobs: 'USAJobs', weworkremotely: 'WeWorkRemotely', workable: 'Workable',
+    himalayas: 'Himalayas', jobicy: 'Jobicy', remotive: 'Remotive',
 };
 const _STATUS_FILTER_LABELS = {
     discovered: 'Discovered', tailoring: 'Tailoring', review: 'In Review',

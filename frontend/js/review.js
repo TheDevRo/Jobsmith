@@ -1033,7 +1033,7 @@ function openAiEditModal(appId, target) {
 
     modal.innerHTML = `
         <div class="screenshot-modal-backdrop" onclick="closeAiEditModal()"></div>
-        <div class="screenshot-modal-content" style="max-width:1100px;width:90vw;display:flex;flex-direction:column;max-height:90vh">
+        <div class="screenshot-modal-content" style="max-width:1100px;width:90vw;display:flex;flex-direction:column;max-height:90vh;overflow-y:auto">
             <div class="screenshot-modal-header">
                 <span class="screenshot-modal-title" id="ai-edit-title"></span>
                 <button class="screenshot-modal-close" onclick="closeAiEditModal()">&times;</button>
@@ -1071,7 +1071,7 @@ function openAiEditModal(appId, target) {
                 </span>
                 <span id="ai-edit-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
             </div>
-            <div id="ai-edit-facts" style="padding:12px 16px;border-bottom:1px solid var(--border);max-height:200px;overflow:auto"></div>
+            <div id="ai-edit-facts" style="flex-shrink:0;padding:12px 16px;border-bottom:1px solid var(--border);max-height:200px;overflow:auto"></div>
             <details id="ai-edit-history" style="padding:8px 16px;border-bottom:1px solid var(--border)">
                 <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">History</summary>
                 <div id="ai-edit-history-body" style="margin-top:6px;max-height:160px;overflow:auto"></div>
@@ -1087,7 +1087,7 @@ function openAiEditModal(appId, target) {
                     <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Cancel</button>
                 </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);flex:1;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);flex:1 0 220px;overflow:hidden">
                 <div style="background:var(--bg-primary);display:flex;flex-direction:column;overflow:hidden">
                     <div style="padding:6px 12px;font-size:11px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Original</div>
                     <pre id="ai-edit-original" style="flex:1;overflow:auto;padding:12px;margin:0;white-space:pre-wrap;font-size:12px"></pre>
@@ -1097,10 +1097,12 @@ function openAiEditModal(appId, target) {
                     <textarea id="ai-edit-revised" style="flex:1;padding:12px;border:0;background:var(--bg-primary);color:var(--text-primary);font-family:inherit;font-size:12px;resize:none;white-space:pre-wrap" placeholder="Click Generate to produce a revision..."></textarea>
                 </div>
             </div>
-            <div id="ai-edit-factcheck" style="padding:0 16px"></div>
-            <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
-                <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Discard</button>
-                <button class="btn btn-green btn-sm" id="ai-edit-accept-btn" onclick="acceptAiRevision()" disabled>Accept & Save</button>
+            <div style="position:sticky;bottom:0;background:var(--bg-card)">
+                <div id="ai-edit-factcheck" style="padding:0 16px"></div>
+                <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+                    <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Discard</button>
+                    <button class="btn btn-green btn-sm" id="ai-edit-accept-btn" onclick="acceptAiRevision()" disabled>Accept & Save</button>
+                </div>
             </div>
         </div>
     `;
