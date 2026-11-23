@@ -110,6 +110,8 @@ const deck = src("deck.js"), onboarding = src("onboarding.js"), core = src("core
 const paletteTargets = Array.from(deck.matchAll(/paletteGoSettings\('([^']+)'(?:,\s*'([^']+)')?\)/g));
 checks.push(["palette has settings entries", paletteTargets.length >= 5]);
 checks.push(["every palette pane target exists", paletteTargets.every(m => !!doc.getElementById(m[1]))]);
+checks.push(["palette reaches Facts about me and Job portals",
+  paletteTargets.some(m => m[2] === "profile-facts") && paletteTargets.some(m => m[2] === "portals-card")]);
 checks.push(["every palette card target exists", paletteTargets.every(m => !m[2] || !!doc.getElementById(m[2]))]);
 
 const tourTabs = Array.from(onboarding.matchAll(/_tourSwitchSettingsTab\('([^']+)'\)/g)).map(m => m[1]);

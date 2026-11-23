@@ -1142,6 +1142,8 @@ function _buildRegistry() {
         { group: 'Settings', label: 'AI', keywords: 'integrations model lm studio honesty prompts resume style', run: () => paletteGoSettings('stab-integrations') },
         { group: 'Settings', label: 'Apply', keywords: 'apply assist autofill answers extension workday ats', run: () => paletteGoSettings('stab-assist') },
         { group: 'Settings', label: 'App', keywords: 'sync folder device phone appearance network logs tour', run: () => paletteGoSettings('stab-sync') },
+        { group: 'Settings', label: 'Facts about me', keywords: 'true statements ai know remember profile', run: () => paletteGoSettings('stab-profile', 'profile-facts') },
+        { group: 'Settings', label: 'Job portals', keywords: 'remotive himalayas jobicy remote free sources api', run: () => paletteGoSettings('stab-search', 'portals-card') },
         { group: 'Settings', label: 'Honesty level', keywords: 'embellish fabricate level', run: () => paletteGoSettings('stab-integrations', 'card-honesty') },
         { group: 'Settings', label: 'Resume style', keywords: 'visual template accent font', run: () => paletteGoSettings('stab-integrations', 'card-resume-style') },
         { group: 'Settings', label: 'Answer Bank', keywords: 'questions answers', run: () => paletteGoSettings('stab-assist', 'card-answerbank') },
@@ -1182,7 +1184,7 @@ function paletteGoSettings(panelId, cardId) {
         // A card that only exists in Advanced mode (Prompts, Logs, …) needs the
         // mode flipped, or the palette would land on an empty-looking tab.
         const card = cardId ? document.getElementById(cardId) : null;
-        if (card && !card.classList.contains('settings-basic') && typeof setSettingsMode === 'function'
+        if (card && !(card.closest('.section-card') || card).classList.contains('settings-basic') && typeof setSettingsMode === 'function'
             && typeof getSettingsMode === 'function' && getSettingsMode() !== 'advanced') {
             setSettingsMode('advanced');
         }
