@@ -67,8 +67,8 @@ def test_fixture_names_unique():
 # bridging) that the Linux toolchain doesn't ship identically. The macOS CI job
 # is where this earns its keep.
 _swift = pytest.mark.skipif(
-    shutil.which("swiftc") is None or sys.platform != "darwin",
-    reason="needs swiftc on macOS",
+    shutil.which("swiftc") is None or sys.platform != "darwin" or not AI_SRC.is_dir(),
+    reason="needs swiftc on macOS and TheDevRo/jobsmith-ios cloned at ios-standalone/",
 )
 
 

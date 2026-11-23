@@ -21,8 +21,8 @@ Grab the [latest release](https://github.com/TheDevRo/Jobsmith/releases/latest):
 - **Windows / Linux / Intel macOS** — use Docker: `docker compose up -d`
   (see [Docker](#docker)).
 - **iOS** — a fully standalone native app (no server needed); build it
-  yourself or install via TestFlight. See
-  [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md).
+  yourself or install via TestFlight. It lives in its own repo:
+  [TheDevRo/jobsmith-ios](https://github.com/TheDevRo/jobsmith-ios).
 
 First time here? [**Getting started (desktop)**](docs/getting-started-desktop.md)
 takes you from install to your first submitted application. There is no config
@@ -66,7 +66,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
             - ${JOBSMITH_SYNC_FOLDER:-./sync-folder}:/app/sync-folder
       ```
       then set `sync.folder: /app/sync-folder` in **Settings → App**.
-- **Native iOS app** — A fully standalone SwiftUI app (`ios-standalone/`) runs the whole pipeline on-device (fetch, score, tailor, review, apply) and syncs with the desktop; see [README-IOS-STANDALONE.md](README-IOS-STANDALONE.md)
+- **Native iOS app** — A fully standalone SwiftUI app runs the whole pipeline on-device (fetch, score, tailor, review, apply) and syncs with the desktop; it lives in [TheDevRo/jobsmith-ios](https://github.com/TheDevRo/jobsmith-ios)
 
 ## Architecture
 
@@ -601,9 +601,6 @@ jobsmith/
 │   │                              #   settings, prompts, sessions, onboarding, …
 │   └── style.css                  # Dark/light theme styles
 ├── src-tauri/                     # Tauri desktop shell (macOS .app / .dmg — see README-DESKTOP.md)
-├── ios-standalone/                # Fully standalone native iOS app (SwiftUI + GRDB; runs the
-│                                  #   whole pipeline on-device, syncs with desktop) —
-│                                  #   see README-IOS-STANDALONE.md
 ├── extension/                     # Apply Assist browser extension (Chrome/Firefox/Safari)
 ├── packaging/                     # PyInstaller spec + splash page for the desktop build
 ├── scripts/                       # build_desktop.sh (DMG) and other build helpers
