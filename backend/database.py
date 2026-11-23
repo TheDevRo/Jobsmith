@@ -1751,7 +1751,7 @@ async def get_pending_reviews(limit: int = 20) -> list[dict]:
     try:
         cursor = await db.execute(
             """SELECT a.*, j.title, j.company, j.location, j.url, j.description,
-                      j.fit_score, j.fit_reasoning, j.match_report, j.tags, j.source
+                      j.fit_score, j.fit_reasoning, j.match_report, j.coverage, j.tags, j.source
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status IN ('pending_review', 'paused')

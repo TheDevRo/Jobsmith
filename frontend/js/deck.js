@@ -216,7 +216,7 @@ function _stageTopCardHtml(job) {
                     <div class="deck-co-name">${escapeHtml(job.company || 'Unknown')}</div>
                     <div class="deck-co-meta">via ${escapeHtml(job.source || '—')} · ${escapeHtml(timeAgo(job.date_discovered) || 'recently')}</div>
                 </div>
-                <span class="deck-heat">${renderHeatChip(job.fit_score)}</span>
+                <span class="deck-heat">${renderHeatChip(job.fit_score)}${renderCoverageBadge(job)}</span>
             </div>
             <h4 class="deck-title">${escapeHtml(job.title || 'Untitled role')}</h4>
             <div class="deck-facts">${stageFactPills(job)}</div>
@@ -637,7 +637,7 @@ function _jobKcardHtml(job, colKey) {
             <span class="kt">${escapeHtml(job.title || 'Untitled')}</span>
             <span class="kc">${escapeHtml(job.company || 'Unknown')}${job.location ? ' · ' + escapeHtml(job.location) : ''}</span>
             ${progress}
-            <span class="kfoot">${renderHeatChip(job.fit_score)}<span class="kage">${escapeHtml(timeAgo(job.date_discovered) || '')}</span></span>
+            <span class="kfoot">${renderHeatChip(job.fit_score)}${renderCoverageBadge(job)}<span class="kage">${escapeHtml(timeAgo(job.date_discovered) || '')}</span></span>
             ${_kActions(colKey, job.id, job.id)}
         </div>`;
 }
