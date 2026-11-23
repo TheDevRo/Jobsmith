@@ -35,6 +35,7 @@ const DETAILS = [
   { name: "linkedin", kind: "feed", configured: true, default_on: true, note: "Slow and brittle" },
   { name: "usajobs", kind: "keyed", configured: true, default_on: true, note: "" },
   { name: "indeed", kind: "browser", configured: true, default_on: false, note: "Slow and brittle" },
+  { name: "remotive", kind: "portal", configured: true, default_on: false, label: "Remotive", note: "Jobs from Remotive" },
 ];
 
 let calls = [];
@@ -93,6 +94,8 @@ const checks = [];
     && /slow/.test(box("indeed").parentElement.textContent)]);
   checks.push(["selection excludes Indeed and locked sources",
     JSON.stringify(window.getSelectedSources()) === '["remoteok","greenhouse","linkedin","usajobs"]']);
+  checks.push(["portal listed by its label, off, and not tagged slow", !!box("remotive") && !box("remotive").checked
+    && /Remotive/.test(box("remotive").parentElement.textContent) && !/slow/.test(box("remotive").parentElement.textContent)]);
   window.toggleAllSources(true);
   checks.push(["All never ticks a locked source", !box("adzuna").checked && box("indeed").checked]);
 
@@ -109,6 +112,24 @@ const checks = [];
   await window.loadSources();
   checks.push(["offline fallback: Indeed and keyed sources off", !box("indeed").checked && !box("adzuna").checked
     && !box("usajobs").checked && box("linkedin").checked]);
+  sourcesReply = { sources: DETAILS.map(d => d.name), details: DETAILS };
+
+  // ---- 1b. Settings → Job portals: toggles reflect config, save the whole map ----
+  window._loadedPortalsCfg = { himalayas: { enabled: false }, jobicy: { enabled: true } };
+  const portalDetails = [
+    { name: "remotive", kind: "portal", configured: true, default_on: false, label: "Remotive", note: "" },
+    { name: "jobicy", kind: "portal", configured: true, default_on: true, label: "Jobicy", note: "" },
+  ];
+  sourcesReply = { sources: portalDetails.map(d => d.name), details: [DETAILS[0], ...portalDetails] };
+  await window.renderPortalToggles();
+  const pbox = n => doc.querySelector(`#portals-list input[data-portal="${n}"]`);
+  checks.push(["portal toggles render only portals, config state applied", doc.querySelectorAll("#portals-list input").length === 2
+    && !pbox("remotive").checked && pbox("jobicy").checked && $("portals-card").style.display !== "none"]);
+  pbox("remotive").checked = true;
+  pbox("jobicy").checked = false;
+  const savedPortals = window.collectPortalToggles();
+  checks.push(["portal save sends every portal, keeping unrelated entries",
+    JSON.stringify(savedPortals) === JSON.stringify({ himalayas: { enabled: false }, jobicy: { enabled: false }, remotive: { enabled: true } })]);
   sourcesReply = { sources: DETAILS.map(d => d.name), details: DETAILS };
 
   // ---- 2. wizard Sources step: no AI → no call, a pointer instead ----

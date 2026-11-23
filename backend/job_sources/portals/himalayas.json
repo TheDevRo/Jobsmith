@@ -1,0 +1,34 @@
+{
+  "id": "himalayas",
+  "name": "Himalayas",
+  "version": "1.0.0",
+  "homepage": "https://himalayas.app/",
+  "terms_url": "https://himalayas.app/terms",
+  "free": true,
+  "hosts": ["himalayas.app"],
+  "kind": "json_api",
+  "attribution": "Jobs from Himalayas (himalayas.app). Apply links are Himalayas' own applicationLink, unchanged.",
+  "min_interval_minutes": 60,
+  "request": {
+    "url": "https://himalayas.app/jobs/api/search?q={query}&sort=recent&page={page}",
+    "max_pages": 2,
+    "max_queries": 3,
+    "delay_seconds": 2
+  },
+  "items": "jobs",
+  "fields": {
+    "external_id": "guid",
+    "title": "title",
+    "company": "companyName",
+    "location": "locationRestrictions",
+    "url": "applicationLink",
+    "description": "description",
+    "posted_at": "pubDate",
+    "salary_min": "minSalary",
+    "salary_max": "maxSalary",
+    "salary_period": "salaryPeriod",
+    "salary_currency": "currency",
+    "tags": "categories"
+  },
+  "defaults": {"remote": true}
+}

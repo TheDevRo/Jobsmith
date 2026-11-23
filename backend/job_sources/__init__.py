@@ -294,6 +294,7 @@ def parse_posted_date(value) -> datetime | None:
 
 # Imported after helpers are defined so source modules can pull them in.
 from . import remoteok, weworkremotely, adzuna, greenhouse, linkedin, arbeitnow, usajobs, indeed, ashby, workable, recruitee  # noqa: E402
+from . import portals  # noqa: E402
 
 # All source modules with human-readable labels
 SOURCES = [
@@ -311,9 +312,14 @@ SOURCES = [
 ]
 
 
+def _portal_sources() -> list[tuple[str, object]]:
+    """Declarative JSON portals (see portals.py), never shadowing a built-in source."""
+    return portals.portal_sources(reserved={name for name, _ in SOURCES})
+
+
 def get_source_names() -> list[str]:
-    """Return list of all available source names."""
-    return [name for name, _ in SOURCES]
+    """Return list of all available source names, portals last."""
+    return [name for name, _ in SOURCES] + [name for name, _ in _portal_sources()]
 
 
 # The example config ships these as key values; they are not real credentials.
@@ -368,6 +374,14 @@ def source_details(config: dict) -> list[dict]:
         elif name == "linkedin":
             info["note"] = _SLOW_NOTE
         out.append(info)
+    # Portals are opt-in: on only once enabled under search.portals.<id>.
+    for name, src in _portal_sources():
+        p = src.portal
+        out.append({
+            "name": name, "kind": "portal", "configured": True,
+            "default_on": portals.is_enabled(config, name),
+            "label": p["name"], "note": p.get("attribution", ""),
+        })
     return out
 
 
@@ -581,12 +595,13 @@ async def fetch_all_jobs(
     if sources:
         # Caller explicitly selected sources — respect that list as-is
         requested = {s.lower() for s in sources}
-        active_sources = [(n, m) for n, m in SOURCES if n in requested]
+        active_sources = [(n, m) for n, m in SOURCES + _portal_sources() if n in requested]
         logger.info("Fetching from selected sources: %s", [n for n, _ in active_sources])
     else:
         # Default: all sources, but Indeed is opt-in via config
         indeed_enabled = config.get("search", {}).get("indeed", {}).get("enabled", False)
         active_sources = [(n, m) for n, m in SOURCES if n != "indeed" or indeed_enabled]
+        active_sources += [(n, m) for n, m in _portal_sources() if portals.is_enabled(config, n)]
 
     total = len(active_sources)
     if on_progress:

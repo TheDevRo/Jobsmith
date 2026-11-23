@@ -1,0 +1,90 @@
+{
+  "totalCount": 5000,
+  "jobs": [
+    {
+      "title": "Senior Software Engineer",
+      "excerpt": "We are an AI-first company building innovative agentic frameworks, the systems that let LLM-driven agents research, plan, and act reliably in production.",
+      "companyName": "Alien Intellect",
+      "companySlug": "alien-intellect",
+      "companyLogo": "https://cdn-images.himalayas.app/mbvefydaivkhdqjf6l6s6hgqm8rt",
+      "employmentType": "Full Time",
+      "minSalary": 2000,
+      "maxSalary": 3000,
+      "salaryPeriod": "monthly",
+      "seniority": [
+        "Senior",
+        "Manager"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [],
+      "timezoneRestrictions": [
+        3.5
+      ],
+      "categories": [
+        "Senior-Software-Developer",
+        "Senior-Software-Engineer-Jobs",
+        "Senior-Engineer",
+        "Software-Engineer"
+      ],
+      "parentCategories": [
+        "Developer"
+      ],
+      "description": "<p>We are an <span><strong>AI-first</strong></span> company building innovative agentic frameworks, the systems that let LLM-driven agents research, plan, and act reliably in production. That means orchestrating multi-step workflows with retries, skips, and parallel execution; keeping long-running w",
+      "pubDate": 1793013430,
+      "expiryDate": 1795605430,
+      "applicationLink": "https://himalayas.app/companies/alien-intellect/jobs/senior-software-engineer-8699633569?utm_source=api",
+      "guid": "https://himalayas.app/companies/alien-intellect/jobs/senior-software-engineer-8699633569"
+    },
+    {
+      "title": "Python Tutorial Writer",
+      "excerpt": "Do you have a knack for writing and the time it takes to get your thoughts in front of thousands of Python developers?",
+      "companyName": "Real Python",
+      "companySlug": "real-python",
+      "companyLogo": "",
+      "employmentType": "Contractor",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "annual",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": null,
+      "locationRestrictions": [
+        "Canada",
+        "United Kingdom",
+        "United States"
+      ],
+      "timezoneRestrictions": [
+        -10,
+        -9,
+        -8,
+        -7,
+        -6,
+        -5,
+        -4,
+        -3.5,
+        0,
+        14
+      ],
+      "categories": [
+        "Technical-Writer",
+        "Content-Writing",
+        "Python",
+        "Education",
+        "Tutorial-Writing",
+        "Python-Instructor",
+        "Python-Teaching",
+        "User-Guide-Writer",
+        "Content-Creator"
+      ],
+      "parentCategories": [
+        "Content Creator"
+      ],
+      "description": "<p>Do you have a knack for writing and the time it takes to get your thoughts in front of thousands of Python developers? </p><p>The  tutorial team is known for making the highest-quality Python tutorials available online. Our mission is to “help Python developers around the world become more awesom",
+      "pubDate": 1795109232,
+      "expiryDate": 1797082071,
+      "applicationLink": "https://himalayas.app/companies/real-python/jobs/python-tutorial-writer?utm_source=api",
+      "guid": "https://himalayas.app/companies/real-python/jobs/python-tutorial-writer"
+    }
+  ]
+}
