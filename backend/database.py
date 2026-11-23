@@ -144,7 +144,21 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
     # Terms the fact guard couldn't back, as JSON {"resume": [...], "cover_letter": [...]}.
     # A warning only; local, not synced.
     (32, "ALTER TABLE applications ADD COLUMN fact_flags TEXT"),
+    # Previous versions of resume_content / cover_letter_content, for Undo. Local
+    # only (not synced); capped per application and target (REVISION_CAP).
+    (33, """CREATE TABLE IF NOT EXISTS application_revisions (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+                target         TEXT NOT NULL,
+                content        TEXT NOT NULL,
+                instruction    TEXT,
+                created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"""),
+    (34, "CREATE INDEX IF NOT EXISTS idx_application_revisions_app ON application_revisions(application_id, target)"),
 ]
+
+REVISION_CAP = 30
+REVISION_TARGETS = ("resume", "cover_letter")
 
 
 async def _run_migrations(db: aiosqlite.Connection) -> None:
@@ -1713,16 +1727,108 @@ async def get_apply_attempts(app_id: str) -> int:
         await db.close()
 
 
-async def update_application_content(app_id: str, resume_content: str, cover_letter_content: str) -> bool:
-    """Update the resume/cover letter content for an application (manual edits)."""
+async def _record_revision(db, app_id: str, target: str, content: str, instruction: Optional[str]) -> None:
+    """Keep `content` (the version being replaced) as an undo point; prune past REVISION_CAP."""
+    await db.execute(
+        "INSERT INTO application_revisions (application_id, target, content, instruction, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (app_id, target, content, instruction, datetime.now(timezone.utc).isoformat()),
+    )
+    await db.execute(
+        """DELETE FROM application_revisions
+           WHERE application_id = ? AND target = ? AND id NOT IN (
+               SELECT id FROM application_revisions WHERE application_id = ? AND target = ?
+               ORDER BY id DESC LIMIT ?)""",
+        (app_id, target, app_id, target, REVISION_CAP),
+    )
+
+
+async def update_application_content(
+    app_id: str, resume_content: str, cover_letter_content: str,
+    instruction: Optional[str] = None,
+) -> bool:
+    """Update the resume/cover letter content for an application (manual edits, accepted
+    AI edits, restores). Each text that actually changes has its previous version recorded
+    in application_revisions; `instruction` is the AI instruction behind the change, if any."""
     db = await _get_db()
     try:
         cursor = await db.execute(
+            "SELECT resume_content, cover_letter_content FROM applications WHERE id = ?", (app_id,)
+        )
+        old = await cursor.fetchone()
+        if old is None:
+            return False
+        for target, previous, new in (
+            ("resume", old["resume_content"], resume_content),
+            ("cover_letter", old["cover_letter_content"], cover_letter_content),
+        ):
+            if previous and previous != new:
+                await _record_revision(db, app_id, target, previous, instruction)
+        await db.execute(
             "UPDATE applications SET resume_content = ?, cover_letter_content = ? WHERE id = ?",
             (resume_content, cover_letter_content, app_id),
         )
         await db.commit()
-        return cursor.rowcount > 0
+        return True
+    finally:
+        await db.close()
+
+
+async def get_revisions(app_id: str, target: str) -> list[dict]:
+    """Saved previous versions of one document, newest first (content omitted, previewed)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id, target, instruction, created_at, LENGTH(content) AS chars,
+                      SUBSTR(content, 1, 160) AS preview
+               FROM application_revisions WHERE application_id = ? AND target = ?
+               ORDER BY id DESC""",
+            (app_id, target),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def get_revision(app_id: str, revision_id: int) -> Optional[dict]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, target, content, instruction, created_at FROM application_revisions "
+            "WHERE id = ? AND application_id = ?",
+            (revision_id, app_id),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_job_pending_content(job_id: str) -> Optional[dict]:
+    """Resume/cover text of the job's newest un-reviewed draft (the one a re-tailor replaces)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT resume_content, cover_letter_content FROM applications "
+            "WHERE job_id = ? AND status = 'pending_review' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (job_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def record_retailor_revisions(app_id: str, previous: Optional[dict]) -> None:
+    """Keep the text a re-tailor replaced as the first undo point of the new draft."""
+    if not previous:
+        return
+    db = await _get_db()
+    try:
+        for target, key in (("resume", "resume_content"), ("cover_letter", "cover_letter_content")):
+            if previous.get(key):
+                await _record_revision(db, app_id, target, previous[key], "Before re-tailoring")
+        await db.commit()
     finally:
         await db.close()
 
