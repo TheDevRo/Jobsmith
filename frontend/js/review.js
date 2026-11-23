@@ -1045,12 +1045,15 @@ function openAiEditModal(appId, target) {
                 </span>
                 <span id="ai-edit-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
             </div>
+            <div id="ai-edit-facts" style="padding:12px 16px;border-bottom:1px solid var(--border);max-height:200px;overflow:auto"></div>
             <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
                 <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-muted)">Revision instructions</label>
                 <textarea id="ai-edit-instructions" class="edit-textarea" style="min-height:70px;width:100%"
                     placeholder="e.g. Make the summary one sentence and emphasize Python. Tighten bullets to two lines each."></textarea>
                 <div style="margin-top:8px;display:flex;gap:8px">
                     <button class="btn btn-primary btn-sm" id="ai-edit-generate-btn" onclick="runAiRevision()">Generate</button>
+                    <button class="btn btn-secondary btn-sm" id="ai-edit-pin-btn" onclick="pinAiEditInstruction()"
+                        title="Save this instruction as a fact for this application">Keep this for future edits</button>
                     <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Cancel</button>
                 </div>
             </div>
@@ -1101,7 +1104,21 @@ function openAiEditModal(appId, target) {
         });
     }
 
+    modal._facts = mountFactsEditor(document.getElementById('ai-edit-facts'), {
+        path: `/api/applications/${appId}/facts`,
+        label: 'Facts for this application',
+        hint: "True things the AI should know about this application. They're used the next time the AI writes or rewrites something.",
+        placeholder: 'e.g. Emphasise my team-lead experience',
+    });
+
     _aiEditSyncTarget(initialTarget);
+}
+
+async function pinAiEditInstruction() {
+    const modal = document.getElementById('ai-edit-modal');
+    const box = document.getElementById('ai-edit-instructions');
+    if (!modal || !modal._facts || !box.value.trim()) { toast('Enter an instruction first', 'info'); return; }
+    if (await modal._facts.add(box.value)) toast('Saved as a fact for this application', 'success');
 }
 
 function _aiEditSyncTarget(target) {
