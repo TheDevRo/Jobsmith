@@ -23,7 +23,7 @@ jobs:
           rustc -vV
           # build_desktop.sh sources ~/.cargo/env, which this runner's Rust setup leaves unusable.
           ls -la ~/.cargo/env || true
-          rm -rf ~/.cargo/env && echo 'export PATH="$HOME/.cargo/bin:$PATH"' > ~/.cargo/env
+          mkdir -p ~/.cargo && rm -rf ~/.cargo/env && echo 'export PATH="$HOME/.cargo/bin:$PATH"' > ~/.cargo/env
           python -m venv .venv
           .venv/bin/pip install -q -r requirements.lock pyinstaller
           npm ci
