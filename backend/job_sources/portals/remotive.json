@@ -1,0 +1,28 @@
+{
+  "id": "remotive",
+  "name": "Remotive",
+  "version": "1.0.0",
+  "homepage": "https://remotive.com/",
+  "terms_url": "https://github.com/remotive-com/remote-jobs-api",
+  "free": true,
+  "hosts": ["remotive.com"],
+  "kind": "json_api",
+  "attribution": "Jobs from Remotive (remotive.com). Each job links back to its Remotive listing.",
+  "min_interval_minutes": 360,
+  "request": {
+    "url": "https://remotive.com/api/remote-jobs?limit=100",
+    "max_queries": 1
+  },
+  "items": "jobs",
+  "fields": {
+    "external_id": "id",
+    "title": "title",
+    "company": "company_name",
+    "location": "candidate_required_location",
+    "url": "url",
+    "description": "description",
+    "posted_at": "publication_date",
+    "tags": "tags"
+  },
+  "defaults": {"remote": true}
+}

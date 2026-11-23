@@ -95,6 +95,8 @@ async function loadSettings() {
         window._loadedIndeedCfg = cfg.search?.indeed || {};
         const indeedCb = document.getElementById('cfg-indeed-enabled');
         if (indeedCb) indeedCb.checked = !!window._loadedIndeedCfg.enabled;
+        window._loadedPortalsCfg = cfg.search?.portals || {};
+        renderPortalToggles();
         const blsKeyEl = document.getElementById('cfg-bls-api-key');
         if (blsKeyEl) blsKeyEl.value = cfg.salary_estimator?.bls?.api_key || '';
 
@@ -301,6 +303,31 @@ function addBoardSlug(configKey, slug, btn) {
     btn.textContent = 'Added ✓';
     btn.disabled = true;
     toast('Added to watchlist — click Save Settings to apply', 'info');
+}
+
+// ---- Job portals (declarative JSON sources; all off until ticked) ----
+async function renderPortalToggles() {
+    const card = document.getElementById('portals-card');
+    const list = document.getElementById('portals-list');
+    if (!card || !list) return;
+    try {
+        const data = await api('/api/sources');
+        const portals = (data.details || []).filter(d => d.kind === 'portal');
+        card.style.display = portals.length ? '' : 'none';
+        list.innerHTML = portals.map(d => `<label class="remote-toggle" style="margin-bottom:8px" title="${escapeHtml(d.note || '')}"><input type="checkbox" data-portal="${escapeHtml(d.name)}"${d.default_on ? ' checked' : ''}> ${escapeHtml(d.label || d.name)}${d.note ? ` <span class="hint">— ${escapeHtml(d.note)}</span>` : ''}</label>`).join('');
+        window._portalsRendered = portals.length > 0;
+    } catch (e) {
+        console.warn('Could not load job portals', e);
+        window._portalsRendered = false;
+    }
+}
+
+function collectPortalToggles() {
+    const out = { ...(window._loadedPortalsCfg || {}) };
+    document.querySelectorAll('#portals-list input[data-portal]').forEach(cb => {
+        out[cb.dataset.portal] = { ...(out[cb.dataset.portal] || {}), enabled: cb.checked };
+    });
+    return out;
 }
 
 // ---- Keyed source test (Adzuna / USAJobs) ----
@@ -826,6 +853,8 @@ async function saveSettings() {
             recruitee_companies: splitTrim(document.getElementById('cfg-recruitee').value),
             // search merges shallowly, so carry Indeed's other keys (max_pages).
             indeed: { ...(window._loadedIndeedCfg || {}), enabled: !!document.getElementById('cfg-indeed-enabled')?.checked },
+            // Same shallow merge: send the whole portals map, or nothing if the list never rendered.
+            ...(window._portalsRendered ? { portals: collectPortalToggles() } : {}),
         },
         // auto_apply intentionally omitted — the backend merges per-section,
         // so existing config.json values are preserved.

@@ -1,0 +1,68 @@
+{
+  "job-count": 2,
+  "jobs": [
+    {
+      "id": 2091177,
+      "url": "https://remotive.com/remote-jobs/all-others/content-reviewer-united-states-2091177",
+      "title": "Content Reviewer - United States",
+      "company_name": "TELUS Digital",
+      "company_logo": "https://remotive.com/job/2091177/logo",
+      "category": "All others",
+      "tags": [
+        "android",
+        "ios",
+        "social media",
+        "teaching",
+        "AI/ML",
+        "research",
+        "responsive"
+      ],
+      "job_type": "part_time",
+      "publication_date": "2026-11-19T14:58:42",
+      "candidate_required_location": "USA",
+      "salary": "$14/hour",
+      "description": "<p style=\"--tw-border-spacing-x: 0; --tw-border-spacing-y: 0; --tw-translate-x: 0; --tw-translate-y: 0; --tw-rotate: 0; --tw-skew-x: 0; --tw-skew-y: 0; --tw-scale-x: 1; --tw-scale-y: 1; --tw-scroll-snap-strictness: proximity; --tw-ring-offset-width: 0px; --tw-ring-offset-color: #fff; --tw-ring-color",
+      "company_logo_url": "https://remotive.com/job/2091177/logo"
+    },
+    {
+      "id": 2069746,
+      "url": "https://remotive.com/remote-jobs/software-development/tech-lead-full-stack-rails-engineer-2069746",
+      "title": "Tech Lead Full-Stack Rails Engineer",
+      "company_name": "Mitre Media",
+      "company_logo": "https://remotive.com/job/2069746/logo",
+      "category": "Software Development",
+      "tags": [
+        "api",
+        "CSS",
+        "docker",
+        "elasticsearch",
+        "fullstack",
+        "html",
+        "javascript",
+        "kubernetes",
+        "postgresql",
+        "react",
+        "ror",
+        "ruby/rails",
+        "AI/ML",
+        "CAD",
+        "advertising",
+        "Redis",
+        "ES6",
+        "web applications",
+        "MySQL",
+        "NLP",
+        "fintech",
+        "Micro services",
+        "github",
+        "system architecture"
+      ],
+      "job_type": "full_time",
+      "publication_date": "2026-11-14T20:33:53",
+      "candidate_required_location": "USA, Canada, USA timezones",
+      "salary": "$170k - $200k",
+      "description": "<p class=\"h1\" dir=\"ltr\" style=\"line-height: 1.38; background-color: #ffffff; margin-top: 24pt; margin-bottom: 0pt; padding: 0pt 0pt 6pt 0pt;\"><span style=\"color: #000000; font-weight: bold; white-space-collapse: preserve;\">About Mitre Media</span></p>\n<p dir=\"ltr\" style=\"line-height: 1.38; backgroun",
+      "company_logo_url": "https://remotive.com/job/2069746/logo"
+    }
+  ]
+}

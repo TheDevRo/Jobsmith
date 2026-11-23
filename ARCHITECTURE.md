@@ -363,6 +363,8 @@ Each source module exposes `async fetch_jobs(config) -> list[dict]`.
 
 `fetch_all_jobs()` runs all sources **concurrently**, each wrapped in `asyncio.wait_for` with a per-source timeout, and reports progress as each completes. Plain-HTTP sources go through `fetch_with_retries()` (jittered backoff on timeouts/connection errors/5xx). Per-source job counts are tracked in `data/source_stats.json`; a source that previously returned jobs but hits 0 for 3+ consecutive runs is flagged via `sources_suspect` (silent parser breakage detection).
 
+**Declarative portals.** `job_sources/portals.py` runs boards described by JSON files (bundled in `job_sources/portals/`, plus user files in `<data dir>/portals/`) instead of a Python module: JSON API, RSS/Atom, or schema.org `JobPosting` pages. Files are validated strictly, never executed, and every request (redirects included) is held to the file's host allowlist and the SSRF guard. Portals appear in `/api/sources` as kind `portal`, are off unless `search.portals.<id>.enabled`, and `fetch_all_jobs` isolates them like any other source. Format: `docs/portals.md`.
+
 ### 5.8 Apply Type Detector (`backend/services/apply_type_detector.py`)
 
 After fetching, jobs have `apply_type='unknown'`. This service classifies them:

@@ -1,0 +1,33 @@
+{
+  "id": "jobicy",
+  "name": "Jobicy",
+  "version": "1.0.0",
+  "homepage": "https://jobicy.com/",
+  "terms_url": "https://jobicy.com/jobs-rss-feed",
+  "free": true,
+  "hosts": ["jobicy.com"],
+  "kind": "json_api",
+  "attribution": "Jobs from Jobicy (jobicy.com). Each job links to its Jobicy listing.",
+  "min_interval_minutes": 60,
+  "request": {
+    "url": "https://jobicy.com/api/jobs?count=50&tag={query}",
+    "max_queries": 3,
+    "delay_seconds": 2
+  },
+  "items": "jobs",
+  "fields": {
+    "external_id": "id",
+    "title": "jobTitle",
+    "company": "companyName",
+    "location": "jobGeo",
+    "url": "url",
+    "description": "jobDescription",
+    "posted_at": "pubDate",
+    "salary_min": "salaryMin",
+    "salary_max": "salaryMax",
+    "salary_period": "salaryPeriod",
+    "salary_currency": "salaryCurrency",
+    "tags": "jobIndustry"
+  },
+  "defaults": {"remote": true}
+}
