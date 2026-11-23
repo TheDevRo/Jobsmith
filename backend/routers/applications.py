@@ -16,6 +16,7 @@ from .. import database as db
 from .. import ai_engine
 from .. import resume_generator
 from .. import auto_apply
+from .. import fact_guard
 from .. import facts as facts_mod
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ def _apply_in_progress() -> bool:
 class ApplicationContentUpdate(BaseModel):
     resume_content: Optional[str] = None
     cover_letter_content: Optional[str] = None
+    # The level an AI edit was made at, so the fact check matches it; defaults to
+    # the level the application was tailored at.
+    honesty_level: Optional[str] = None
 
 
 class ApplicationStatusUpdate(BaseModel):
@@ -364,7 +368,7 @@ async def update_application_content(app_id: str, body: ApplicationContentUpdate
     apps_db = await db._get_db()
     try:
         cursor = await apps_db.execute(
-            """SELECT a.*, j.id as j_id, j.title, j.company
+            """SELECT a.*, j.id as j_id, j.title, j.company, j.location, j.description
                FROM applications a JOIN jobs j ON j.id = a.job_id
                WHERE a.id = ?""",
             (app_id,),
@@ -399,6 +403,18 @@ async def update_application_content(app_id: str, body: ApplicationContentUpdate
             resume_generator.generate_cover_letter(body.cover_letter_content, profile, job_data, cfg)
     except Exception:
         logger.exception("Failed to regenerate documents after content edit")
+
+    # The stored "Check this" flags describe the text as it is now.
+    try:
+        await db.set_fact_flags(app_id, fact_guard.check_documents(
+            body.resume_content or "", body.cover_letter_content or "", profile,
+            {**job_data, "location": row["location"], "description": row["description"]},
+            body.honesty_level if body.honesty_level in state.VALID_HONESTY_LEVELS
+            else (row["honesty_level"] or "honest"),
+            [f["text"] for f in await db.get_application_facts(app_id)],
+        ))
+    except Exception:
+        logger.exception("Fact check failed after content edit")
 
     return {"message": "Content updated and documents regenerated"}
 
@@ -475,7 +491,11 @@ async def revise_application_content(app_id: str, body: ApplicationReviseRequest
             raise HTTPException(400, "No cover letter exists yet for this application")
         revised = await ai_engine.revise_cover_letter(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level, app_facts=app_facts)
 
-    return {"revised_content": revised, "model_tier": tier, "honesty_level": honesty_level}
+    unverified = fact_guard.check(
+        revised, profile, job_data, honesty_level, app_facts, extra=[instructions]
+    )
+    return {"revised_content": revised, "model_tier": tier, "honesty_level": honesty_level,
+            "unverified": unverified}
 
 
 @router.patch("/api/applications/{application_id}/outcome")
