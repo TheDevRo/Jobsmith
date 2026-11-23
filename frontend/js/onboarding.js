@@ -1460,8 +1460,9 @@ function _tourReposition() {
             const r = target.getBoundingClientRect();
             const x = Math.max(0, r.left - padding);
             const y = Math.max(0, r.top - padding);
-            const w = Math.min(window.innerWidth - x, r.width + padding * 2);
-            const h = Math.min(window.innerHeight - y, r.height + padding * 2);
+            // Clamp at 0: a tall target mid-scroll can sit past the viewport edge.
+            const w = Math.max(0, Math.min(window.innerWidth - x, r.width + padding * 2));
+            const h = Math.max(0, Math.min(window.innerHeight - y, r.height + padding * 2));
             hole.setAttribute('x', x);
             hole.setAttribute('y', y);
             hole.setAttribute('width', w);
