@@ -343,7 +343,7 @@ def test_scoring_falls_back_to_local_model(monkeypatch):
     assert reasoning.startswith("Scored by Local match")
     assert score == pytest.approx(100 * (0.9 + 0.9 + 0.1) / 3, abs=0.1)
     assert set(report) == {"matched_skills", "missing_skills", "matched_soft_skills", "missing_soft_skills",
-                           "keywords", "title_alignment", "scored_by", "score_seconds"}
+                           "keywords", "title_alignment", "scored_by", "score_seconds", "coverage"}
     assert report["scored_by"] == "local_model"
     assert report["matched_skills"] == ["5+ years of experience with Python and SQL",
                                         "Bachelor's degree in Computer Science or similar"]

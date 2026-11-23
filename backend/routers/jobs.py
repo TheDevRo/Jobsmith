@@ -26,6 +26,19 @@ class StatusUpdate(BaseModel):
     status: str
 
 
+class RequirementDismiss(BaseModel):
+    text: str
+
+
+@router.post("/api/jobs/{job_id}/coverage/dismiss")
+async def dismiss_requirement(job_id: str, body: RequirementDismiss):
+    """"I don't have this": mark an unmet requirement as a known gap for this job."""
+    cov = await db.dismiss_job_requirement(job_id, body.text)
+    if cov is None:
+        raise HTTPException(404, "No unmet requirement with that text on this job")
+    return {"coverage": cov}
+
+
 @router.get("/api/jobs")
 async def list_jobs(
     status: Optional[str] = None,

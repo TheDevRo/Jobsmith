@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiosqlite
+from . import coverage
 from .paths import project_root
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,8 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
                 created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )"""),
     (34, "CREATE INDEX IF NOT EXISTS idx_application_revisions_app ON application_revisions(application_id, target)"),
+    # Requirement coverage (JSON, see coverage.py): "covers N of M requirements" next to the fit score.
+    (35, "ALTER TABLE jobs ADD COLUMN coverage TEXT"),
 ]
 
 REVISION_CAP = 30
@@ -671,6 +674,9 @@ async def get_jobs(
                 "ORDER BY (TRIM(COALESCE(j.company, '')) = '') ASC, "
                 f"LOWER(j.company) {direction}, j.date_discovered DESC"
             )
+        elif sort_by == "best_coverage":
+            # Share of requirements covered, then fewer missing must-haves, then fit score (see coverage.py).
+            order_clause = f"ORDER BY {coverage.sort_key_sql()}, j.date_discovered DESC"
         elif sort_by == "fit_score":
             # bestMatch parity: unscored (NULL) and 0-score jobs sink below scored
             # ones. COALESCE(NULL,-1) drops NULLs under 0; tie-break newest first.
@@ -1061,15 +1067,39 @@ async def update_job_score(
     """Set the AI fit score, reasoning, and match report for a job.
 
     A None match_report clears any stored report — a stale breakdown from a
-    previous scoring run must not sit next to a fresh score.
+    previous scoring run must not sit next to a fresh score. A "coverage" key in
+    the report (see coverage.py) is stored in its own column, and cleared the same way.
     """
+    report = {k: v for k, v in (match_report or {}).items() if k != "coverage"}
+    cov = (match_report or {}).get("coverage")
     db = await _get_db()
     try:
         await db.execute(
-            "UPDATE jobs SET fit_score = ?, fit_reasoning = ?, match_report = ? WHERE id = ?",
-            (score, reasoning, json.dumps(match_report) if match_report else None, job_id),
+            "UPDATE jobs SET fit_score = ?, fit_reasoning = ?, match_report = ?, coverage = ? WHERE id = ?",
+            (score, reasoning, json.dumps(report) if report else None,
+             json.dumps(cov) if cov else None, job_id),
         )
         await db.commit()
+    finally:
+        await db.close()
+
+
+async def dismiss_job_requirement(job_id: str, text: str) -> Optional[dict]:
+    """Mark an unmet requirement as a known gap ("I don't have this"). Returns the updated coverage,
+    or None when the job has no such unmet requirement."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT coverage FROM jobs WHERE id = ?", (job_id,))
+        row = await cursor.fetchone()
+        try:
+            cov = json.loads(row["coverage"]) if row and row["coverage"] else None
+        except (TypeError, ValueError):
+            cov = None
+        if not isinstance(cov, dict) or not coverage.dismiss(cov, text):
+            return None
+        await db.execute("UPDATE jobs SET coverage = ? WHERE id = ?", (json.dumps(cov), job_id))
+        await db.commit()
+        return cov
     finally:
         await db.close()
 
@@ -1962,7 +1992,7 @@ async def get_pending_reviews(limit: int = 20) -> list[dict]:
     try:
         cursor = await db.execute(
             """SELECT a.*, j.title, j.company, j.location, j.url, j.description,
-                      j.fit_score, j.fit_reasoning, j.match_report, j.tags, j.source
+                      j.fit_score, j.fit_reasoning, j.match_report, j.coverage, j.tags, j.source
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status IN ('pending_review', 'paused')

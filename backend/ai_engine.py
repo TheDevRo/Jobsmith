@@ -24,7 +24,7 @@ from openai import (
 )
 
 from . import apple_bridge
-from . import nli
+from . import coverage, nli
 from . import prompt_registry
 from .facts import facts_block, profile_facts
 
@@ -661,7 +661,10 @@ async def _score_job_fit_nli(job: dict, profile: dict, config: dict):
     if result is None:
         return None
     score, reasoning, report = result
-    return score, reasoning, _tagged(_sanitize_match_report(report), "local_model", t0)
+    clean = _sanitize_match_report(report)
+    if clean and report.get("coverage"):
+        clean["coverage"] = report["coverage"]  # stored in its own column by update_job_score
+    return score, reasoning, _tagged(clean, "local_model", t0)
 
 
 async def _score_job_fit_llm(
@@ -693,7 +696,7 @@ async def _score_job_fit_llm(
             model=_model(config, tier),
             messages=[{"role": "user", "content": prompt}],
             temperature=ai_cfg.get("temperature", 0.7),
-            max_tokens=1200,
+            max_tokens=1800,
         )
         text = response.choices[0].message.content.strip()
         logger.debug("Score response: %s", text)
@@ -706,6 +709,10 @@ async def _score_job_fit_llm(
                     "score_job_fit: strict JSON parse failed, used %s fallback. "
                     "Response snippet: %s", method, text[:200],
                 )
+            # Requirement coverage rides along in the report; a prompt override that doesn't ask for
+            # "requirements" simply yields none.
+            if cov := coverage.parse_requirements(text):
+                report = {**(report or {}), "coverage": cov}
             return score, reasoning, report
         logger.error(
             "score_job_fit: Could not parse score from AI response: %s", text[:200]

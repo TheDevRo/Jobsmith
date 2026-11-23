@@ -96,4 +96,6 @@ def score(job: dict, profile: dict, nli) -> tuple[float, str, dict] | None:
     yes = [line for line, m in zip(lines, met, strict=True) if m > 0.5]
     no = [line for line, m in zip(lines, met, strict=True) if m <= 0.5]
     reasoning = f"{REASONING}: meets {len(yes)} of {len(lines)} requirement lines."
-    return score, reasoning, {"matched_skills": yes, "missing_skills": no, "keywords": []}
+    from .. import coverage
+    return score, reasoning, {"matched_skills": yes, "missing_skills": no, "keywords": [],
+                              "coverage": coverage.from_nli(lines, list(met))}

@@ -308,6 +308,12 @@ confidence gate; essays via `generate_answer`, `source=llm_generated`) instead o
 Any NLI failure falls back to today's path. Settings: `GET /api/ai/nli/status`, `PUT /api/settings/nli-beta`,
 `POST /api/ai/nli/install`, `DELETE /api/ai/nli/model`.
 
+**Requirement coverage** — `backend/coverage.py`: "covers N of M requirements" (must/nice, met or not, evidence), stored as JSON in
+`jobs.coverage` beside the 0-100 score. The default scoring prompt also asks for a `requirements` array (parsed by
+`coverage.parse_requirements`, separate from the iOS-pinned `parse_score_response`; an overridden prompt that omits it just
+yields none); the local model derives it from its per-line P(met) (`nli/fit.py`). `sort_by=best_coverage` orders by share covered,
+then fewer missing must-haves, then score; `POST /api/jobs/{id}/coverage/dismiss` marks a gap known ("I don't have this").
+
 ### 5.5 Applicant Assist (`backend/applicant_assist.py`)
 
 When auto-apply fails, the orchestrator calls `_build_sidebar_script(backend_url)` and injects it into the current page via `page.evaluate()`. This inserts an `<iframe>` pointing to `/assist-sidebar` that survives page navigations (registered via `add_init_script`).
