@@ -93,58 +93,58 @@ async def assist_sidebar():
 <title>Applicant Assist</title>
 <style>
 *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{height:100%;overflow:hidden;background:#1e1e2e;color:#cdd6f4;
+html,body{{height:100%;overflow:hidden;background:#0c0c0e;color:#eae9ec;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   font-size:13px}}
 #root{{display:flex;flex-direction:column;height:100%}}
 #header{{display:flex;align-items:center;justify-content:space-between;
-  padding:12px 10px;background:#313244;border-bottom:1px solid #45475a;
+  padding:12px 10px;background:#1c1c1f;border-bottom:1px solid #2f2f34;
   flex-shrink:0}}
 #title{{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;color:#cdd6f4;flex:1}}
-#toggle-btn{{background:none;border:none;color:#cdd6f4;cursor:pointer;
+  text-overflow:ellipsis;color:#eae9ec;flex:1}}
+#toggle-btn{{background:none;border:none;color:#eae9ec;cursor:pointer;
   font-size:20px;line-height:1;padding:0 4px;flex-shrink:0}}
 #ctab{{display:none;padding:14px 0;font-size:11px;font-weight:600;
-  color:#89b4fa;cursor:pointer;text-align:center;writing-mode:vertical-rl;
-  flex:1;background:#1e1e2e;align-items:center;justify-content:center}}
+  color:#f0863a;cursor:pointer;text-align:center;writing-mode:vertical-rl;
+  flex:1;background:#0c0c0e;align-items:center;justify-content:center}}
 #body{{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:12px}}
-.section{{background:#313244;border-radius:8px;overflow:hidden}}
+.section{{background:#1c1c1f;border-radius:8px;overflow:hidden}}
 .sec-hdr{{display:block;padding:7px 10px;font-weight:700;font-size:11px;
-  text-transform:uppercase;letter-spacing:0.6px;color:#89b4fa;background:#45475a}}
+  text-transform:uppercase;letter-spacing:0.6px;color:#f0863a;background:#2f2f34}}
 .sec-body{{padding:8px;display:flex;flex-direction:column;gap:6px}}
-.lbl{{display:block;font-size:11px;color:#a6adc8}}
-pre{{background:#181825;color:#cdd6f4;padding:8px;border-radius:4px;
+.lbl{{display:block;font-size:11px;color:#99979e}}
+pre{{background:#151517;color:#eae9ec;padding:8px;border-radius:4px;
   font-size:11px;font-family:'Menlo','Monaco','Consolas',monospace;
   max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
   border:none}}
 .btn-row{{display:flex;gap:6px;flex-wrap:wrap}}
-.btn-copy{{display:inline-block;background:#89b4fa;color:#1e1e2e;border:none;
+.btn-copy{{display:inline-block;background:#f0863a;color:#fff;border:none;
   border-radius:4px;padding:5px 10px;font-size:12px;font-weight:700;
   cursor:pointer;line-height:1.4}}
-.btn-dl{{display:inline-block;background:#45475a;color:#cdd6f4;border:none;
+.btn-dl{{display:inline-block;background:#2f2f34;color:#eae9ec;border:none;
   border-radius:4px;padding:5px 10px;font-size:12px;font-weight:700;
   cursor:pointer;line-height:1.4}}
-#autofill-bar{{padding:8px 10px;background:#1e1e2e;border-bottom:1px solid #45475a;
+#autofill-bar{{padding:8px 10px;background:#0c0c0e;border-bottom:1px solid #2f2f34;
   display:flex;flex-direction:column;gap:6px;flex-shrink:0}}
 #btn-row{{display:flex;gap:6px}}
-#btn-autofill{{flex:1;padding:8px;background:#a6e3a1;color:#1e1e2e;border:none;
+#btn-autofill{{flex:1;padding:8px;background:#f0863a;color:#fff;border:none;
   border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;line-height:1.4}}
-#btn-autofill:disabled{{background:#45475a;color:#6c7086;cursor:not-allowed}}
-#btn-scan{{padding:8px 10px;background:#45475a;color:#cdd6f4;border:none;
+#btn-autofill:disabled{{background:#2f2f34;color:#625f68;cursor:not-allowed}}
+#btn-scan{{padding:8px 10px;background:#2f2f34;color:#eae9ec;border:none;
   border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;line-height:1.4}}
 #btn-scan:disabled{{opacity:0.5;cursor:not-allowed}}
-#autofill-status{{font-size:11px;color:#a6adc8;text-align:center;min-height:14px}}
-#autofill-result{{display:none;background:#181825;border-radius:6px;padding:8px;font-size:11px}}
-#autofill-result .af-summary{{color:#a6adc8;margin-bottom:6px}}
+#autofill-status{{font-size:11px;color:#99979e;text-align:center;min-height:14px}}
+#autofill-result{{display:none;background:#151517;border-radius:6px;padding:8px;font-size:11px}}
+#autofill-result .af-summary{{color:#99979e;margin-bottom:6px}}
 #autofill-result .af-list{{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:3px}}
 #autofill-result .af-item{{padding:3px 6px;border-radius:3px;font-size:10px}}
-#autofill-result .af-filled{{background:rgba(166,227,161,0.15);color:#a6e3a1}}
-#autofill-result .af-low{{background:rgba(249,226,175,0.15);color:#f9e2af}}
-#autofill-result .af-failed{{background:rgba(243,139,168,0.15);color:#f38ba8}}
-#scan-result{{display:none;background:#181825;border-radius:6px;padding:8px;font-size:11px;max-height:200px;overflow-y:auto}}
-#scan-result .sf-item{{padding:3px 6px;border-radius:3px;margin-bottom:3px;background:#313244}}
-#scan-result .sf-req{{color:#f38ba8;font-weight:700}}
-#status{{padding:10px;color:#a6adc8;font-size:12px;text-align:center}}
+#autofill-result .af-filled{{background:rgba(76,175,125,0.15);color:#4caf7d}}
+#autofill-result .af-low{{background:rgba(245,166,35,0.15);color:#f5a623}}
+#autofill-result .af-failed{{background:rgba(231,76,60,0.15);color:#e74c3c}}
+#scan-result{{display:none;background:#151517;border-radius:6px;padding:8px;font-size:11px;max-height:200px;overflow-y:auto}}
+#scan-result .sf-item{{padding:3px 6px;border-radius:3px;margin-bottom:3px;background:#1c1c1f}}
+#scan-result .sf-req{{color:#e74c3c;font-weight:700}}
+#status{{padding:10px;color:#99979e;font-size:12px;text-align:center}}
 </style>
 </head>
 <body>
@@ -294,7 +294,7 @@ async function triggerAutofill() {{
   btn.disabled = true;
   btn.textContent = 'Autofilling\u2026';
   statusEl.textContent = 'Running \u2014 do not close the browser';
-  statusEl.style.color = '#89b4fa';
+  statusEl.style.color = '#f0863a';
   try {{
     const r = await fetch(BACKEND + '/api/assist/autofill', {{ method: 'POST' }});
     if (r.status === 409) {{
@@ -314,9 +314,9 @@ async function triggerAutofill() {{
     // Poll complete — fetch final status with field results
     const finalStatus = await fetch(BACKEND + '/api/assist/autofill/status').then(x => x.json()).catch(() => ({{}}));
     btn.textContent = '\u2713 Done \u2014 review & submit';
-    btn.style.background = '#a6e3a1';
+    btn.style.background = '#4caf7d';
     statusEl.textContent = 'Fields filled. Check everything before submitting.';
-    statusEl.style.color = '#a6e3a1';
+    statusEl.style.color = '#4caf7d';
     showAutofillResult(finalStatus);
     // Send highlight message to host page
     if (finalStatus.highlight_fields) {{
@@ -333,7 +333,7 @@ async function triggerAutofill() {{
     btn.style.background = '';
     btn.disabled = false;
     statusEl.textContent = 'Error: ' + e.message;
-    statusEl.style.color = '#f38ba8';
+    statusEl.style.color = '#e74c3c';
   }}
 }}
 
@@ -374,19 +374,19 @@ async function scanForm() {{
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!data.fields || !data.fields.length) {{
-      scanEl.innerHTML = '<span style="color:#a6adc8">No form fields found on this page</span>';
+      scanEl.innerHTML = '<span style="color:#99979e">No form fields found on this page</span>';
     }} else {{
-      let html = '<div style="color:#89b4fa;margin-bottom:6px;font-weight:700">Form fields (' + esc(data.count) + ')</div>';
+      let html = '<div style="color:#f0863a;margin-bottom:6px;font-weight:700">Form fields (' + esc(data.count) + ')</div>';
       data.fields.forEach(f => {{
         const reqBadge = f.required ? '<span class="sf-req"> *</span>' : '';
         const lbl = (f.label || f.field_id || 'unknown').substring(0, 40);
-        html += '<div class="sf-item">' + esc(lbl) + reqBadge + ' <span style="color:#6c7086">(' + esc(f.type || 'text') + ')</span></div>';
+        html += '<div class="sf-item">' + esc(lbl) + reqBadge + ' <span style="color:#625f68">(' + esc(f.type || 'text') + ')</span></div>';
       }});
       scanEl.innerHTML = html;
     }}
     scanEl.style.display = 'block';
   }} catch (e) {{
-    scanEl.innerHTML = '<span style="color:#f38ba8">Scan failed: ' + esc(e.message) + '</span>';
+    scanEl.innerHTML = '<span style="color:#e74c3c">Scan failed: ' + esc(e.message) + '</span>';
     scanEl.style.display = 'block';
   }} finally {{
     btn.disabled = false;
@@ -599,27 +599,28 @@ async def assist_launch_page(session_id: str, request: Request):
 <style>
   :root {{ color-scheme: dark; }}
   body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-          background:#1e1e2e; color:#cdd6f4; display:flex; align-items:center;
+          background:#0c0c0e; color:#eae9ec; display:flex; align-items:center;
           justify-content:center; min-height:100vh; padding:24px; }}
-  .card {{ max-width:560px; width:100%; background:#313244; border-radius:12px;
+  .card {{ max-width:560px; width:100%; background:#1c1c1f; border-radius:14px;
             padding:32px; box-shadow:0 8px 24px rgba(0,0,0,.4); }}
-  h1 {{ margin:0 0 4px; font-size:20px; color:#89b4fa; }}
-  .job {{ font-size:14px; color:#a6adc8; margin-bottom:24px; word-break:break-word; }}
+  h1 {{ margin:0 0 4px; font-size:20px; color:#f0863a; }}
+  .job {{ font-size:14px; color:#99979e; margin-bottom:24px; word-break:break-word; }}
   .status {{ font-size:15px; margin:20px 0; }}
-  .spinner {{ display:inline-block; width:14px; height:14px; border:2px solid #45475a;
-              border-top-color:#89b4fa; border-radius:50%; margin-right:8px;
+  .spinner {{ display:inline-block; width:14px; height:14px; border:2px solid #2f2f34;
+              border-top-color:#f0863a; border-radius:50%; margin-right:8px;
               animation: spin 0.8s linear infinite; vertical-align:-2px; }}
   @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
   .install ol {{ padding-left:20px; line-height:1.6; }}
-  .install code, .token-block {{ background:#1e1e2e; padding:2px 6px; border-radius:4px;
+  .install code, .token-block {{ background:#0c0c0e; padding:2px 6px; border-radius:4px;
                                   font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
-                                  color:#f9e2af; word-break:break-all; }}
+                                  color:#f5a623; word-break:break-all; }}
   .token-block {{ display:block; padding:10px; margin-top:8px; }}
-  button, a.btn {{ display:inline-block; background:#89b4fa; color:#1e1e2e; border:0;
-                    padding:8px 14px; border-radius:6px; font-weight:600; cursor:pointer;
+  button, a.btn {{ display:inline-block; background:#f0863a; color:#fff; border:0;
+                    padding:8px 14px; border-radius:9px; font-weight:600; cursor:pointer;
                     text-decoration:none; font-size:13px; margin-right:8px; margin-top:8px; }}
-  button.secondary, a.btn.secondary {{ background:#45475a; color:#cdd6f4; }}
+  button.secondary, a.btn.secondary {{ background:#26262a; color:#eae9ec; box-shadow:inset 0 0 0 1px #343239; }}
   .hidden {{ display:none; }}
+  a {{ color:#f0863a; }}
 </style>
 </head>
 <body>
@@ -643,7 +644,7 @@ async def assist_launch_page(session_id: str, request: Request):
 
   <div id="status-firefox-gate" class="status hidden">
     <strong>Extension connected.</strong>
-    <div style="margin-top:10px;font-size:13px;color:#cdd6f4;line-height:1.5">
+    <div style="margin-top:10px;font-size:13px;color:#eae9ec;line-height:1.5">
       The Jobsmith panel will appear docked to the right edge of the
       application page. Drag its edge to resize, or use the rail buttons
       to collapse/close it.
@@ -651,7 +652,7 @@ async def assist_launch_page(session_id: str, request: Request):
     <div style="margin-top:14px">
       <button id="jobsmith-continue-btn" type="button">Continue now</button>
     </div>
-    <div style="font-size:12px;color:#a6adc8;margin-top:10px">
+    <div style="font-size:12px;color:#99979e;margin-top:10px">
       Continuing in <span id="jobsmith-firefox-countdown">3</span>s…
     </div>
   </div>
@@ -665,7 +666,7 @@ async def assist_launch_page(session_id: str, request: Request):
       <button id="retry" type="button">I installed it — check again</button>
     </div>
     <div id="manual-token" class="hidden" style="margin-top:14px">
-      <div style="font-size:13px;color:#a6adc8">Copy this token into the extension popup (Backend URL + Token):</div>
+      <div style="font-size:13px;color:#99979e">Copy this token into the extension popup (Backend URL + Token):</div>
       <code class="token-block" id="persistent-token">Loading…</code>
     </div>
   </div>
