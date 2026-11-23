@@ -22,7 +22,9 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from .. import facts as facts_mod
 from .. import nli, prompt_registry
+from ..facts import facts_block
 from ..http_client import async_client, send
 
 if TYPE_CHECKING:
@@ -293,7 +295,9 @@ class LLMClient:
         )
         llm_results: list[FieldValue] = nli_results or []
         if llm_fields and nli_results is None:
-            system = prompt_registry.get_template(self._config, "auto_apply_field_map")
+            system = prompt_registry.with_posting_guard(
+                prompt_registry.get_template(self._config, "auto_apply_field_map")
+            )
             chunks = [
                 llm_fields[i:i + chunk_size]
                 for i in range(0, len(llm_fields), chunk_size)
@@ -398,8 +402,16 @@ class LLMClient:
         system = prompt_registry.render_prompt(
             self._config, "auto_apply_answer", max_words=max_words
         )
+        # Facts the candidate wrote count as part of the profile for this rule.
+        app_facts: list[str] = []
+        if getattr(job, "application_id", ""):
+            from .. import database as db
+            app_facts = [f["text"] for f in await db.get_application_facts(job.application_id)]
+        facts = facts_block(
+            facts_mod.profile_facts((self._config or {}).get("profile")), app_facts
+        )
         user = (
-            f"CANDIDATE PROFILE:\n{profile.to_text()}\n\n"
+            f"CANDIDATE PROFILE:\n{profile.to_text()}\n{facts}\n"
             f"JOB: {job.title} at {job.company}\n\n"
             f"QUESTION: {question}\n\n"
             "ANSWER:"
@@ -453,7 +465,7 @@ def _build_field_map_user(
     return (
         f"CANDIDATE PROFILE:\n{profile.to_text()}\n\n"
         f"JOB:\nTitle: {job.title}\nCompany: {job.company}\n"
-        f"Description (first 300 chars):\n{job.description[:300]}\n\n"
+        f"Description (first 300 chars):\n{prompt_registry.fence_posting(job.description[:300])}\n\n"
         f"ANSWER BANK:\n{bank_str}\n\n"
         f"FORM FIELDS TO MAP:\n{fields_str}\n\n"
         "Return the JSON array now."
