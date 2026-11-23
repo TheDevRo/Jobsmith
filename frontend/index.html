@@ -712,6 +712,11 @@
                             <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="testSourceKey('usajobs')">Test key</button></div>
                             <div id="usajobs-test-status" class="ai-status" style="margin-top:8px"></div>
                         </div>
+                        <div class="section-card" id="portals-card" style="display:none">
+                            <h2>Job portals</h2>
+                            <p class="section-hint"><strong>Off by default.</strong> Free remote-job APIs described by JSON files, each limited to the hosts it lists. Tick the ones you want in your fetches; each credits its source and has a minimum time between fetches. See <code>docs/portals.md</code> to add your own.</p>
+                            <div id="portals-list"></div>
+                        </div>
                         <div class="section-card">
                             <h2>Data Management</h2>
                             <p class="section-hint">Start the job list over: clears your Inbox, Pipeline, and Recently

@@ -1161,8 +1161,8 @@ async function loadSources() {
                 ? 'Needs a free API key. Add it in Settings → Job Search.'
                 : (d.note || '');
             const tag = locked ? ' <span class="source-tag">needs key</span>'
-                : (d.note ? ' <span class="source-tag">slow</span>' : '');
-            return `<label${title ? ` title="${escapeHtml(title)}"` : ''}${locked ? ' class="source-locked"' : ''}><input type="checkbox" value="${escapeHtml(d.name)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''}> ${escapeHtml(SOURCE_LABELS[d.name] || d.name)}${tag}</label>`;
+                : (d.note && d.kind !== 'portal' ? ' <span class="source-tag">slow</span>' : '');
+            return `<label${title ? ` title="${escapeHtml(title)}"` : ''}${locked ? ' class="source-locked"' : ''}><input type="checkbox" value="${escapeHtml(d.name)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''}> ${escapeHtml(SOURCE_LABELS[d.name] || d.label || d.name)}${tag}</label>`;
         }).join('');
     }
     const fallback = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed']
