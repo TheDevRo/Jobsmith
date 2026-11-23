@@ -293,7 +293,9 @@ class LLMClient:
         )
         llm_results: list[FieldValue] = nli_results or []
         if llm_fields and nli_results is None:
-            system = prompt_registry.get_template(self._config, "auto_apply_field_map")
+            system = prompt_registry.with_posting_guard(
+                prompt_registry.get_template(self._config, "auto_apply_field_map")
+            )
             chunks = [
                 llm_fields[i:i + chunk_size]
                 for i in range(0, len(llm_fields), chunk_size)
@@ -453,7 +455,7 @@ def _build_field_map_user(
     return (
         f"CANDIDATE PROFILE:\n{profile.to_text()}\n\n"
         f"JOB:\nTitle: {job.title}\nCompany: {job.company}\n"
-        f"Description (first 300 chars):\n{job.description[:300]}\n\n"
+        f"Description (first 300 chars):\n{prompt_registry.fence_posting(job.description[:300])}\n\n"
         f"ANSWER BANK:\n{bank_str}\n\n"
         f"FORM FIELDS TO MAP:\n{fields_str}\n\n"
         "Return the JSON array now."
