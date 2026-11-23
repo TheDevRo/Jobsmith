@@ -14,6 +14,7 @@ async function loadCurrent() {
   $("backendUrl").value = cfg.backendUrl;
   $("token").value = cfg.token;
   $("deepScan").checked = !!cfg.deepScan;
+  $("preferPdf").checked = cfg.preferPdf;
 }
 
 function currentTab() {
@@ -132,6 +133,7 @@ $("save").addEventListener("click", async () => {
     backendUrl: base,
     token,
     deepScan: $("deepScan").checked,
+    preferPdf: $("preferPdf").checked,
   });
   $("token").value = token;
   setStatus("Saved.", "ok");

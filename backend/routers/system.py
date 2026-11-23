@@ -419,7 +419,7 @@ def _resolve_document(job_id: str, kind: str) -> tuple[Path, str, str]:
     format is present.
     """
     cfg = state.load_config()
-    fmt = cfg.get("application_honesty", {}).get("document_format", "docx")
+    fmt = cfg.get("application_honesty", {}).get("document_format", "pdf")
     preferred = "pdf" if str(fmt).lower() == "pdf" else "docx"
     resumes_root = state.RESUMES_DIR.resolve()
     for ext in (preferred, "docx" if preferred == "pdf" else "pdf"):

@@ -72,3 +72,14 @@ def test_post_non_ai_config_does_not_clear_cache(client, monkeypatch):
     r = client.post("/api/config", json={"search": {"keywords": ["designer"]}})
     assert r.status_code == 200
     assert called["n"] == 0
+
+
+def test_document_format_defaults_to_pdf_when_unset(client):
+    assert client.get("/api/settings/document-format").json() == {"document_format": "pdf"}
+
+
+def test_document_format_keeps_an_explicit_docx(client, config_path):
+    cfg = yaml.safe_load(config_path.read_text())
+    cfg["application_honesty"] = {"document_format": "docx"}
+    config_path.write_text(yaml.dump(cfg))
+    assert client.get("/api/settings/document-format").json() == {"document_format": "docx"}

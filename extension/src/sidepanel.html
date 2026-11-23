@@ -204,9 +204,13 @@
   /* Action row */
   .row {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 12px;
   }
+  /* Size to the label so "Clear Highlights" stays on one line; wrap the row
+     rather than the text when the panel is very narrow. */
+  .row button { flex: 1 1 auto; white-space: nowrap; }
   [hidden] { display: none !important; }
   button {
     flex: 1;
@@ -472,7 +476,7 @@
   <div class="row">
     <button id="scan">Scan</button>
     <button id="autofill">Autofill</button>
-    <button id="clear" class="secondary">Clear</button>
+    <button id="clear" class="secondary" title="Remove the field highlights Jobsmith added to this page">Clear Highlights</button>
     <button id="markApplied" class="secondary">Mark Applied</button>
   </div>
 

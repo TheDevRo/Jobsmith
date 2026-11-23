@@ -3,7 +3,7 @@ extension_api.py — HTTP surface for the Jobsmith browser extension.
 
 The extension runs inside the user's real Chrome/Firefox and talks to this API
 to: pull profile autofill values, map detected form fields to answers via the
-local LLM + answer bank, fetch tailored resume/cover-letter DOCX files, and
+local LLM + answer bank, fetch tailored resume/cover-letter files (DOCX or PDF), and
 read per-job context. None of these endpoints touch Playwright — the user's
 own browser is the page context.
 
@@ -13,12 +13,14 @@ generated on first use and persisted at `data/extension_token.txt`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -40,6 +42,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = project_root()
 DATA_DIR = PROJECT_ROOT / "data"
 RESUMES_DIR = PROJECT_ROOT / "resumes"
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 TOKEN_PATH = DATA_DIR / "extension_token.txt"
 
 
@@ -256,29 +259,65 @@ def build_router(load_config_fn) -> APIRouter:
         }
 
     # ---- Resume / cover-letter ------------------------------------------
+    async def _serve_document(job_id: str, kind: str, fmt: Optional[str]) -> FileResponse:
+        """Serve a tailored document as DOCX or PDF.
+
+        `fmt` is the extension's request; when absent (older extensions) the
+        configured document_format decides. A missing PDF is rendered on
+        demand from the stored application text; if that fails the DOCX is
+        served instead.
+        """
+        from . import resume_generator as rg
+
+        label = kind.replace("_", " ").capitalize()
+        cfg = load_config_fn()
+        want = fmt or rg._document_format(cfg)
+        docx_path = RESUMES_DIR / f"{job_id}_{kind}.docx"
+        pdf_path = RESUMES_DIR / f"{job_id}_{kind}.pdf"
+
+        if want == "pdf":
+            if not pdf_path.exists():
+                pdf_path = await _render_pdf_on_demand(rg, job_id, kind, cfg, pdf_path)
+            if pdf_path is not None and pdf_path.exists():
+                return FileResponse(str(pdf_path), filename=f"{job_id}_{kind}.pdf",
+                                    media_type="application/pdf")
+        if not docx_path.exists():
+            raise HTTPException(404, f"{label} not found — tailor the job first")
+        return FileResponse(str(docx_path), filename=f"{job_id}_{kind}.docx",
+                            media_type=_DOCX_MIME)
+
+    async def _render_pdf_on_demand(rg, job_id: str, kind: str, cfg: dict, default: Path):
+        """Render the PDF from the application's stored text; None on failure."""
+        row = await db.get_job(job_id)
+        app_row = (row or {}).get("application") or {}
+        content = app_row.get(f"{kind}_content") or ""
+        if not content:
+            return None
+        render = rg._render_resume_pdf if kind == "resume" else rg._render_cover_letter_pdf
+        try:
+            out = await asyncio.to_thread(render, content, cfg.get("profile", {}), row, cfg)
+            return Path(out)
+        except Exception:
+            logger.warning("%s PDF rendering failed — serving DOCX instead", kind, exc_info=True)
+            return None
+
     @router.get("/resume/{job_id}")
-    async def get_resume(job_id: str, x_jobsmith_token: Optional[str] = Header(default=None)):
+    async def get_resume(
+        job_id: str,
+        format: Optional[str] = Query(default=None, pattern="^(docx|pdf)$"),
+        x_jobsmith_token: Optional[str] = Header(default=None),
+    ):
         _verify_token(x_jobsmith_token)
-        path = RESUMES_DIR / f"{job_id}_resume.docx"
-        if not path.exists():
-            raise HTTPException(404, "Resume not found — tailor the job first")
-        return FileResponse(
-            str(path),
-            filename=f"{job_id}_resume.docx",
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
+        return await _serve_document(job_id, "resume", format)
 
     @router.get("/cover-letter/{job_id}")
-    async def get_cover_letter(job_id: str, x_jobsmith_token: Optional[str] = Header(default=None)):
+    async def get_cover_letter(
+        job_id: str,
+        format: Optional[str] = Query(default=None, pattern="^(docx|pdf)$"),
+        x_jobsmith_token: Optional[str] = Header(default=None),
+    ):
         _verify_token(x_jobsmith_token)
-        path = RESUMES_DIR / f"{job_id}_cover_letter.docx"
-        if not path.exists():
-            raise HTTPException(404, "Cover letter not found — tailor the job first")
-        return FileResponse(
-            str(path),
-            filename=f"{job_id}_cover_letter.docx",
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
+        return await _serve_document(job_id, "cover_letter", format)
 
     # ---- Field scan / map ------------------------------------------------
     @router.post("/scan", response_model=ExtScanResponse)
