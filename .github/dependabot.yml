@@ -10,6 +10,12 @@ updates:
     groups:
       python-deps:
         patterns: ["*"]
+    ignore:
+      # browser-use 1.x rebuilds its LLM layer on pydantic-ai, and
+      # backend/browser_use_agent.py was written and tested against 0.13.
+      # Port and test it by hand before taking the major bump.
+      - dependency-name: browser-use
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /
