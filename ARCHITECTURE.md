@@ -27,7 +27,7 @@ All AI calls stay on your local network — the LM Studio instance at `config.ya
 | Backend server | FastAPI (Python 3.11+), uvicorn, `--reload` in dev |
 | Database | SQLite via `aiosqlite` (WAL mode) |
 | Browser automation | Playwright (async, Chromium only) |
-| Local AI | LM Studio → OpenAI-compatible API (`openai` Python SDK + raw `aiohttp`) |
+| Local AI | LM Studio → OpenAI-compatible API (`openai` Python SDK + raw `httpx`) |
 | Resume generation | `python-docx` |
 | Frontend | Vanilla HTML/CSS/JS (no build step, single-page hash routing) |
 | Configuration | `config.yaml` (YAML, read on every request) |
@@ -334,8 +334,8 @@ Each source module exposes `async fetch_jobs(config) -> list[dict]`.
 
 | Source | Method | Notes |
 |--------|--------|-------|
-| `linkedin` | Guest search API (aiohttp) | OR-batched keyword queries, then concurrent detail-page fetches. Internal budget keeps both phases under the 600s timeout. |
-| `indeed` | Playwright + Byparr | OR-batched keyword queries; Cloudflare solved once via Byparr, /viewjob enrichment via direct aiohttp. Internal budget spans primer + search + enrichment. |
+| `linkedin` | Guest search API (httpx) | OR-batched keyword queries, then concurrent detail-page fetches. Internal budget keeps both phases under the 600s timeout. |
+| `indeed` | Playwright + Byparr | OR-batched keyword queries; Cloudflare solved once via Byparr, /viewjob enrichment via direct HTTP. Internal budget spans primer + search + enrichment. |
 | `greenhouse` | HTTP API | One request per board (`?content=true` returns descriptions inline); boards run concurrently. Also covers Lever boards. |
 | `adzuna` | REST API | Requires `api_keys.adzuna_app_id` + `adzuna_app_key`. Keyword × location combos run concurrently. |
 | `remoteok` | JSON API | No auth required |

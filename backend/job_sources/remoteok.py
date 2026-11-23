@@ -7,7 +7,9 @@ headers and handles their common anti-bot responses (403, HTML instead of JSON).
 
 import logging
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +55,12 @@ async def fetch_jobs(config: dict) -> list[dict]:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
+        async with async_client() as session:
             status, raw_text = await fetch_with_retries(
                 session,
                 API_URL,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-                allow_redirects=True,
+                timeout=30,
             )
         if status == 403:
             raise SourceBlockedError("RemoteOK returned 403 — blocking automated requests")
@@ -77,7 +78,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
         except Exception:
             logger.warning("RemoteOK response was not valid JSON")
             return []
-    except (aiohttp.ClientError, TimeoutError) as e:
+    except (httpx.HTTPError, TimeoutError) as e:
         logger.warning("RemoteOK request failed: %s", str(e))
         return []
 

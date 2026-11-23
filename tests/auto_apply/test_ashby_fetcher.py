@@ -24,22 +24,20 @@ from backend.job_sources.ashby import fetch_jobs
 
 def _make_session_mock(*payloads, status=200):
     """
-    Return a mock aiohttp.ClientSession whose .get() context manager yields
-    one response per payload, in call order. Responses expose .text() because
-    the fetcher goes through fetch_with_retries, which reads the raw body.
+    Return a mock httpx.AsyncClient whose .request() returns one response per
+    payload, in call order. Responses expose .text because the fetcher goes
+    through fetch_with_retries, which reads the raw body.
     """
     def _make_resp(payload):
-        resp = AsyncMock()
-        resp.status = status
-        resp.text = AsyncMock(return_value=json.dumps(payload))
-        resp.__aenter__ = AsyncMock(return_value=resp)
-        resp.__aexit__ = AsyncMock(return_value=False)
+        resp = MagicMock()
+        resp.status_code = status
+        resp.text = json.dumps(payload)
         return resp
 
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
-    session.get = MagicMock(side_effect=[_make_resp(p) for p in payloads])
+    session.request = AsyncMock(side_effect=[_make_resp(p) for p in payloads])
     return session
 
 
@@ -106,10 +104,10 @@ class TestFetchJobs:
         """The single request goes to api.ashbyhq.com with includeCompensation=true."""
         session = _make_session_mock(_LIST_RESPONSE)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             await fetch_jobs(_CONFIG)
 
-        first_url = session.get.call_args_list[0][0][0]
+        first_url = session.request.call_args_list[0][0][1]
         assert first_url.startswith("https://api.ashbyhq.com/posting-api/job-board/acme"), (
             f"Expected api.ashbyhq.com posting API, got: {first_url}"
         )
@@ -122,7 +120,7 @@ class TestFetchJobs:
         """Jobs are extracted from response['jobs'] and normalized correctly."""
         session = _make_session_mock(_LIST_RESPONSE)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert len(jobs) == 1
@@ -152,12 +150,12 @@ class TestFetchJobs:
         """Descriptions come inline — no per-job detail fetches."""
         session = _make_session_mock(_LIST_RESPONSE)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert len(jobs) == 1
-        assert session.get.call_count == 1, (
-            f"Expected exactly 1 GET per board, got {session.get.call_count}"
+        assert session.request.call_count == 1, (
+            f"Expected exactly 1 GET per board, got {session.request.call_count}"
         )
 
     @pytest.mark.asyncio
@@ -185,7 +183,7 @@ class TestFetchJobs:
         """A non-200 HTTP status logs a WARNING and returns [] for that board."""
         session = _make_session_mock({}, status=404)
 
-        with patch("aiohttp.ClientSession", return_value=session), \
+        with patch("httpx.AsyncClient", return_value=session), \
              caplog.at_level(logging.WARNING, logger="backend.job_sources.ashby"):
             jobs = await fetch_jobs(_CONFIG)
 
@@ -202,7 +200,7 @@ class TestFetchJobs:
         payload["jobs"][0]["isListed"] = False
         session = _make_session_mock(payload)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert jobs == []
@@ -214,7 +212,7 @@ class TestFetchJobs:
         payload["jobs"][0]["title"] = "Office Manager"
         session = _make_session_mock(payload)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert jobs == []
@@ -233,7 +231,7 @@ class TestFetchJobs:
         }
         session = _make_session_mock(payload)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(config)
 
         assert jobs == []
@@ -251,7 +249,7 @@ class TestFetchJobs:
         }
         session = _make_session_mock(payload)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert len(jobs) == 1
@@ -280,7 +278,7 @@ class TestFetchJobs:
         }
         session = _make_session_mock(payload)
 
-        with patch("aiohttp.ClientSession", return_value=session):
+        with patch("httpx.AsyncClient", return_value=session):
             jobs = await fetch_jobs(_CONFIG)
 
         assert jobs[0]["salary_min"] == 40

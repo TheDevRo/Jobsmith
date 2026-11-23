@@ -29,7 +29,9 @@ import logging
 import random
 from urllib.parse import urlencode, quote_plus
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client, send
 
 try:
     from playwright_stealth import stealth_async as _stealth_async
@@ -294,14 +296,13 @@ async def _byparr_solve(byparr_url: str, url: str) -> dict | None:
     if not byparr_url:
         return None
     try:
-        timeout = aiohttp.ClientTimeout(total=180)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with async_client() as session:
             payload = {"cmd": "request.get", "url": url, "max_timeout": 120}
-            async with session.post(byparr_url, json=payload) as resp:
-                if resp.status != 200:
-                    logger.warning("Indeed scraper: Byparr HTTP %d", resp.status)
-                    return None
-                data = await resp.json()
+            resp = await send(session, "POST", byparr_url, json=payload, timeout=180)
+            if resp.status_code != 200:
+                logger.warning("Indeed scraper: Byparr HTTP %d", resp.status_code)
+                return None
+            data = resp.json()
         if data.get("status") != "ok":
             logger.warning("Indeed scraper: Byparr error: %s", data.get("message"))
             return None
@@ -339,7 +340,7 @@ def _byparr_cookies_to_playwright(cookies: list[dict]) -> list[dict]:
 
 
 async def _byparr_get_html(
-    session: aiohttp.ClientSession, byparr_url: str, url: str, max_timeout: int = 60
+    session: httpx.AsyncClient, byparr_url: str, url: str, max_timeout: int = 60
 ) -> str | None:
     """Fallback fetch through Byparr when direct GET hits a CF challenge or
     rate-limit. Slower (~3-15s per call) but reliably bypasses Cloudflare.
@@ -348,13 +349,14 @@ async def _byparr_get_html(
         return None
     try:
         payload = {"cmd": "request.get", "url": url, "max_timeout": max_timeout}
-        async with session.post(
+        resp = await send(
+            session, "POST",
             byparr_url, json=payload,
-            timeout=aiohttp.ClientTimeout(total=max_timeout + 30),
-        ) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
+            timeout=max_timeout + 30,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
         if data.get("status") != "ok":
             return None
         return (data.get("solution") or {}).get("response")
@@ -364,9 +366,9 @@ async def _byparr_get_html(
 
 
 async def _direct_get_html(
-    session: aiohttp.ClientSession, url: str, cookies: dict[str, str], ua: str
+    session: httpx.AsyncClient, url: str, ua: str
 ) -> str | None:
-    """Fetch a URL directly via aiohttp with the cf_clearance cookies + UA we
+    """Fetch a URL directly with the session's cf_clearance cookies + the UA we
     already solved. Same egress IP + same UA + same cookies = Cloudflare lets
     us through without re-solving. Drastically faster than calling Byparr per
     page (each Byparr call would otherwise re-run a CF challenge).
@@ -377,19 +379,19 @@ async def _direct_get_html(
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
-        async with session.get(
-            url, cookies=cookies, headers=headers, timeout=aiohttp.ClientTimeout(total=20),
-            allow_redirects=True,
-        ) as resp:
-            if resp.status != 200:
-                logger.debug("Indeed scraper: direct GET %s -> HTTP %d", url[:80], resp.status)
-                return None
-            text = await resp.text()
-            # Sanity check: a Cloudflare challenge page is short and contains
-            # "Just a moment" or similar. Real /viewjob pages are 100kB+.
-            if len(text) < 5_000 and "just a moment" in text.lower():
-                return None
-            return text
+        resp = await send(
+            session, "GET",
+            url, headers=headers, timeout=20,
+        )
+        if resp.status_code != 200:
+            logger.debug("Indeed scraper: direct GET %s -> HTTP %d", url[:80], resp.status_code)
+            return None
+        text = resp.text
+        # Sanity check: a Cloudflare challenge page is short and contains
+        # "Just a moment" or similar. Real /viewjob pages are 100kB+.
+        if len(text) < 5_000 and "just a moment" in text.lower():
+            return None
+        return text
     except Exception as exc:
         logger.debug("Indeed scraper: direct fetch failed for %s: %s", url[:80], exc)
         return None
@@ -458,9 +460,8 @@ def _parse_viewjob_html(html_text: str) -> dict:
 
 
 async def _enrich_card(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     card: dict,
-    cookies: dict[str, str],
     ua: str,
     byparr_url: str,
     direct_sem: asyncio.Semaphore,
@@ -468,13 +469,13 @@ async def _enrich_card(
 ) -> None:
     """Fetch /viewjob and merge description/salary/job_type into card.
 
-    Strategy: try plain aiohttp first (fast, ~1-3s per call when CF cookies
+    Strategy: try a plain direct GET first (fast, ~1-3s per call when CF cookies
     are warm). If it fails or returns a CF challenge, fall back to Byparr
     (slow but reliable). Two semaphores so a slow Byparr fallback queue
     doesn't starve the fast direct path.
     """
     async with direct_sem:
-        html_text = await _direct_get_html(session, card["url"], cookies, ua)
+        html_text = await _direct_get_html(session, card["url"], ua)
     if not html_text and byparr_url:
         async with byparr_sem:
             html_text = await _byparr_get_html(session, byparr_url, card["url"])
@@ -820,7 +821,7 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
                 pass
 
     # Enrich each card with description, salary, and job_type from /viewjob.
-    # Direct aiohttp call with the cf_clearance + UA already solved — much
+    # Direct HTTP call with the cf_clearance + UA already solved — much
     # faster than re-solving via Byparr per page. Bounded by both an enrichment
     # budget (so we never blow the orchestrator's per-source wait_for) and the
     # remaining time after search/extract finished.
@@ -841,13 +842,16 @@ async def fetch_jobs(config: dict, known_ids: set[str] | None = None) -> list[di
         # Whatever remains of the overall budget, capped at the phase max.
         enrich_timeout = max(30.0, min(_ENRICH_BUDGET, hard_deadline - loop.time()))
         try:
-            connector = aiohttp.TCPConnector(limit=10)
-            async with aiohttp.ClientSession(connector=connector) as session:
+            # cf_clearance rides on the client so it merges with any cookies
+            # Indeed sets along the way (httpx deprecates per-request cookies).
+            async with async_client(
+                cookies=cf_cookies, limits=httpx.Limits(max_connections=10),
+            ) as session:
                 await asyncio.wait_for(
                     asyncio.gather(
                         *[
                             _enrich_card(
-                                session, card, cf_cookies, ua_for_enrich,
+                                session, card, ua_for_enrich,
                                 byparr_url, direct_sem, byparr_sem,
                             )
                             for card in to_enrich

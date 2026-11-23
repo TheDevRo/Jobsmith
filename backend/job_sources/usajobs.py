@@ -10,8 +10,9 @@ import asyncio
 import json
 import logging
 
-import aiohttp
+import httpx
 
+from ..http_client import async_client
 from . import clean_description
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
         "Authorization-Key": api_key,
     }
 
-    async def _fetch_combo(session: aiohttp.ClientSession, keyword: str, location: str) -> None:
+    async def _fetch_combo(session: httpx.AsyncClient, keyword: str, location: str) -> None:
         params = {
             "Keyword": keyword,
             "LocationName": location if location.lower() != "remote" else "",
@@ -102,7 +103,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
             async with sem:
                 status, body = await fetch_with_retries(
                     session, BASE_URL, params=params, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=30,
                 )
             if status != 200:
                 logger.warning("USAJobs returned %d for keyword=%s", status, keyword)
@@ -176,7 +177,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
                 ),
             })
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         outcomes = await asyncio.gather(
             *[_fetch_combo(session, kw, loc) for kw in keywords for loc in locations],
             return_exceptions=True,

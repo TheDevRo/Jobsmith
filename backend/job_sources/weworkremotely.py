@@ -6,9 +6,12 @@ Covers all major job categories, not just devops/sysadmin.
 
 import asyncio
 import logging
+import re
+import xml.etree.ElementTree as ET
 
-import aiohttp
-import feedparser
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,32 @@ def _parse_title_company(raw_title: str) -> tuple[str, str]:
     return raw_title, ""
 
 
+# A bare "&" (e.g. "Smith & Jones") is the usual way a feed stops being valid
+# XML; feedparser tolerated it, so escape it and retry once before giving up.
+_BARE_AMP_RE = re.compile(r"&(?!#?\w+;)")
+
+
+def _parse_items(body: str) -> list[dict[str, str]]:
+    """Return link/title/summary/published for each RSS <item>, text decoded."""
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        root = ET.fromstring(_BARE_AMP_RE.sub("&amp;", body))
+
+    def text(item: ET.Element, tag: str) -> str:
+        return (item.findtext(tag) or "").strip()
+
+    return [
+        {
+            "link": text(item, "link"),
+            "title": text(item, "title"),
+            "summary": text(item, "description"),
+            "published": text(item, "pubDate"),
+        }
+        for item in root.iter("item")
+    ]
+
+
 def _matches_keywords(title: str, description: str, keywords: list[str]) -> bool:
     from . import matches_keywords
     return matches_keywords(f"{title} {description}", keywords)
@@ -77,13 +106,12 @@ async def fetch_jobs(config: dict) -> list[dict]:
         "Accept": "application/rss+xml, application/xml, text/xml, */*",
     }
 
-    async def _fetch_feed(session: aiohttp.ClientSession, feed_url: str) -> None:
+    async def _fetch_feed(session: httpx.AsyncClient, feed_url: str) -> None:
         try:
             async with sem:
                 status, body = await fetch_with_retries(
                     session, feed_url, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                    allow_redirects=True,
+                    timeout=30,
                 )
             if status != 200:
                 logger.warning("WeWorkRemotely feed %s returned %d", feed_url, status)
@@ -92,16 +120,20 @@ async def fetch_jobs(config: dict) -> list[dict]:
             logger.exception("Failed to fetch feed %s", feed_url)
             return
 
-        feed = feedparser.parse(body)
-        for entry in feed.entries:
-            link = entry.get("link", "")
+        try:
+            entries = _parse_items(body)
+        except ET.ParseError as exc:
+            logger.warning("WeWorkRemotely feed %s is not valid XML: %s", feed_url, exc)
+            return
+        for entry in entries:
+            link = entry["link"]
             if link in seen_links:
                 continue
             seen_links.add(link)
 
-            raw_title = entry.get("title", "")
+            raw_title = entry["title"]
             title, company = _parse_title_company(raw_title)
-            description = _strip_html(entry.get("summary", entry.get("description", "")))
+            description = _strip_html(entry["summary"])
 
             if not _matches_keywords(title, description, keywords):
                 continue
@@ -119,11 +151,11 @@ async def fetch_jobs(config: dict) -> list[dict]:
                 "salary_min": None,
                 "salary_max": None,
                 "tags": [],
-                "date_posted": entry.get("published", ""),
+                "date_posted": entry["published"],
                 "is_remote": True,
             })
 
-    async with aiohttp.ClientSession() as session:
+    async with async_client() as session:
         outcomes = await asyncio.gather(
             *[_fetch_feed(session, url) for url in FEEDS],
             return_exceptions=True,

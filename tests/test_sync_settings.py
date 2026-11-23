@@ -107,7 +107,7 @@ def test_profile_map_round_trips_new_iOS_owned_fields():
 def test_http_secret_fields_are_registry_api_masked():
     # routers/settings pulls the (optional) auto_apply stack; skip cleanly when
     # those deps aren't installed rather than failing on an unrelated import.
-    pytest.importorskip("aiohttp")
+    pytest.importorskip("httpx")
     from backend.routers.settings import _SECRET_FIELDS
 
     masked = sr.api_masked_keys()

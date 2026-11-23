@@ -19,11 +19,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import TYPE_CHECKING
 
-import aiohttp
-
 from .. import nli, prompt_registry
+from ..http_client import async_client, send
 
 if TYPE_CHECKING:
     from .models import FieldDescriptor, FieldValue, JobApplicationRequest, UserProfile
@@ -91,16 +91,17 @@ class LLMClient:
         last_exc: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
+                async with async_client() as session:
+                    resp = await send(
+                        session, "POST",
                         f"{self.base_url}/chat/completions",
                         json=payload,
                         headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=90),
-                    ) as resp:
-                        resp.raise_for_status()
-                        data = await resp.json()
-                        return data["choices"][0]["message"]["content"]
+                        timeout=90,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
             except Exception as exc:
                 last_exc = exc
                 if attempt < max_retries:
@@ -472,20 +473,11 @@ def _extract_json(text: str) -> list | dict:
     """
     Strip markdown fences and parse JSON from LLM output.
 
-    Fallback chain (handles quirks of local LLMs):
-      1. json.loads             — standard JSON
-      2. json.loads(_normalize) — Python-style single quotes / trailing commas,
-                                   repaired to strict JSON WITHOUT evaluating the
-                                   model output as code
-
-    Leading prose before the first [ or { is trimmed.
-    Trailing prose after the matching closing ] or } is trimmed using a
-    bracket-depth counter so models that append explanations don't break
-    parsing.
-
-    Pattern from AIHawk: local models frequently return single-quoted dicts
-    or prepend/append commentary around the JSON payload. We repair those
-    quirks textually rather than handing the string to any Python evaluator.
+    Leading prose before the first [ or { is trimmed, and anything after the
+    first complete JSON value (models like to append explanations) is ignored.
+    If strict parsing fails, Python-style near-JSON (single quotes, trailing
+    commas) is repaired textually and parsed again. The model output is never
+    evaluated as code.
     """
     text = text.strip()
 
@@ -505,27 +497,16 @@ def _extract_json(text: str) -> list | dict:
                 text = text[idx:]
                 break
 
-    # Trim trailing prose after the closing ] or } using a bracket-depth
-    # counter.  This handles models that append an explanation after the JSON.
-    text = _trim_trailing_prose(text)
-
-    # Attempt 1: standard JSON
     try:
-        return json.loads(text)
+        return _decode_leading(text)
     except json.JSONDecodeError:
         pass
 
-    # Attempt 2: repair Python-style near-JSON (single-quoted strings/keys,
-    # trailing commas) into strict JSON and parse it with json.loads.
-    #
-    # This deliberately does NOT use ast.literal_eval or any other evaluator:
-    # the model output is only ever transformed textually and handed to the
-    # strict JSON parser, so malformed or hostile output cannot execute code.
-    # Cap the input so the char-by-char repair pass can't be turned into a
+    # Cap the input so the repair pass can't be turned into a
     # resource-exhaustion vector by a runaway generation.
     if len(text) <= _MAX_JSON_REPAIR_CHARS:
         try:
-            result = json.loads(_normalize_json_like(text))
+            result = _decode_leading(_normalize_json_like(text))
             if isinstance(result, (list, dict)):
                 return result
         except json.JSONDecodeError:
@@ -535,125 +516,37 @@ def _extract_json(text: str) -> list | dict:
     raise json.JSONDecodeError("Cannot parse LLM output as JSON or Python literal", text, 0)
 
 
+def _decode_leading(text: str):
+    """Parse the JSON array/object at the start of *text*, ignoring whatever
+    follows it. Text that doesn't open with [ or { must be JSON in full."""
+    if text[:1] in ("[", "{"):
+        return json.JSONDecoder().raw_decode(text)[0]
+    return json.loads(text)
+
+
+# One left-to-right scan: a double-quoted string (kept verbatim), a
+# single-quoted string (rewritten), or a comma that only has whitespace before
+# the next ] or } (dropped). Strings are consumed whole, so quotes and commas
+# inside them are never touched.
+_NEAR_JSON_TOKEN = re.compile(
+    r'"(?:\\.|[^"\\])*"'
+    r"|'((?:\\.|[^'\\])*)'"
+    r"|,(?=[ \t\r\n]*[\]}])",
+    re.DOTALL,
+)
+
+
 def _normalize_json_like(text: str) -> str:
-    """
-    Best-effort repair of near-JSON emitted by local models so it parses as
-    strict JSON, without evaluating it as code.
+    """Repair Python-style near-JSON emitted by local models: single-quoted
+    strings/keys become double-quoted (escaping any bare " inside), and
+    trailing commas before ] or } are removed."""
+    def fix(m: re.Match) -> str:
+        token = m.group(0)
+        if token == ",":
+            return ""
+        if token[0] == '"':
+            return token
+        inner = re.sub(r'\\.|"', lambda e: '\\"' if e.group(0) == '"' else e.group(0), m.group(1))
+        return f'"{inner}"'
 
-    Two conservative, string-aware transforms:
-      * unambiguous single-quoted strings/keys → double-quoted
-      * trailing commas before a closing ] or } removed
-
-    Both passes track string state so commas or quotes *inside* string values
-    are left untouched. Genuinely ambiguous input (e.g. an apostrophe inside a
-    single-quoted value) simply won't parse and falls through to the caller's
-    error path — same outcome as before, with no code evaluation.
-    """
-    return _strip_trailing_commas(_single_to_double_quotes(text))
-
-
-def _single_to_double_quotes(text: str) -> str:
-    """Convert single-quoted strings/keys to double-quoted, skipping over any
-    already-double-quoted spans so their contents are preserved verbatim."""
-    out: list[str] = []
-    i, n = 0, len(text)
-    in_double = False   # inside a "…" span (leave verbatim)
-    in_single = False   # inside a '…' span we are rewriting to "…"
-    while i < n:
-        ch = text[i]
-        if in_double:
-            out.append(ch)
-            if ch == "\\" and i + 1 < n:
-                out.append(text[i + 1]); i += 2; continue
-            if ch == '"':
-                in_double = False
-            i += 1; continue
-        if in_single:
-            if ch == "\\" and i + 1 < n:
-                out.append(ch); out.append(text[i + 1]); i += 2; continue
-            if ch == '"':
-                out.append('\\"'); i += 1; continue   # escape bare " inside
-            if ch == "'":
-                out.append('"'); in_single = False; i += 1; continue
-            out.append(ch); i += 1; continue
-        # Outside any string
-        if ch == '"':
-            in_double = True; out.append(ch); i += 1; continue
-        if ch == "'":
-            in_single = True; out.append('"'); i += 1; continue
-        out.append(ch); i += 1
-    return "".join(out)
-
-
-def _strip_trailing_commas(text: str) -> str:
-    """Drop commas that immediately precede a closing ] or } (ignoring
-    whitespace), skipping over double-quoted strings."""
-    out: list[str] = []
-    i, n = 0, len(text)
-    in_string = False
-    while i < n:
-        ch = text[i]
-        if in_string:
-            out.append(ch)
-            if ch == "\\" and i + 1 < n:
-                out.append(text[i + 1]); i += 2; continue
-            if ch == '"':
-                in_string = False
-            i += 1; continue
-        if ch == '"':
-            in_string = True; out.append(ch); i += 1; continue
-        if ch == ",":
-            j = i + 1
-            while j < n and text[j] in " \t\r\n":
-                j += 1
-            if j < n and text[j] in "]}":
-                i += 1; continue   # drop this trailing comma
-        out.append(ch); i += 1
-    return "".join(out)
-
-
-def _trim_trailing_prose(text: str) -> str:
-    """
-    Return the shortest prefix of *text* that contains a complete top-level
-    JSON array or object, discarding any characters that follow the matching
-    closing bracket.
-
-    Uses a bracket-depth counter that also skips over string literals so that
-    brackets inside quoted values do not affect the depth count.
-    """
-    if not text:
-        return text
-
-    opener = text[0]
-    if opener == "[":
-        closer = "]"
-    elif opener == "{":
-        closer = "}"
-    else:
-        return text  # No JSON opener found — return as-is
-
-    depth = 0
-    in_string = False
-    escape_next = False
-
-    for i, ch in enumerate(text):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\" and in_string:
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == opener:
-            depth += 1
-        elif ch == closer:
-            depth -= 1
-            if depth == 0:
-                return text[: i + 1]
-
-    # Unbalanced — return original so the caller's parser gives a clear error
-    return text
+    return _NEAR_JSON_TOKEN.sub(fix, text)

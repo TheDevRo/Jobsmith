@@ -18,7 +18,9 @@ import asyncio
 import json
 import logging
 
-import aiohttp
+import httpx
+
+from ..http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,7 @@ def detect_ashby_apply_type(job: dict) -> str:
 
 
 async def _fetch_board(
-    session: aiohttp.ClientSession,
+    session: httpx.AsyncClient,
     board: str,
     keywords: list[str],
     exclude_patterns: tuple,
@@ -128,7 +130,7 @@ async def _fetch_board(
 
     try:
         status, body = await fetch_with_retries(
-            session, url, timeout=aiohttp.ClientTimeout(total=30),
+            session, url, timeout=30,
         )
         if status != 200:
             logger.warning("Ashby board %s returned %d", board, status)
@@ -204,7 +206,7 @@ async def fetch_jobs(config: dict) -> list[dict]:
     deadline = loop.time() + _INTERNAL_BUDGET
     sem = asyncio.Semaphore(_BOARD_CONCURRENCY)
 
-    async with aiohttp.ClientSession(
+    async with async_client(
         headers={"User-Agent": "Jobsmith/1.0"}
     ) as session:
         async def _run_board(board: str) -> None:
