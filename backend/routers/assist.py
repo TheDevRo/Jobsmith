@@ -418,7 +418,7 @@ async def assist_file(type: str = Query(..., pattern="^(resume|cover_letter)$"),
     docx_path = session["resume_path"] if type == "resume" else session["cover_letter_path"]
 
     cfg = state.load_config()
-    fmt = cfg.get("application_honesty", {}).get("document_format", "docx")
+    fmt = cfg.get("application_honesty", {}).get("document_format", "pdf")
     prefer_pdf = str(fmt).lower() == "pdf"
     pdf_path = docx_path.with_suffix(".pdf")
 

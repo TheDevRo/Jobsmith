@@ -238,9 +238,9 @@ application_honesty:
   #   default | navy | burgundy | forest | plum | charcoal
   resume_accent: default
   # Output format for the generated resume & cover letter:
-  #   docx — Microsoft Word (default)
-  #   pdf  — PDF rendered in pure Python (ReportLab); a DOCX is also kept
-  document_format: docx
+  #   pdf  — PDF rendered in pure Python (ReportLab); a DOCX is also kept (default)
+  #   docx — Microsoft Word
+  document_format: pdf
   # Cap how many past roles appear on tailored resumes (1-20, or null = include all).
   # When set, the local LLM ranks non-pinned roles by relevance to each target job
   # and selects the top scorers. Pin roles in the Profile tab to force-include them.

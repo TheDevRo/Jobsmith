@@ -1157,11 +1157,11 @@ def generate_cover_letter_docx(content: str, profile: dict, job: dict, config: d
 
 
 def _document_format(config: dict | None) -> str:
-    """Return the configured output format: 'pdf' or 'docx' (default)."""
+    """Return the configured output format: 'pdf' (default) or 'docx'."""
     if not config:
-        return "docx"
-    fmt = config.get("application_honesty", {}).get("document_format", "docx")
-    return "pdf" if str(fmt).lower() == "pdf" else "docx"
+        return "pdf"
+    fmt = config.get("application_honesty", {}).get("document_format", "pdf")
+    return "docx" if str(fmt).lower() == "docx" else "pdf"
 
 
 def _pdf_esc(text: str) -> str:

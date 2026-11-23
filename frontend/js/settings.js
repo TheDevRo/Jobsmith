@@ -138,7 +138,7 @@ async function loadSettings() {
 
     try {
         const df = await api('/api/settings/document-format');
-        _applyDocumentFormat(df.document_format || 'docx');
+        _applyDocumentFormat(df.document_format || 'pdf');
     } catch (e) { /* non-fatal */ }
 
     try {
