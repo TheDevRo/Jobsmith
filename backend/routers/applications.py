@@ -16,6 +16,7 @@ from .. import database as db
 from .. import ai_engine
 from .. import resume_generator
 from .. import auto_apply
+from .. import facts as facts_mod
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,56 @@ class ApplicationReviseRequest(BaseModel):
     instructions: str
     model_tier: Optional[str] = None  # "fast" | "strong"; falls back to global default
     honesty_level: Optional[str] = None  # honest | tailored | embellished | fabricated; falls back to global default
+
+
+class FactBody(BaseModel):
+    text: str
+
+
+def _facts_payload(facts: list[dict]) -> dict:
+    return {"facts": facts, "max_facts": facts_mod.MAX_FACTS, "max_chars": facts_mod.MAX_FACT_CHARS}
+
+
+def _clean_fact_or_400(text: str) -> str:
+    try:
+        return facts_mod.clean_fact(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/api/applications/{app_id}/facts")
+async def list_application_facts(app_id: str):
+    """Facts the candidate keeps for this application (sent with every AI write/edit)."""
+    if not await db.application_exists(app_id):
+        raise HTTPException(404, "Application not found")
+    return _facts_payload(await db.get_application_facts(app_id))
+
+
+@router.post("/api/applications/{app_id}/facts", status_code=201)
+async def add_application_fact(app_id: str, body: FactBody):
+    text = _clean_fact_or_400(body.text)
+    if not await db.application_exists(app_id):
+        raise HTTPException(404, "Application not found")
+    try:
+        fact = await db.add_application_fact(app_id, text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return fact
+
+
+@router.patch("/api/applications/{app_id}/facts/{fact_id}")
+async def update_application_fact(app_id: str, fact_id: int, body: FactBody):
+    text = _clean_fact_or_400(body.text)
+    if not await db.update_application_fact(app_id, fact_id, text):
+        raise HTTPException(404, "Fact not found")
+    return {"id": fact_id, "text": text}
+
+
+@router.delete("/api/applications/{app_id}/facts/{fact_id}")
+async def delete_application_fact(app_id: str, fact_id: int):
+    if not await db.delete_application_fact(app_id, fact_id):
+        raise HTTPException(404, "Fact not found")
+    return {"ok": True}
 
 
 @router.get("/api/applications/pending")
@@ -411,16 +462,18 @@ async def revise_application_content(app_id: str, body: ApplicationReviseRequest
         if honesty_level not in state.VALID_HONESTY_LEVELS:
             honesty_level = "honest"
 
+    app_facts = [f["text"] for f in await db.get_application_facts(app_id)]
+
     if body.target == "resume":
         current = row.get("resume_content") or ""
         if not current:
             raise HTTPException(400, "No tailored resume exists yet for this application")
-        revised = await ai_engine.revise_tailored_resume(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level)
+        revised = await ai_engine.revise_tailored_resume(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level, app_facts=app_facts)
     else:
         current = row.get("cover_letter_content") or ""
         if not current:
             raise HTTPException(400, "No cover letter exists yet for this application")
-        revised = await ai_engine.revise_cover_letter(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level)
+        revised = await ai_engine.revise_cover_letter(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level, app_facts=app_facts)
 
     return {"revised_content": revised, "model_tier": tier, "honesty_level": honesty_level}
 

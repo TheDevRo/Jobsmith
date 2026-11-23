@@ -505,6 +505,7 @@ async def _job_request_for(job_id: Optional[str], fallback_url: str) -> JobAppli
         if row:
             return JobApplicationRequest(
                 job_id=str(row.get("id", job_id)),
+                application_id=await db.get_latest_application_id(job_id) or "",
                 title=row.get("title", ""),
                 company=row.get("company", ""),
                 url=row.get("url", fallback_url),

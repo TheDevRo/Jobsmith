@@ -26,6 +26,7 @@ from openai import (
 from . import apple_bridge
 from . import nli
 from . import prompt_registry
+from .facts import facts_block, profile_facts
 
 logger = logging.getLogger(__name__)
 
@@ -888,6 +889,7 @@ async def generate_tailored_resume(
     config: dict,
     honesty_level: str = "honest",
     match_report: Optional[dict] = None,
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Generate a tailored resume text for a specific job.
 
@@ -914,6 +916,7 @@ async def generate_tailored_resume(
         job_description=job.get("description", "")[:5000],
         profile_summary=_profile_summary(profile, selected_experiences),
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await _llm_create_with_retry(
@@ -952,7 +955,8 @@ def _tone_instruction(tone: str) -> str:
 
 
 async def generate_cover_letter(
-    job: dict, profile: dict, config: dict, honesty_level: str = "honest"
+    job: dict, profile: dict, config: dict, honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Generate a tailored cover letter for a specific job.
 
@@ -980,6 +984,7 @@ async def generate_cover_letter(
         job_description=job.get("description", "")[:5000],
         profile_summary=_profile_summary(profile, selected_experiences),
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await _llm_create_with_retry(
@@ -1005,6 +1010,7 @@ async def revise_tailored_resume(
     config: dict,
     tier: str = "strong",
     honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Revise an already-tailored resume according to user instructions.
 
@@ -1031,6 +1037,7 @@ async def revise_tailored_resume(
         user_instructions=user_instructions,
         current_resume=current_resume_text,
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await client.chat.completions.create(
@@ -1055,6 +1062,7 @@ async def revise_cover_letter(
     config: dict,
     tier: str = "strong",
     honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Revise an already-generated cover letter according to user instructions.
 
@@ -1081,6 +1089,7 @@ async def revise_cover_letter(
         user_instructions=user_instructions,
         current_letter=current_letter_text,
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await client.chat.completions.create(

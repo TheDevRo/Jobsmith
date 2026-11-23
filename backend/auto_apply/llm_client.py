@@ -22,7 +22,9 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from .. import facts as facts_mod
 from .. import nli, prompt_registry
+from ..facts import facts_block
 from ..http_client import async_client, send
 
 if TYPE_CHECKING:
@@ -400,8 +402,16 @@ class LLMClient:
         system = prompt_registry.render_prompt(
             self._config, "auto_apply_answer", max_words=max_words
         )
+        # Facts the candidate wrote count as part of the profile for this rule.
+        app_facts: list[str] = []
+        if getattr(job, "application_id", ""):
+            from .. import database as db
+            app_facts = [f["text"] for f in await db.get_application_facts(job.application_id)]
+        facts = facts_block(
+            facts_mod.profile_facts((self._config or {}).get("profile")), app_facts
+        )
         user = (
-            f"CANDIDATE PROFILE:\n{profile.to_text()}\n\n"
+            f"CANDIDATE PROFILE:\n{profile.to_text()}\n{facts}\n"
             f"JOB: {job.title} at {job.company}\n\n"
             f"QUESTION: {question}\n\n"
             "ANSWER:"

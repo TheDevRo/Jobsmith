@@ -131,6 +131,16 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
                 updated_at      TEXT
             )"""),
     (29, "CREATE INDEX IF NOT EXISTS idx_ats_accounts_provider ON ats_accounts(provider)"),
+    # Short true statements the candidate keeps for one application; they ride
+    # along with every AI write/edit of it (see backend/facts.py). Local only —
+    # not part of the sync contract.
+    (30, """CREATE TABLE IF NOT EXISTS application_facts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+                text           TEXT NOT NULL,
+                created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"""),
+    (31, "CREATE INDEX IF NOT EXISTS idx_application_facts_app ON application_facts(application_id)"),
 ]
 
 
@@ -805,6 +815,11 @@ async def purge_deleted_jobs(job_ids: list[str] | None = None) -> int:
         # application_events has no ON DELETE CASCADE — clear children first.
         await db.execute(
             f"""DELETE FROM application_events WHERE application_id IN (
+                    SELECT id FROM applications WHERE job_id IN ({scope}))""",
+            params,
+        )
+        await db.execute(
+            f"""DELETE FROM application_facts WHERE application_id IN (
                     SELECT id FROM applications WHERE job_id IN ({scope}))""",
             params,
         )
@@ -1705,6 +1720,112 @@ async def update_application_content(app_id: str, resume_content: str, cover_let
         )
         await db.commit()
         return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def application_exists(app_id: str) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT 1 FROM applications WHERE id = ?", (app_id,))
+        return await cursor.fetchone() is not None
+    finally:
+        await db.close()
+
+
+async def get_application_facts(app_id: str) -> list[dict]:
+    """The candidate's facts for one application, oldest first."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, text FROM application_facts WHERE application_id = ? ORDER BY id",
+            (app_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def add_application_fact(app_id: str, text: str) -> dict:
+    """Add one fact (already validated). ValueError when the cap is reached."""
+    from . import facts as facts_mod
+
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS n FROM application_facts WHERE application_id = ?", (app_id,)
+        )
+        facts_mod.check_new_count((await cursor.fetchone())["n"])
+        cursor = await db.execute(
+            "INSERT INTO application_facts (application_id, text) VALUES (?, ?)", (app_id, text)
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "text": text}
+    finally:
+        await db.close()
+
+
+async def update_application_fact(app_id: str, fact_id: int, text: str) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE application_facts SET text = ? WHERE id = ? AND application_id = ?",
+            (text, fact_id, app_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def delete_application_fact(app_id: str, fact_id: int) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM application_facts WHERE id = ? AND application_id = ?",
+            (fact_id, app_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_job_pending_facts(job_id: str) -> list[str]:
+    """Fact texts on the job's un-reviewed drafts. A re-tailor replaces the
+    draft, so tailoring reads these first and copies them to the new one."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT f.text FROM application_facts f
+               JOIN applications a ON a.id = f.application_id
+               WHERE a.job_id = ? AND a.status = 'pending_review'
+               ORDER BY f.id""",
+            (job_id,),
+        )
+        seen: list[str] = []
+        for r in await cursor.fetchall():
+            if r["text"] not in seen:
+                seen.append(r["text"])
+        return seen[:50]
+    finally:
+        await db.close()
+
+
+async def add_application_facts(app_id: str, texts: list[str]) -> None:
+    for t in texts:
+        await add_application_fact(app_id, t)
+
+
+async def get_latest_application_id(job_id: str) -> Optional[str]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM applications WHERE job_id = ? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (job_id,),
+        )
+        row = await cursor.fetchone()
+        return row["id"] if row else None
     finally:
         await db.close()
 
