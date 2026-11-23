@@ -38,17 +38,24 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov jsonschema
       - name: Install optional extras
         # browser-use is feature-flagged out of requirements.txt and the Docker
         # image, but tests/auto_apply/test_browser_use_agent.py patches its Agent
         # and skips itself without it — including the constraint tests that pin
         # directly_open_url/use_vision to False. Install it so those actually run.
-        run: pip install -r requirements-optional.txt
+        #
+        # Installed FIRST on purpose: browser-use 0.13.x hard-pins an old pypdf,
+        # so installing it after the app's deps would quietly downgrade them and
+        # the suite would test versions Docker never ships.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-optional.txt
+      - name: Install dependencies
+        # requirements.lock is exactly what the Docker image installs, so test
+        # against it. It overrides browser-use's pins; pip warns about that.
+        run: |
+          pip install -r requirements.lock
+          pip install pytest pytest-asyncio pytest-cov jsonschema
       - name: Seed config.yaml
         # A fresh checkout has no config.yaml (it's gitignored). The app writes one
         # from the example on first boot, but TestClient(app) never runs that
