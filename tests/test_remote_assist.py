@@ -56,3 +56,12 @@ def test_external_origin_rejects_unsafe_configuration(monkeypatch, value):
     monkeypatch.setenv("JOBSMITH_EXTERNAL_URL", value)
     with pytest.raises(ValueError):
         assist._external_base_url()
+
+
+def test_malformed_external_url_returns_clear_error(client, monkeypatch):
+    monkeypatch.setenv("JOBSMITH_EXTERNAL_URL", "http://jobs.example")
+    monkeypatch.setattr(applicant_assist, "get_handoff_session", lambda sid: {"id": sid})
+    headers = {"X-Jobsmith-Token": extension_api.get_or_create_token()}
+    response = client.get("/assist/launch/session-1", headers=headers)
+    assert response.status_code == 500
+    assert "JOBSMITH_EXTERNAL_URL" in response.json()["detail"]

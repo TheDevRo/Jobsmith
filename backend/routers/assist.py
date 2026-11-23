@@ -37,8 +37,18 @@ def _external_base_url() -> str:
     return value
 
 
+def _configured_external_base() -> str:
+    """_external_base_url() for request handlers: a malformed setting becomes a
+    500 that names the problem instead of an unexplained server error."""
+    try:
+        return _external_base_url()
+    except ValueError as exc:
+        logger.error("%s", exc)
+        raise HTTPException(500, str(exc)) from exc
+
+
 def _is_external_request(request: Request) -> bool:
-    base = _external_base_url()
+    base = _configured_external_base()
     return bool(base and request.headers.get("host", "") == urlsplit(base).netloc)
 
 
@@ -514,7 +524,7 @@ async def assist_launch(req: AssistLaunchRequest):
     # preferred port, so the env var must win or the launch URL points at the
     # wrong (or no) server.
     port = int(os.environ.get("JOBSMITH_PORT") or cfg.get("server", {}).get("port", 8888))
-    external_base = _external_base_url()
+    external_base = _configured_external_base()
     launch_url = f"{external_base or f'http://127.0.0.1:{port}'}/assist/launch/{record['id']}"
 
     opened = False

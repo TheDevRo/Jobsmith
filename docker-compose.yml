@@ -32,6 +32,9 @@ services:
       JOBSMITH_AI_BASE_URL: ${JOBSMITH_AI_BASE_URL:-}
       JOBSMITH_AI_API_KEY: ${JOBSMITH_AI_API_KEY:-}
       JOBSMITH_FLARESOLVERR_URL: ${JOBSMITH_FLARESOLVERR_URL:-}
+      # HTTPS origin this instance is reached at through a reverse proxy, for
+      # Apply Assist from another machine's browser (see extension/README.md).
+      JOBSMITH_EXTERNAL_URL: ${JOBSMITH_EXTERNAL_URL:-}
       BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
       VNC_PASSWORD: ${VNC_PASSWORD:-}
       # Mirrors the port binding above so the entrypoint knows whether noVNC is
