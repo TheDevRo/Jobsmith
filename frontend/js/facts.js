@@ -40,7 +40,7 @@ function mountFactsEditor(host, opts) {
         const edit = el('button', { className: 'btn btn-secondary btn-sm', type: 'button', textContent: 'Edit' });
         const remove = el('button', { className: 'btn btn-secondary btn-sm', type: 'button', textContent: 'Remove' });
         const line = el('div', { className: 'fact-row' }, text, edit, remove);
-        line.style.cssText = 'display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-bottom:4px';
+        line.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:4px';
         remove.onclick = async () => {
             try { await api(`${path}/${f.id}`, { method: 'DELETE' }); } catch (e) { fail(e); return; }
             await load();
@@ -73,7 +73,7 @@ function mountFactsEditor(host, opts) {
         input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
 
         const title = el('div', { textContent: `${label} (${facts.length}/${maxFacts})` });
-        title.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px';
+        title.style.cssText = 'font-size:13px;font-weight:500;color:var(--text-secondary);margin-bottom:4px';
         const note = el('div', { textContent: hint });
         note.style.cssText = 'font-size:11px;color:var(--text-muted);margin-bottom:6px';
         host.replaceChildren(title, note, ...facts.map(row), addRow);
