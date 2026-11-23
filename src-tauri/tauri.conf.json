@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Jobsmith",
+  "productName": "Jobsmith Test",
   "version": "../package.json",
-  "identifier": "com.thedevro.jobsmith",
+  "identifier": "com.thedevro.jobsmith.test",
   "build": {
     "frontendDist": "../packaging/splash",
     "devUrl": "http://localhost:8888"

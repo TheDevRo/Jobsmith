@@ -49,7 +49,7 @@ fn app_home() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        PathBuf::from(home).join("Library/Application Support/Jobsmith")
+        PathBuf::from(home).join("Library/Application Support/Jobsmith Test")
     }
     #[cfg(target_os = "windows")]
     {

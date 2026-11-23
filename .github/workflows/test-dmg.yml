@@ -1,0 +1,31 @@
+# TEST BUILD ONLY. Lives on the throwaway test/dossier-ideas branch; never merge.
+name: Test DMG
+on:
+  push:
+    branches: [test/dossier-ideas]
+permissions:
+  contents: read
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install deps
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements.lock pyinstaller
+          npm ci
+      - name: Build
+        run: scripts/build_desktop.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jobsmith-test-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          retention-days: 14

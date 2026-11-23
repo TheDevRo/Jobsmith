@@ -64,7 +64,7 @@ def watch_parent(parent_pid: int, shell_pid: int = 0) -> None:
 
 def app_home() -> Path:
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Jobsmith"
+        return Path.home() / "Library" / "Application Support" / "Jobsmith Test"
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", Path.home())) / "Jobsmith"
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "Jobsmith"
