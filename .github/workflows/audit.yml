@@ -30,9 +30,14 @@ jobs:
         # requirements.lock is audited separately from the floors: the lock is
         # what the Docker image actually installs, so a vulnerable pin there is
         # a shipped vulnerability even when the floor would allow a fixed version.
+        #
+        # requirements-optional.txt is not audited here: browser-use 0.13.x
+        # hard-pins pypdf==6.16.2, which can't be resolved together with the
+        # patched pypdf floor, so pip-audit would error out before auditing
+        # anything. See the note in requirements-optional.txt.
         run: |
           pip install pip-audit
-          pip-audit --strict -r requirements.txt -r requirements-optional.txt
+          pip-audit --strict -r requirements.txt
           pip-audit --strict -r requirements.lock
 
   npm-audit:

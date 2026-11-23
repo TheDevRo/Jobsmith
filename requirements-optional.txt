@@ -15,5 +15,12 @@
 #
 # Docker: add `RUN pip install -r requirements-optional.txt` to a derived image,
 # or `pip install -r requirements-optional.txt` inside the running container.
+#
+# Known conflict: browser-use 0.13.x hard-pins pypdf==6.16.2, which has
+# published CVEs (fixed in 6.21.4; requirements.txt requires that). Installing
+# this file downgrades pypdf. Re-run `pip install -r requirements.lock`
+# afterwards to restore the patched version (pip will warn about browser-use's
+# pin; the default apply path doesn't use browser-use). browser-use 1.x is a
+# rewrite on pydantic-ai and isn't supported by backend/browser_use_agent.py.
 
 browser-use==0.13.14
