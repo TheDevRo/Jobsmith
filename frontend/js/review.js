@@ -757,6 +757,23 @@ function renderReviewMatchChips(app) {
     `;
 }
 
+// "Check this: …" — terms in AI-written text that the profile, posting and facts
+// don't back (backend/fact_guard.py). A warning only; empty when there is nothing to flag.
+function renderFactCheck(terms) {
+    if (!terms || !terms.length) return '';
+    return `<div class="fact-check" style="margin:6px 0;padding:6px 10px;border-radius:6px;border:1px solid var(--accent-orange);font-size:12px;color:var(--accent-orange)" title="These names, numbers or credentials aren't in your profile, the posting or your facts. Make sure they're true.">Check this: ${terms.map(escapeHtml).join(', ')}</div>`;
+}
+
+function _factFlagsFor(app, tab) {
+    const flags = safeParseJSON(app && app.fact_flags, null) || {};
+    return (tab === 'cover' ? flags.cover_letter : tab === 'resume' ? flags.resume : null) || [];
+}
+
+function _refreshFactCheck(appId) {
+    const el = document.getElementById(`factcheck-${appId}`);
+    if (el) el.innerHTML = renderFactCheck(_factFlagsFor(_getAppData(appId), _getCurrentTab(appId)));
+}
+
 function renderReviewQueue(apps) {
     const container = document.getElementById('review-list');
     if (apps.length === 0) {
@@ -789,6 +806,7 @@ function renderReviewQueue(apps) {
                     <div class="review-tab" onclick="switchReviewTab(this, '${escapeHtml(app.id)}', 'emb')">Embellishments</div>
                 </div>
                 <div class="review-content" id="content-${escapeHtml(app.id)}">${escapeHtml(app.resume_content || 'No resume generated')}</div>
+                <div id="factcheck-${escapeHtml(app.id)}">${renderFactCheck(_factFlagsFor(app, 'resume'))}</div>
                 ${isPaused ? `<div style="margin:8px 0 4px 0;padding:8px 10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--accent-orange);font-size:12px;color:var(--accent-orange)">&#9889; Automation is paused — the browser window is still open for manual interaction. Click <strong>Resume</strong> to continue automation.</div>` : ''}
                 <div class="review-card-actions">
                     ${isPaused ? `
@@ -833,6 +851,7 @@ function switchReviewTab(tabEl, appId, view) {
             loadEmbTab(app.job_id, `content-${appId}`);
             break;
     }
+    _refreshFactCheck(appId);
 }
 
 const _activeTab = {};
@@ -1067,6 +1086,7 @@ function openAiEditModal(appId, target) {
                     <textarea id="ai-edit-revised" style="flex:1;padding:12px;border:0;background:var(--bg-primary);color:var(--text-primary);font-family:inherit;font-size:12px;resize:none;white-space:pre-wrap" placeholder="Click Generate to produce a revision..."></textarea>
                 </div>
             </div>
+            <div id="ai-edit-factcheck" style="padding:0 16px"></div>
             <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
                 <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Discard</button>
                 <button class="btn btn-green btn-sm" id="ai-edit-accept-btn" onclick="acceptAiRevision()" disabled>Accept & Save</button>
@@ -1140,6 +1160,8 @@ function _aiEditSyncTarget(target) {
     document.getElementById('ai-edit-revised').value = '';
     document.getElementById('ai-edit-accept-btn').disabled = true;
     document.getElementById('ai-edit-status').textContent = '';
+    document.getElementById('ai-edit-factcheck').innerHTML = '';
+    modal._unverified = [];
 }
 
 function _aiEditSwitchTarget(target) {
@@ -1175,6 +1197,9 @@ async function runAiRevision() {
         });
         document.getElementById('ai-edit-revised').value = res.revised_content || '';
         acceptBtn.disabled = !(res.revised_content || '').trim();
+        modal._unverified = res.unverified || [];
+        document.getElementById('ai-edit-factcheck').innerHTML = renderFactCheck(modal._unverified);
+        modal._honesty = res.honesty_level || honestyLevel;
         status.textContent = 'Revision ready — review and edit before accepting.';
         genBtn.textContent = 'Re-generate';
     } catch (e) {
@@ -1200,6 +1225,7 @@ async function acceptAiRevision() {
     const body = {
         resume_content: target === 'resume' ? revised : (app.resume_content || ''),
         cover_letter_content: target === 'cover_letter' ? revised : (app.cover_letter_content || ''),
+        honesty_level: modal._honesty,
     };
 
     const acceptBtn = document.getElementById('ai-edit-accept-btn');
@@ -1211,6 +1237,11 @@ async function acceptAiRevision() {
         });
         if (target === 'resume') app.resume_content = revised;
         else app.cover_letter_content = revised;
+        // Keep the review screen's "Check this" in step with what was just saved.
+        const flags = safeParseJSON(app.fact_flags, null) || {};
+        flags[target] = modal._unverified || [];
+        app.fact_flags = JSON.stringify(flags);
+        _refreshFactCheck(appId);
 
         const contentEl = _getContentEl(appId);
         const currentTab = _getCurrentTab(appId);

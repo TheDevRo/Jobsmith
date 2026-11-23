@@ -23,6 +23,8 @@ window.api = (url, opts = {}) => {
   calls.push([url, method, opts.body || null]);
   if (failNext) { const m = failNext; failNext = null; return Promise.reject(new Error(m)); }
   const body = opts.body ? JSON.parse(opts.body) : {};
+  if (/\/revise$/.test(url)) return Promise.resolve({ revised_content: "Served 90,000 users at Globex.", honesty_level: "tailored", unverified: ["Globex", "90,000"] });
+  if (/\/content$/.test(url)) return Promise.resolve({});
   if (/\/facts$/.test(url) && method === "GET") return Promise.resolve({ facts: store.map(f => ({ ...f })), max_facts: 50, max_chars: 1000 });
   if (/\/facts$/.test(url) && method === "POST") { store.push({ id: nextId++, text: body.text }); return Promise.resolve({}); }
   const id = Number(url.split("/").pop());
@@ -33,6 +35,7 @@ window.api = (url, opts = {}) => {
 window.toast = (m, t) => toasts.push([m, t]);
 window._aiEditDefaultTier = "strong"; window._aiEditDefaultHonesty = "honest";
 window.eval(fs.readFileSync(path.join(ROOT, "js", "facts.js"), "utf8"));
+window.eval(fs.readFileSync(path.join(ROOT, "js", "jobs-actions.js"), "utf8"));  // escapeHtml, safeParseJSON
 window.eval(fs.readFileSync(path.join(ROOT, "js", "review.js"), "utf8"));
 
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -97,6 +100,25 @@ const checks = [];
   await tick(); await tick();
   checks.push(["Keep this for future edits saves the instruction as a fact",
     calls.some(c => c[1] === "POST" && c[2].includes("Emphasise my Python work")) && factsBox.textContent.includes("Emphasise my Python work")]);
+
+  // "Check this" notice: shown in the AI Edit result pane, never blocks Accept & Save.
+  const fcBox = modal.querySelector("#ai-edit-factcheck");
+  checks.push(["no notice before a revision", fcBox.textContent === ""]);
+  instr.value = "Make it punchier";
+  await window.runAiRevision();
+  checks.push(["result pane lists the flagged terms", fcBox.textContent === "Check this: Globex, 90,000"]);
+  checks.push(["Accept & Save stays enabled (warning only)", modal.querySelector("#ai-edit-accept-btn").disabled === false]);
+  checks.push(["terms are escaped", window.renderFactCheck(["<b>x</b>"]).includes("&lt;b&gt;") && window.renderFactCheck([]) === ""]);
+
+  // Accepting sends the level used and refreshes the review card's notice.
+  const reviewHost = doc.createElement("div");
+  reviewHost.id = "factcheck-app1";
+  doc.body.appendChild(reviewHost);
+  calls.length = 0;
+  await window.acceptAiRevision();
+  const patch = calls.find(c => c[1] === "PATCH" && c[0].endsWith("/content"));
+  checks.push(["accept sends the honesty level to the content PATCH", patch && JSON.parse(patch[2]).honesty_level === "tailored"]);
+  checks.push(["review screen shows the same flags after saving", reviewHost.textContent === "Check this: Globex, 90,000"]);
 
   let fail = 0;
   for (const [name, ok] of checks) { console.log((ok ? "PASS" : "FAIL") + "  " + name); if (!ok) fail++; }

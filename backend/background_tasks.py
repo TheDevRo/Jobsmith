@@ -15,6 +15,7 @@ from typing import Optional
 from . import app_state as state
 from . import database as db
 from . import ai_engine
+from . import fact_guard
 from . import salary_estimator
 from . import resume_generator
 from . import auto_apply
@@ -237,6 +238,8 @@ async def _bg_tailor_job(job_id: str):
             honesty_level=honesty_level,
         )
         await db.add_application_facts(new_app_id, app_facts)
+        await db.set_fact_flags(new_app_id, fact_guard.check_documents(
+            resume_text, cover_letter_text, profile, job, honesty_level, app_facts))
 
         # Always generate embellishment log — even if CL is empty (e.g. generation failed).
         try:
@@ -354,6 +357,8 @@ async def _bg_tailor_batch(min_score: float):
                             honesty_level=honesty_level,
                         )
                         await db.add_application_facts(new_app_id, app_facts)
+                        await db.set_fact_flags(new_app_id, fact_guard.check_documents(
+                            resume_text, cl_text, profile, job, honesty_level, app_facts))
 
                         emb_log = await ai_engine.generate_embellishment_log(
                             profile, resume_text, cl_text, honesty_level, cfg

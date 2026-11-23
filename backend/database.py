@@ -141,6 +141,9 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
                 created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )"""),
     (31, "CREATE INDEX IF NOT EXISTS idx_application_facts_app ON application_facts(application_id)"),
+    # Terms the fact guard couldn't back, as JSON {"resume": [...], "cover_letter": [...]}.
+    # A warning only; local, not synced.
+    (32, "ALTER TABLE applications ADD COLUMN fact_flags TEXT"),
 ]
 
 
@@ -1720,6 +1723,17 @@ async def update_application_content(app_id: str, resume_content: str, cover_let
         )
         await db.commit()
         return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def set_fact_flags(app_id: str, flags: dict) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            "UPDATE applications SET fact_flags = ? WHERE id = ?", (json.dumps(flags), app_id)
+        )
+        await db.commit()
     finally:
         await db.close()
 
