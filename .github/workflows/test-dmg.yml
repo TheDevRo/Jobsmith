@@ -19,6 +19,10 @@ jobs:
           node-version: "22"
       - name: Install deps
         run: |
+          command -v rustup || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          . "$HOME/.cargo/env" 2>/dev/null || true
+          rustup default stable
+          rustc -vV
           python -m venv .venv
           .venv/bin/pip install -q -r requirements.lock pyinstaller
           npm ci
