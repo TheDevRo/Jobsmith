@@ -660,7 +660,7 @@ function _appKcardHtml(app, colKey) {
             role="button" onclick="boardOpenApp('${escapeHtml(colKey)}','${escapeHtml(String(app.id))}','${escapeHtml(String(app.job_id || ''))}')" aria-label="${escapeHtml(app.title || app.job_title || 'Application')}">
             <span class="kt">${escapeHtml(app.title || app.job_title || 'Untitled')}</span>
             <span class="kc">${escapeHtml(app.company || '')}</span>
-            <span class="kfoot">${heat}${tag}</span>
+            <span class="kfoot">${heat}${colKey === 'pending' ? renderCoverageBadge(app) : ''}${tag}</span>
             ${_kActions(colKey, app.id, app.job_id)}
         </div>`;
 }
