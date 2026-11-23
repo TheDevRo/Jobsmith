@@ -95,7 +95,7 @@ PROMPTS: dict[str, dict] = {
         "posting": True,
         "label": "Job Fit Scoring",
         "group": "Scoring & Suggestions",
-        "description": "Scores how well a job matches your profile (0-100) and builds the matched/missing skill breakdown shown on job cards.",
+        "description": "Scores how well a job matches your profile (0-100) and builds the matched/missing skill breakdown and the requirement coverage (N of M) shown on job cards.",
         "variables": {
             "job_title": "Job posting title",
             "job_company": "Company name",
@@ -112,6 +112,7 @@ Return ONLY a JSON object with exactly these keys:
 - "missing_soft_skills": array of soft skills the job asks for with no evidence in the profile (max 8)
 - "title_alignment": one of "strong", "partial", "weak" — how close the candidate's recent titles are to this job's title
 - "keywords": array of the most important exact keywords/phrases from the posting that an ATS would scan a resume for (max 15)
+- "requirements": array (max 12) of the posting's distinct requirements, each {"text": short requirement, "kind": "must" if the posting requires it or "nice" if it is preferred / a plus, "met": true only if the candidate profile shows it, "evidence": short phrase from the profile that shows it, or null}
 
 Scoring guidelines:
 - 80-100: Strong match — most required skills present, directly relevant experience

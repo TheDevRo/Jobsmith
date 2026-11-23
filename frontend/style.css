@@ -1678,6 +1678,33 @@ main:has(> #review.tab-content.active.view-board) {
     border: 1px solid var(--border-light);
 }
 
+/* Requirement coverage: the N/M badge beside the heat chip, and the requirements list in job detail. */
+.cov-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border-light);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.cov-badge.cov-gap { border-color: var(--warning, #d9822b); }
+.cov-count { font-weight: 400; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
+.cov-list { list-style: none; margin: 0; padding: 0; }
+.cov-req { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 0; font-size: 13px; }
+.cov-mark { width: 14px; text-align: center; font-weight: 700; }
+.cov-req.met .cov-mark { color: var(--success, #2e9e5b); }
+.cov-req.unmet .cov-mark { color: var(--warning, #d9822b); }
+.cov-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.cov-text { flex: 1 1 200px; color: var(--text-secondary); }
+.cov-note { flex-basis: 100%; padding-left: 20px; font-size: 12px; color: var(--text-muted); }
+.cov-req.dismissed .cov-text { opacity: .6; }
+.cov-dismiss { font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border-light); background: transparent; color: var(--text-secondary); cursor: pointer; }
+
 /* SF Rounded on the app's prominent numerals + titles + brand, matching the
    iOS app's rounded, monospaced-digit numbers. Body/list text stays SF. */
 .sidebar-brand,

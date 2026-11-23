@@ -32,7 +32,7 @@ const _STATUS_FILTER_LABELS = {
 };
 const _SORT_LABELS = {
     'date_discovered-desc': 'Newest ↓', 'date_discovered-asc': 'Oldest ↑',
-    'fit_score-desc': 'Fit ↓', 'fit_score-asc': 'Fit ↑',
+    'fit_score-desc': 'Fit ↓', 'fit_score-asc': 'Fit ↑', 'best_coverage-desc': 'Coverage ↓',
     'applied_at-desc': 'Applied ↓', 'salary_min-desc': 'Salary ↓',
     'quality_score-desc': 'Quality ↓', 'title-asc': 'Title A–Z', 'company-asc': 'Company A–Z',
 };
@@ -275,7 +275,7 @@ function renderJobs(jobs, total) {
                         </div>
                     </div>
                     <div class="job-card-right">
-                        ${renderHeatChip(job.fit_score)}
+                        ${renderHeatChip(job.fit_score)}${renderCoverageBadge(job)}
                         <span class="pill pill-${status}">${statusLabel}</span>
                         ${status === 'discovered' ? `
                         <div class="row-verdicts" onclick="event.stopPropagation()">
@@ -367,6 +367,7 @@ function buildJobDetailHtml(job) {
 
         ${renderSalarySection(job)}
 
+        ${renderCoverageSection(job)}
         ${renderFitAnalysis(job)}
 
         ${renderQualitySection(job)}
@@ -411,6 +412,55 @@ function scoreSourceLine(report) {
     const secs = typeof report.score_seconds === 'number' ? ` · ${report.score_seconds < 1 ? report.score_seconds.toFixed(2) : report.score_seconds.toFixed(1)} s` : '';
     const bucket = report.bucket ? ` · ${escapeHtml(report.bucket)} fit` : '';
     return `<div class="match-report-label">Scored by ${escapeHtml(label)}${bucket}${secs}</div>`;
+}
+
+// Requirement coverage (jobs.coverage, see backend/coverage.py): "covers N of M requirements" next to the 0-100 score.
+function parseCoverage(job) {
+    const cov = safeParseJSON(job && job.coverage, null);
+    return cov && Array.isArray(cov.requirements) && cov.total > 0 ? cov : null;
+}
+
+// Compact N/M badge for cards and lists; '' when the job has no coverage.
+function renderCoverageBadge(job) {
+    const cov = parseCoverage(job);
+    if (!cov) return '';
+    const tip = `Covers ${cov.covered} of ${cov.total} requirements` + (cov.missing_must ? `; ${cov.missing_must} must-have${cov.missing_must === 1 ? '' : 's'} missing` : '');
+    return `<span class="cov-badge${cov.missing_must ? ' cov-gap' : ''}" title="${escapeHtml(tip)}">${cov.covered}/${cov.total}</span>`;
+}
+
+// The requirements list for a job detail / review card: met/unmet marker, must/nice, evidence, and an
+// "I don't have this" action on each unmet requirement that hasn't been dismissed yet.
+function renderCoverageSection(job) {
+    const cov = parseCoverage(job);
+    if (!cov) return '';
+    const jobId = job.job_id || job.id;
+    const rows = cov.requirements.map(r => {
+        const note = r.met ? (r.evidence ? `<span class="cov-note">${escapeHtml(r.evidence)}</span>` : '')
+            : r.dismissed ? '<span class="cov-note">Known gap</span>'
+            : `<button type="button" class="cov-dismiss" data-job="${escapeHtml(String(jobId))}" data-text="${escapeHtml(r.text)}" onclick="dismissRequirement(this)">I don't have this</button>`;
+        return `<li class="cov-req ${r.met ? 'met' : 'unmet'}${r.dismissed ? ' dismissed' : ''}">`
+            + `<span class="cov-mark" aria-label="${r.met ? 'Met' : 'Not met'}">${r.met ? '\u2713' : '\u2717'}</span>`
+            + `<span class="cov-kind">${r.kind === 'must' ? 'Must' : 'Nice'}</span>`
+            + `<span class="cov-text">${escapeHtml(r.text)}</span>${note}</li>`;
+    }).join('');
+    return `<div class="detail-section cov-section" data-job="${escapeHtml(String(jobId))}">
+        <h4>Requirements <span class="cov-count">${cov.covered} of ${cov.total} covered${cov.missing_must ? ` \u00b7 ${cov.missing_must} must-have${cov.missing_must === 1 ? '' : 's'} missing` : ''}</span></h4>
+        <ul class="cov-list">${rows}</ul></div>`;
+}
+
+// "I don't have this": mark the gap known on the server, then redraw the list from the saved coverage.
+async function dismissRequirement(btn) {
+    const jobId = btn.dataset.job;
+    try {
+        const res = await api(`/api/jobs/${encodeURIComponent(jobId)}/coverage/dismiss`,
+            { method: 'POST', body: JSON.stringify({ text: btn.dataset.text }) });
+        const job = (window._currentJobs && window._currentJobs[jobId]) || { id: jobId };
+        job.coverage = JSON.stringify(res.coverage);
+        const section = btn.closest('.cov-section');
+        if (section) section.outerHTML = renderCoverageSection(job);
+    } catch (e) {
+        toast('Could not save that: ' + (e.message || e), 'error');
+    }
 }
 
 function renderFitAnalysis(job) {

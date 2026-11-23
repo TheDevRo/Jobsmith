@@ -744,12 +744,13 @@ function switchSubmittedTab(tabEl, appId, view) {
 }
 
 function renderReviewMatchChips(app) {
+    const coverage = renderCoverageSection(app);
     const report = safeParseJSON(app.match_report, null);
-    if (!report) return '';
+    if (!report) return coverage;
     const matched = report.matched_skills || [];
     const missing = report.missing_skills || [];
-    if (!matched.length && !missing.length) return '';
-    return `
+    if (!matched.length && !missing.length) return coverage;
+    return coverage + `
         <div class="skill-chips" style="margin-top:4px">
             ${matched.map(s => `<span class="skill-chip matched" title="Job requirement the candidate has">${escapeHtml(s)}</span>`).join('')}
             ${missing.map(s => `<span class="skill-chip missing" title="Job requirement missing from profile">${escapeHtml(s)}</span>`).join('')}
