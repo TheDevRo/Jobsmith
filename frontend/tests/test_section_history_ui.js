@@ -64,6 +64,8 @@ const checks = [];
   await window.runAiRevision();
   const sent = JSON.parse(calls.filter(c => c[0].endsWith("/revise")).pop()[2]);
   checks.push(["selected section is sent to /revise", sent.section === "SKILLS" && sent.target === "resume"]);
+  checks.push(["a revision result collapses Facts and History so the panes get the room",
+    modal.querySelector("#ai-edit-facts-box").open === false && modal.querySelector("#ai-edit-history").open === false]);
   sel.value = "";
   await window.runAiRevision();
   checks.push(["whole document sends no section", !("section" in JSON.parse(calls.filter(c => c[0].endsWith("/revise")).pop()[2]))]);

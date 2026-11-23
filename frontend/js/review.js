@@ -762,7 +762,7 @@ function renderReviewMatchChips(app) {
 // don't back (backend/fact_guard.py). A warning only; empty when there is nothing to flag.
 function renderFactCheck(terms) {
     if (!terms || !terms.length) return '';
-    return `<div class="fact-check" style="margin:6px 0;padding:6px 10px;border-radius:6px;border:1px solid var(--accent-orange);font-size:12px;color:var(--accent-orange)" title="These names, numbers or credentials aren't in your profile, the posting or your facts. Make sure they're true.">Check this: ${terms.map(escapeHtml).join(', ')}</div>`;
+    return `<div class="fact-check" style="margin:6px 0;padding:6px 10px;border-radius:6px;border:1px solid var(--accent-orange);font-size:12px" title="These names, numbers or credentials aren't in your profile, the posting or your facts. Make sure they're true.">Check this: ${terms.map(escapeHtml).join(', ')}</div>`;
 }
 
 function _factFlagsFor(app, tab) {
@@ -1033,7 +1033,7 @@ function openAiEditModal(appId, target) {
 
     modal.innerHTML = `
         <div class="screenshot-modal-backdrop" onclick="closeAiEditModal()"></div>
-        <div class="screenshot-modal-content" style="max-width:1100px;width:90vw;display:flex;flex-direction:column;max-height:90vh;overflow-y:auto">
+        <div class="screenshot-modal-content" style="max-width:1100px;width:90vw;display:flex;flex-direction:column;height:90vh;overflow-y:auto">
             <div class="screenshot-modal-header">
                 <span class="screenshot-modal-title" id="ai-edit-title"></span>
                 <button class="screenshot-modal-close" onclick="closeAiEditModal()">&times;</button>
@@ -1071,7 +1071,10 @@ function openAiEditModal(appId, target) {
                 </span>
                 <span id="ai-edit-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
             </div>
-            <div id="ai-edit-facts" style="flex-shrink:0;padding:12px 16px;border-bottom:1px solid var(--border);max-height:200px;overflow:auto"></div>
+            <details id="ai-edit-facts-box" open style="flex-shrink:0;padding:8px 16px;border-bottom:1px solid var(--border)">
+                <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">Facts</summary>
+                <div id="ai-edit-facts" style="margin-top:6px;max-height:200px;overflow:auto"></div>
+            </details>
             <details id="ai-edit-history" style="padding:8px 16px;border-bottom:1px solid var(--border)">
                 <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">History</summary>
                 <div id="ai-edit-history-body" style="margin-top:6px;max-height:160px;overflow:auto"></div>
@@ -1087,7 +1090,7 @@ function openAiEditModal(appId, target) {
                     <button class="btn btn-secondary btn-sm" onclick="closeAiEditModal()">Cancel</button>
                 </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);flex:1 0 220px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);flex:1 1 220px;min-height:220px;overflow:hidden">
                 <div style="background:var(--bg-primary);display:flex;flex-direction:column;overflow:hidden">
                     <div style="padding:6px 12px;font-size:11px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)">Original</div>
                     <pre id="ai-edit-original" style="flex:1;overflow:auto;padding:12px;margin:0;white-space:pre-wrap;font-size:12px"></pre>
@@ -1145,6 +1148,7 @@ function openAiEditModal(appId, target) {
     });
 
     _aiEditSyncTarget(initialTarget);
+    document.getElementById('ai-edit-instructions')?.focus();
 }
 
 async function pinAiEditInstruction() {
@@ -1290,6 +1294,9 @@ async function runAiRevision() {
         document.getElementById('ai-edit-factcheck').innerHTML = renderFactCheck(modal._unverified);
         modal._honesty = res.honesty_level || honestyLevel;
         status.textContent = 'Revision ready — review and edit before accepting.';
+        // Give the Original/Revised panes the room while the result is reviewed.
+        document.getElementById('ai-edit-facts-box').open = false;
+        document.getElementById('ai-edit-history').open = false;
         genBtn.textContent = 'Re-generate';
     } catch (e) {
         status.textContent = '';
