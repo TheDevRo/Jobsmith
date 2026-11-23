@@ -27,14 +27,6 @@ updates:
       rust-deps:
         patterns: ["*"]
 
-  - package-ecosystem: swift
-    directory: /ios-standalone/JobsmithKit
-    schedule:
-      interval: weekly
-    groups:
-      swift-deps:
-        patterns: ["*"]
-
   - package-ecosystem: github-actions
     directory: /
     schedule:

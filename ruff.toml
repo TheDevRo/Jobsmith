@@ -6,8 +6,8 @@
 
 target-version = "py311"
 
-# Lint the server, tests, and build helpers. The frontend is JS; ios-standalone
-# is Swift; node_modules/.venv are excluded by default.
+# Lint the server, tests, and build helpers. The frontend is JS;
+# node_modules/.venv are excluded by default.
 include = ["backend/**/*.py", "tests/**/*.py", "scripts/**/*.py", "packaging/**/*.py"]
 
 [lint]
