@@ -1062,9 +1062,19 @@ function openAiEditModal(appId, target) {
                         <option value="fabricated">Fabricated</option>
                     </select>
                 </span>
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;padding-left:12px;border-left:1px solid var(--border)">
+                    <span style="color:var(--text-muted)" title="Limit the rewrite to one part; the rest of the document is left exactly as it is">Section:</span>
+                    <select id="ai-edit-section" style="background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;max-width:220px">
+                        <option value="">Whole document</option>
+                    </select>
+                </span>
                 <span id="ai-edit-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
             </div>
             <div id="ai-edit-facts" style="padding:12px 16px;border-bottom:1px solid var(--border);max-height:200px;overflow:auto"></div>
+            <details id="ai-edit-history" style="padding:8px 16px;border-bottom:1px solid var(--border)">
+                <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">History</summary>
+                <div id="ai-edit-history-body" style="margin-top:6px;max-height:160px;overflow:auto"></div>
+            </details>
             <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
                 <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-muted)">Revision instructions</label>
                 <textarea id="ai-edit-instructions" class="edit-textarea" style="min-height:70px;width:100%"
@@ -1162,6 +1172,79 @@ function _aiEditSyncTarget(target) {
     document.getElementById('ai-edit-status').textContent = '';
     document.getElementById('ai-edit-factcheck').innerHTML = '';
     modal._unverified = [];
+    _aiEditLoadSections();
+    _aiEditLoadHistory();
+}
+
+// The "Section" picker: whole document, or the resume's headers / the letter's paragraphs.
+async function _aiEditLoadSections() {
+    const modal = document.getElementById('ai-edit-modal');
+    const sel = document.getElementById('ai-edit-section');
+    if (!modal || !sel) return;
+    sel.replaceChildren(new Option('Whole document', ''));
+    try {
+        const res = await api(`/api/applications/${modal.dataset.appId}/sections?target=${modal.dataset.target}`);
+        (res.sections || []).forEach(sec => sel.appendChild(new Option(sec.label, sec.id)));
+    } catch (e) { /* the picker just stays on "Whole document" */ }
+}
+
+// Earlier versions of this document: "Undo last change" and "Go back to this".
+async function _aiEditLoadHistory() {
+    const modal = document.getElementById('ai-edit-modal');
+    const body = document.getElementById('ai-edit-history-body');
+    if (!modal || !body) return;
+    let revisions = [];
+    try {
+        revisions = (await api(`/api/applications/${modal.dataset.appId}/revisions?target=${modal.dataset.target}`)).revisions || [];
+    } catch (e) { /* no history to show */ }
+    const mk = (tag, text, props = {}) => Object.assign(document.createElement(tag), { textContent: text }, props);
+    if (!revisions.length) {
+        body.replaceChildren(mk('div', 'No earlier versions yet. Each saved change keeps the version it replaced.',
+            { style: 'font-size:12px;color:var(--text-muted)' }));
+        return;
+    }
+    const restored = revisions[0].instruction === ASK_RESTORED;
+    const undo = mk('button', restored ? 'Redo' : 'Undo last change', { className: 'btn btn-secondary btn-sm', type: 'button' });
+    undo.onclick = () => restoreAiRevision(revisions[0].id);
+    const rows = revisions.map(r => {
+        const when = mk('span', new Date(r.created_at).toLocaleString(), { style: 'color:var(--text-muted);white-space:nowrap' });
+        const what = mk('span', r.instruction || 'Manual edit', { style: 'flex:1', title: r.preview || '' });
+        const back = mk('button', 'Go back to this', { className: 'btn btn-secondary btn-sm', type: 'button' });
+        back.onclick = () => restoreAiRevision(r.id);
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:12px;margin-top:4px';
+        row.append(when, what, back);
+        return row;
+    });
+    body.replaceChildren(undo, ...rows);
+}
+const ASK_RESTORED = 'Restored an earlier version';
+
+async function restoreAiRevision(revisionId) {
+    const modal = document.getElementById('ai-edit-modal');
+    if (!modal) return;
+    const appId = modal.dataset.appId;
+    const app = _getAppData(appId);
+    try {
+        const res = await api(`/api/applications/${appId}/revisions/${revisionId}/restore`, { method: 'POST' });
+        if (app) {
+            if (res.target === 'resume') app.resume_content = res.content;
+            else app.cover_letter_content = res.content;
+            const flags = safeParseJSON(app.fact_flags, null) || {};
+            flags[res.target] = (res.fact_flags || {})[res.target] || [];
+            app.fact_flags = JSON.stringify(flags);
+            const contentEl = _getContentEl(appId);
+            const tab = _getCurrentTab(appId);
+            if (contentEl && ((res.target === 'resume' && tab === 'resume') || (res.target === 'cover_letter' && tab === 'cover'))) {
+                contentEl.textContent = res.content;
+            }
+            _refreshFactCheck(appId);
+        }
+        toast('Earlier version restored — DOCX regenerated', 'success');
+        if (modal.dataset.target === res.target) _aiEditSyncTarget(res.target);
+    } catch (e) {
+        toast('Could not restore: ' + (e.message || ''), 'error');
+    }
 }
 
 function _aiEditSwitchTarget(target) {
@@ -1182,6 +1265,9 @@ async function runAiRevision() {
     const honestySel = document.getElementById('ai-edit-honesty');
     const honestyLevel = honestySel ? honestySel.value : (_aiEditDefaultHonesty || 'honest');
 
+    const sectionSel = document.getElementById('ai-edit-section');
+    const section = sectionSel && sectionSel.value ? sectionSel.value : null;
+
     const genBtn = document.getElementById('ai-edit-generate-btn');
     const status = document.getElementById('ai-edit-status');
     const acceptBtn = document.getElementById('ai-edit-accept-btn');
@@ -1193,7 +1279,7 @@ async function runAiRevision() {
     try {
         const res = await api(`/api/applications/${appId}/revise`, {
             method: 'POST',
-            body: JSON.stringify({ target, instructions, model_tier: tier, honesty_level: honestyLevel }),
+            body: JSON.stringify({ target, instructions, model_tier: tier, honesty_level: honestyLevel, ...(section ? { section } : {}) }),
         });
         document.getElementById('ai-edit-revised').value = res.revised_content || '';
         acceptBtn.disabled = !(res.revised_content || '').trim();
@@ -1226,6 +1312,7 @@ async function acceptAiRevision() {
         resume_content: target === 'resume' ? revised : (app.resume_content || ''),
         cover_letter_content: target === 'cover_letter' ? revised : (app.cover_letter_content || ''),
         honesty_level: modal._honesty,
+        instruction: document.getElementById('ai-edit-instructions').value.trim(),
     };
 
     const acceptBtn = document.getElementById('ai-edit-accept-btn');

@@ -200,6 +200,7 @@ async def _bg_tailor_job(job_id: str):
         # CL failure doesn't prevent the resume from being saved.
         # Facts kept on the draft this re-tailor replaces carry over to the new one.
         app_facts = await db.get_job_pending_facts(job_id)
+        previous_draft = await db.get_job_pending_content(job_id)
         resume_text = await ai_engine.generate_tailored_resume(
             job, profile, cfg, honesty_level, match_report=match_report, app_facts=app_facts
         )
@@ -238,6 +239,7 @@ async def _bg_tailor_job(job_id: str):
             honesty_level=honesty_level,
         )
         await db.add_application_facts(new_app_id, app_facts)
+        await db.record_retailor_revisions(new_app_id, previous_draft)
         await db.set_fact_flags(new_app_id, fact_guard.check_documents(
             resume_text, cover_letter_text, profile, job, honesty_level, app_facts))
 
@@ -336,6 +338,7 @@ async def _bg_tailor_batch(min_score: float):
                 if score >= min_score:
                     try:
                         app_facts = await db.get_job_pending_facts(job_id)
+                        previous_draft = await db.get_job_pending_content(job_id)
                         resume_text = await ai_engine.generate_tailored_resume(
                             job, profile, cfg, honesty_level, match_report=match_report,
                             app_facts=app_facts,
@@ -357,6 +360,7 @@ async def _bg_tailor_batch(min_score: float):
                             honesty_level=honesty_level,
                         )
                         await db.add_application_facts(new_app_id, app_facts)
+                        await db.record_retailor_revisions(new_app_id, previous_draft)
                         await db.set_fact_flags(new_app_id, fact_guard.check_documents(
                             resume_text, cl_text, profile, job, honesty_level, app_facts))
 

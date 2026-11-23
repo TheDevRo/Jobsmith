@@ -47,7 +47,7 @@ _SKIP_WORDS = frozenset({
 })
 
 # Section headers the document parser accepts (resume_generator._parse_resume_sections).
-_HEADERS = frozenset({
+RESUME_HEADERS = frozenset({
     "SUMMARY", "PROFESSIONAL SUMMARY", "PROFILE SUMMARY", "PROFILE", "ABOUT ME", "SKILLS",
     "TECHNICAL SKILLS", "CORE COMPETENCIES", "KEY SKILLS", "COMPETENCIES", "EXPERIENCE",
     "PROFESSIONAL EXPERIENCE", "WORK EXPERIENCE", "EMPLOYMENT HISTORY", "CAREER HISTORY",
@@ -184,7 +184,7 @@ def _sentence_starts(text: str) -> set[int]:
 def _strip_headers(text: str) -> str:
     """Blank out section-header lines (SUMMARY, EXPERIENCE…) so they aren't read as acronyms."""
     return "\n".join(
-        "" if re.sub(r"^[#*_`]+\s*", "", ln.strip()).upper().rstrip(": ") in _HEADERS else ln
+        "" if re.sub(r"^[#*_`]+\s*", "", ln.strip()).upper().rstrip(": ") in RESUME_HEADERS else ln
         for ln in text.split("\n")
     )
 

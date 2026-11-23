@@ -1002,6 +1002,24 @@ async def generate_cover_letter(
         raise
 
 
+def _section_block(kind: str, section: tuple[str, str]) -> str:
+    """Appended in code (not in the template) when only one section is being rewritten.
+
+    `section` is (label, read-only rest of the document). Whatever the template
+    says about the output, this comes last and narrows it to the one section.
+    """
+    label, context = section
+    header = " Include its header line." if kind == "resume" else ""
+    return (
+        f"\nSECTION EDIT (overrides any instruction above about what to output)\n"
+        f"The {kind} text given above is ONE section only ({label}). Apply the user's "
+        f"instruction to that section and output only the revised section.{header} "
+        f"Do not output the rest of the {kind} and add no commentary.\n"
+        f"The rest of the {kind} is below as READ-ONLY CONTEXT so the section fits it. "
+        f"Never repeat or change it.\n--- READ-ONLY CONTEXT ---\n{context}\n--- END CONTEXT ---\n"
+    )
+
+
 async def revise_tailored_resume(
     current_resume_text: str,
     user_instructions: str,
@@ -1011,6 +1029,7 @@ async def revise_tailored_resume(
     tier: str = "strong",
     honesty_level: str = "honest",
     app_facts: Optional[list[str]] = None,
+    section: Optional[tuple[str, str]] = None,
 ) -> str:
     """Revise an already-tailored resume according to user instructions.
 
@@ -1038,6 +1057,8 @@ async def revise_tailored_resume(
         current_resume=current_resume_text,
     )
     prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
+    if section:
+        prompt += _section_block("resume", section)
 
     try:
         response = await client.chat.completions.create(
@@ -1063,6 +1084,7 @@ async def revise_cover_letter(
     tier: str = "strong",
     honesty_level: str = "honest",
     app_facts: Optional[list[str]] = None,
+    section: Optional[tuple[str, str]] = None,
 ) -> str:
     """Revise an already-generated cover letter according to user instructions.
 
@@ -1090,6 +1112,8 @@ async def revise_cover_letter(
         current_letter=current_letter_text,
     )
     prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
+    if section:
+        prompt += _section_block("cover letter", section)
 
     try:
         response = await client.chat.completions.create(
