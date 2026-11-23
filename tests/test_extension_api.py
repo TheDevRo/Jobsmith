@@ -129,6 +129,105 @@ def test_resume_404_when_missing(client, token_path, tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Resume / cover-letter downloads: ?format=docx|pdf, PDF rendered on demand
+# ---------------------------------------------------------------------------
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+KINDS = [("resume", "resume"), ("cover-letter", "cover_letter")]
+SAMPLE_JOB = {
+    "id": "job-1", "title": "Engineer", "company": "Example Co",
+    "application": {
+        "resume_content": "SUMMARY\nBuilds reliable software.\n\nSKILLS\nPython, SQL",
+        "cover_letter_content": "Dear Hiring Team,\n\nI would like to apply.\n",
+    },
+}
+
+
+@pytest.fixture
+def docs_dir(tmp_path, monkeypatch):
+    """Point both the endpoint and the renderers at one scratch directory."""
+    from backend import resume_generator
+    monkeypatch.setattr(extension_api, "RESUMES_DIR", tmp_path)
+    monkeypatch.setattr(resume_generator, "RESUMES_DIR", tmp_path)
+    return tmp_path
+
+
+def _get(client, kind, fmt=None):
+    token = extension_api.get_or_create_token()
+    url = f"/api/ext/{kind}/job-1" + (f"?format={fmt}" if fmt else "")
+    with patch.object(extension_api.db, "get_job", new=AsyncMock(return_value=SAMPLE_JOB)):
+        return client.get(url, headers={"X-Jobsmith-Token": token})
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_format_pdf_renders_on_demand(client, token_path, docs_dir, kind, stem):
+    (docs_dir / f"job-1_{stem}.docx").write_bytes(b"docx")
+    r = _get(client, kind, "pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert f'job-1_{stem}.pdf' in r.headers["content-disposition"]
+    assert r.content.startswith(b"%PDF")
+    assert (docs_dir / f"job-1_{stem}.pdf").exists()
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_format_pdf_serves_existing_pdf_without_rerender(client, token_path, docs_dir, kind, stem):
+    (docs_dir / f"job-1_{stem}.pdf").write_bytes(b"%PDF-existing")
+    r = _get(client, kind, "pdf")
+    assert r.status_code == 200
+    assert r.content == b"%PDF-existing"
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_format_docx_serves_docx_even_when_pdf_exists(client, token_path, docs_dir, kind, stem):
+    (docs_dir / f"job-1_{stem}.docx").write_bytes(b"docx")
+    (docs_dir / f"job-1_{stem}.pdf").write_bytes(b"%PDF-existing")
+    r = _get(client, kind, "docx")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == DOCX_MIME
+    assert f"job-1_{stem}.docx" in r.headers["content-disposition"]
+    assert r.content == b"docx"
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_no_format_param_follows_config(client, token_path, docs_dir, fake_config, kind, stem):
+    (docs_dir / f"job-1_{stem}.docx").write_bytes(b"docx")
+    fake_config["application_honesty"] = {"document_format": "docx"}
+    r = _get(client, kind)
+    assert r.headers["content-type"] == DOCX_MIME
+    fake_config["application_honesty"] = {"document_format": "pdf"}
+    r = _get(client, kind)
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_pdf_render_failure_falls_back_to_docx(client, token_path, docs_dir, caplog, kind, stem):
+    from backend import resume_generator
+    (docs_dir / f"job-1_{stem}.docx").write_bytes(b"docx")
+    with patch.object(resume_generator, "_render_resume_pdf", side_effect=RuntimeError("boom")), \
+         patch.object(resume_generator, "_render_cover_letter_pdf", side_effect=RuntimeError("boom")), \
+         caplog.at_level("WARNING", logger=extension_api.logger.name):
+        r = _get(client, kind, "pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == DOCX_MIME
+    assert r.content == b"docx"
+    assert "PDF rendering failed" in caplog.text
+
+
+@pytest.mark.parametrize("kind,stem", KINDS)
+def test_format_pdf_without_content_or_files_is_404(client, token_path, docs_dir, kind, stem):
+    token = extension_api.get_or_create_token()
+    with patch.object(extension_api.db, "get_job", new=AsyncMock(return_value=None)):
+        r = client.get(f"/api/ext/{kind}/job-1?format=pdf", headers={"X-Jobsmith-Token": token})
+    assert r.status_code == 404
+
+
+def test_invalid_format_rejected(client, token_path, docs_dir):
+    assert _get(client, "resume", "odt").status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Extension one-click session import (chrome.cookies → Playwright session)
 # ---------------------------------------------------------------------------
 

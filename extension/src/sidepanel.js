@@ -733,6 +733,12 @@ function attachDragHandlers(tile, kind) {
   });
 }
 
+// Extension of a fetched File, taken from its (response-derived) name.
+function fileExt(file) {
+  const m = /\.([A-Za-z0-9]+)$/.exec(file.name);
+  return m ? m[1].toLowerCase() : "docx";
+}
+
 async function loadJob(jobId, { manual = false } = {}) {
   if (!jobId) {
     setStatus("Enter a job ID.", "warn");
@@ -768,20 +774,22 @@ async function loadJob(jobId, { manual = false } = {}) {
     ctx.textContent = title;
   }
 
+  const { preferPdf } = await Jobsmith.jobsmithGetConfig();
+  const fmt = preferPdf ? "pdf" : "docx";
   const results = await Promise.allSettled([
-    Jobsmith.jobsmithFetchFile(`/api/ext/resume/${encodeURIComponent(jobId)}`,       `${jobId}_resume.docx`),
-    Jobsmith.jobsmithFetchFile(`/api/ext/cover-letter/${encodeURIComponent(jobId)}`, `${jobId}_cover_letter.docx`),
+    Jobsmith.jobsmithFetchFile(`/api/ext/resume/${encodeURIComponent(jobId)}?format=${fmt}`,       `${jobId}_resume.${fmt}`),
+    Jobsmith.jobsmithFetchFile(`/api/ext/cover-letter/${encodeURIComponent(jobId)}?format=${fmt}`, `${jobId}_cover_letter.${fmt}`),
   ]);
 
   if (results[0].status === "fulfilled") {
     cachedFiles.resume = results[0].value;
-    setTileState($("resumeTile"), { label: "Resume.docx", hint: "drag or download", file: cachedFiles.resume, downloadBtn: $("resumeDownload") });
+    setTileState($("resumeTile"), { label: `Resume.${fileExt(cachedFiles.resume)}`, hint: "drag or download", file: cachedFiles.resume, downloadBtn: $("resumeDownload") });
   } else {
     setTileState($("resumeTile"), { label: "Resume", hint: "not tailored yet", file: null, downloadBtn: $("resumeDownload") });
   }
   if (results[1].status === "fulfilled") {
     cachedFiles.cover = results[1].value;
-    setTileState($("coverTile"), { label: "CoverLetter.docx", hint: "drag or download", file: cachedFiles.cover, downloadBtn: $("coverDownload") });
+    setTileState($("coverTile"), { label: `CoverLetter.${fileExt(cachedFiles.cover)}`, hint: "drag or download", file: cachedFiles.cover, downloadBtn: $("coverDownload") });
   } else {
     setTileState($("coverTile"), { label: "Cover Letter", hint: "not tailored yet", file: null, downloadBtn: $("coverDownload") });
   }
