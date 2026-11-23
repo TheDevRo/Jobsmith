@@ -1531,9 +1531,19 @@ def _render_resume_pdf(content: str, profile: dict, job: dict,
             )
             story.append(para(joined, body, body_size, c_dark, sb=2, sa=4))
 
-    def _no_border_table(left_flow, right_flow, right_w):
+    # The page frame pads its content 6pt on each side, so text actually sits
+    # in doc.width - 12. A row sized to the full avail_w overflows the frame,
+    # gets centred, and hangs 6pt past both text edges (titles outdented,
+    # dates past the rules). Size it to the frame instead.
+    frame_w = doc.width - 12
+    ROLE_GAP = 6  # pt above each role; matches the DOCX space_before
+
+    def _no_border_table(left_flow, right_flow, right_w, space_before=0):
         t = Table([[left_flow, right_flow]],
-                  colWidths=[avail_w - right_w, right_w])
+                  colWidths=[frame_w - right_w, right_w])
+        # spaceBefore on a paragraph inside a table cell is ignored, so the
+        # gap that separates one role from the previous one goes on the table.
+        t.spaceBefore = space_before
         t.setStyle(TableStyle([
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -1567,7 +1577,7 @@ def _render_resume_pdf(content: str, profile: dict, job: dict,
                 if entry["dates"]:
                     right_p = para(_pdf_esc(entry["dates"]), body, dates_size,
                                    c_gray, align=TA_RIGHT, italic=True, sb=6, sa=2)
-                    story.append(_no_border_table(left_p, right_p, right_w))
+                    story.append(_no_border_table(left_p, right_p, right_w, ROLE_GAP))
                 else:
                     story.append(left_p)
             else:
@@ -1576,7 +1586,7 @@ def _render_resume_pdf(content: str, profile: dict, job: dict,
                 if entry["dates"]:
                     right_p = para(_pdf_esc(entry["dates"]), body, dates_size,
                                    c_gray, align=TA_RIGHT, italic=True, sb=6, sa=0)
-                    story.append(_no_border_table(title_p, right_p, right_w))
+                    story.append(_no_border_table(title_p, right_p, right_w, ROLE_GAP))
                 else:
                     story.append(title_p)
                 if entry["company"]:
