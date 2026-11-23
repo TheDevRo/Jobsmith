@@ -4191,3 +4191,11 @@ body[data-theme="light"] .cmdk-overlay { background: rgba(30,20,12,.28); }
 #ob-model-list { width: 100%; margin-top: 6px; }
 .ob-dl-chip { cursor: default; }
 @media (max-width: 640px) { .ob-mode-cards { grid-template-columns: 1fr; } }
+
+/* "Check this" fact-guard notice. The accent orange is too faint for text on a
+   white background (2.85:1), so the light theme uses a darker orange (6:1). */
+.fact-check { color: var(--accent-orange); }
+body[data-theme="light"] .fact-check { color: #a84300; }
+@media (prefers-color-scheme: light) {
+    body:not([data-theme]) .fact-check { color: #a84300; }
+}
