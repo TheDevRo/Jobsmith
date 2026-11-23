@@ -1,0 +1,53 @@
+{
+  "jobCount": 3,
+  "nextCursor": "AgAAAABrBHdhAAAAAGsENhIAAAAAAAKAaQLdYReLMIlnNcHnEovfWMhi-qEnddl3ku86rH8wP7EODFWPHo6cqcpkJbcl7jWJzDCJcHlAZXU_veQu__QV9OA",
+  "hasMore": true,
+  "jobs": [
+    {
+      "id": 163952,
+      "url": "https://jobicy.com/jobs/163952-noc-incident-manager",
+      "jobSlug": "163952-noc-incident-manager",
+      "jobTitle": "NOC Incident Manager",
+      "companyName": "Airalo",
+      "companyLogo": "https://jobicy.com/data/server-nyc0409/galaxy/mercury/2026/11/6970acbe26d0-221.webp",
+      "jobIndustry": [
+        "DevOps & Infrastructure"
+      ],
+      "jobType": [
+        "Full-Time"
+      ],
+      "jobGeo": "Spain",
+      "jobLevel": "Senior",
+      "jobExcerpt": "Help Us Build The Future of Travel At Airalo, we're making it easier for people to stay connected wherever they travel. As the world's first eSIM store, we help millions of travelers access affordable mobile data in 200+ countries and regions around the world. Today, we're a team of 400+ people across 60+ countries, building&hellip;",
+      "jobDescription": "<h3>Help Us Build The Future of Travel</h3>\n<p>At <a href=\"https://jobicy.com/company/airalo\" target=\"_blank\" rel=\"noopener\">Airalo</a>, we're making it easier for people to stay connected wherever they travel. As the world's first eSIM store, we help millions of travelers access affordable mobile d",
+      "pubDate": "2026-11-23T12:48:51+00:00",
+      "salaryMin": 64800,
+      "salaryMax": 97200,
+      "salaryCurrency": "EUR",
+      "salaryPeriod": "yearly"
+    },
+    {
+      "id": 163950,
+      "url": "https://jobicy.com/jobs/163950-noc-engineer-level-2",
+      "jobSlug": "163950-noc-engineer-level-2",
+      "jobTitle": "NOC Engineer Level 2",
+      "companyName": "Airalo",
+      "companyLogo": "https://jobicy.com/data/server-nyc0409/galaxy/mercury/2026/11/6970acbe26d0-221.webp",
+      "jobIndustry": [
+        "DevOps & Infrastructure"
+      ],
+      "jobType": [
+        "Full-Time"
+      ],
+      "jobGeo": "Europe",
+      "jobLevel": "Any",
+      "jobExcerpt": "Help Us Build The Future of Travel At Airalo, we're making it easier for people to stay connected wherever they travel. As the world's first eSIM store, we help millions of travelers access affordable mobile data in 200+ countries and regions around the world. Today, we're a team of 400+ people across 60+ countries, building&hellip;",
+      "jobDescription": "<h3>Help Us Build The Future of Travel</h3>\n<p>At <a href=\"https://jobicy.com/company/airalo\" target=\"_blank\" rel=\"noopener\">Airalo</a>, we're making it easier for people to stay connected wherever they travel. As the world's first eSIM store, we help millions of travelers access affordable mobile d",
+      "pubDate": "2026-11-23T12:48:48+00:00",
+      "salaryMin": 48000,
+      "salaryMax": 72000,
+      "salaryCurrency": "EUR",
+      "salaryPeriod": "yearly"
+    }
+  ]
+}
