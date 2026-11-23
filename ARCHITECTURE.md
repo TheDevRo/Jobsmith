@@ -280,6 +280,24 @@ Handles the higher-level AI tasks (resume tailoring, scoring):
 
 Uses `openai.AsyncOpenAI` with `base_url` pointing at local LM Studio. Supports tiered models (`ai.models.fast` / `ai.models.strong`).
 
+**Writing safety.** Four additions sit around every prompt that writes or edits a document; they live in code, not in
+the user-overridable templates, so a saved override can't drop them.
+
+- *Untrusted posting* — `prompt_registry.render_prompt` prepends a one-sentence guard to every template flagged
+  `"posting": True` and fences `job_description` in `<job_posting>…</job_posting>`; `auto_apply/llm_client.py` does the
+  same for field mapping and answers.
+- *Facts* — `backend/facts.py`. "Facts about me" are a list in `config.yaml` (`profile.facts`, `/api/profile/facts`);
+  per-application facts are the `application_facts` table (`/api/applications/{id}/facts`). Max 50 per scope, 1000
+  characters each. `facts_block()` is appended to the tailor, cover-letter and both revise prompts and to Apply Assist
+  answers; a re-tailor carries the replaced draft's facts over. Local only (the profile list rides along in profile sync as an unmodelled field).
+- *Fact guard* — `backend/fact_guard.py` checks AI-written text (honest and tailored levels only) against the profile,
+  posting and facts, and returns the unverified names, numbers and credentials. Stored in `applications.fact_flags`,
+  returned by `/revise` as `unverified`. A warning only.
+- *Sections and history* — `backend/section_edit.py` splits a resume at its header lines (a cover letter at its
+  paragraphs) so `/revise` can rewrite one section and splice it back. Every saved change to `resume_content` /
+  `cover_letter_content` keeps the replaced text in `application_revisions` (30 per application and target);
+  `/revisions` lists them and `/revisions/{id}/restore` puts one back (itself recorded, so it can be undone).
+
 **Local AI model (beta)** — `backend/nli/` plus `backend/auto_apply/extractive/`, all behind `ai.nli_beta.enabled`
 (default off, device-local, never synced). `nli.get_scorer(cfg)` is the only gate: it returns an onnxruntime NLI
 scorer (DeBERTa-v3-large, 8-bit weights, downloaded by `nli/model.py` to `<JOBSMITH_HOME>/models/nli/<revision>/`)
@@ -289,6 +307,12 @@ confidence gate; essays via `generate_answer`, `source=llm_generated`) instead o
 `score_job_fit` falls back to `nli/fit.py` when the scoring LLM raises `ScoringUnavailable`/`BridgeUnavailable`.
 Any NLI failure falls back to today's path. Settings: `GET /api/ai/nli/status`, `PUT /api/settings/nli-beta`,
 `POST /api/ai/nli/install`, `DELETE /api/ai/nli/model`.
+
+**Requirement coverage** — `backend/coverage.py`: "covers N of M requirements" (must/nice, met or not, evidence), stored as JSON in
+`jobs.coverage` beside the 0-100 score. The default scoring prompt also asks for a `requirements` array (parsed by
+`coverage.parse_requirements`, separate from the iOS-pinned `parse_score_response`; an overridden prompt that omits it just
+yields none); the local model derives it from its per-line P(met) (`nli/fit.py`). `sort_by=best_coverage` orders by share covered,
+then fewer missing must-haves, then score; `POST /api/jobs/{id}/coverage/dismiss` marks a gap known ("I don't have this").
 
 ### 5.5 Applicant Assist (`backend/applicant_assist.py`)
 

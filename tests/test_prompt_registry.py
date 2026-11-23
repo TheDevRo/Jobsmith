@@ -144,7 +144,7 @@ class TestOverridesReachLLM:
             {"full_name": "A"}, cfg,
         ))
         sent = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-        assert sent == "CUSTOM SCORER for Analyst"
+        assert sent.endswith("CUSTOM SCORER for Analyst")  # guard is prepended
 
     def test_resume_parse_uses_override(self, monkeypatch):
         from backend import resume_parser

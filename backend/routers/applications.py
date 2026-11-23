@@ -16,6 +16,9 @@ from .. import database as db
 from .. import ai_engine
 from .. import resume_generator
 from .. import auto_apply
+from .. import fact_guard
+from .. import section_edit
+from .. import facts as facts_mod
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,11 @@ def _apply_in_progress() -> bool:
 class ApplicationContentUpdate(BaseModel):
     resume_content: Optional[str] = None
     cover_letter_content: Optional[str] = None
+    # The level an AI edit was made at, so the fact check matches it; defaults to
+    # the level the application was tailored at.
+    honesty_level: Optional[str] = None
+    # The AI instruction behind this change (kept with the version it replaces).
+    instruction: Optional[str] = None
 
 
 class ApplicationStatusUpdate(BaseModel):
@@ -61,6 +69,57 @@ class ApplicationReviseRequest(BaseModel):
     instructions: str
     model_tier: Optional[str] = None  # "fast" | "strong"; falls back to global default
     honesty_level: Optional[str] = None  # honest | tailored | embellished | fabricated; falls back to global default
+    section: Optional[str] = None  # resume header (e.g. "EXPERIENCE") or "paragraph:N"; omit/"whole" = whole document
+
+
+class FactBody(BaseModel):
+    text: str
+
+
+def _facts_payload(facts: list[dict]) -> dict:
+    return {"facts": facts, "max_facts": facts_mod.MAX_FACTS, "max_chars": facts_mod.MAX_FACT_CHARS}
+
+
+def _clean_fact_or_400(text: str) -> str:
+    try:
+        return facts_mod.clean_fact(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/api/applications/{app_id}/facts")
+async def list_application_facts(app_id: str):
+    """Facts the candidate keeps for this application (sent with every AI write/edit)."""
+    if not await db.application_exists(app_id):
+        raise HTTPException(404, "Application not found")
+    return _facts_payload(await db.get_application_facts(app_id))
+
+
+@router.post("/api/applications/{app_id}/facts", status_code=201)
+async def add_application_fact(app_id: str, body: FactBody):
+    text = _clean_fact_or_400(body.text)
+    if not await db.application_exists(app_id):
+        raise HTTPException(404, "Application not found")
+    try:
+        fact = await db.add_application_fact(app_id, text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return fact
+
+
+@router.patch("/api/applications/{app_id}/facts/{fact_id}")
+async def update_application_fact(app_id: str, fact_id: int, body: FactBody):
+    text = _clean_fact_or_400(body.text)
+    if not await db.update_application_fact(app_id, fact_id, text):
+        raise HTTPException(404, "Fact not found")
+    return {"id": fact_id, "text": text}
+
+
+@router.delete("/api/applications/{app_id}/facts/{fact_id}")
+async def delete_application_fact(app_id: str, fact_id: int):
+    if not await db.delete_application_fact(app_id, fact_id):
+        raise HTTPException(404, "Fact not found")
+    return {"ok": True}
 
 
 @router.get("/api/applications/pending")
@@ -307,13 +366,16 @@ async def resume_apply():
     return {"message": "Resumed — automation continuing", "live": live}
 
 
-@router.patch("/api/applications/{app_id}/content")
-async def update_application_content(app_id: str, body: ApplicationContentUpdate):
-    # Get the application + job data for DOCX regeneration
+async def _save_content(
+    app_id: str, resume: str, cover_letter: str,
+    honesty_level: Optional[str] = None, instruction: Optional[str] = None,
+) -> dict:
+    """Save new resume/cover letter text: record the replaced versions for Undo, regenerate
+    the documents (honors the configured PDF/DOCX format) and refresh the fact-check flags."""
     apps_db = await db._get_db()
     try:
         cursor = await apps_db.execute(
-            """SELECT a.*, j.id as j_id, j.title, j.company
+            """SELECT a.*, j.id as j_id, j.title, j.company, j.location, j.description
                FROM applications a JOIN jobs j ON j.id = a.job_id
                WHERE a.id = ?""",
             (app_id,),
@@ -330,26 +392,94 @@ async def update_application_content(app_id: str, body: ApplicationContentUpdate
     profile = cfg.get("profile", {})
     job_data = {"id": row["j_id"], "title": row["title"], "company": row["company"]}
 
-    # Update text content in database
     updated = await db.update_application_content(
-        app_id,
-        resume_content=body.resume_content or "",
-        cover_letter_content=body.cover_letter_content or "",
+        app_id, resume_content=resume, cover_letter_content=cover_letter, instruction=instruction,
     )
     if not updated:
         raise HTTPException(404, "Application not found")
 
-    # Regenerate documents so downloads reflect the edits (honors the
-    # configured PDF/DOCX format).
     try:
-        if body.resume_content:
-            resume_generator.generate_resume(body.resume_content, profile, job_data, cfg)
-        if body.cover_letter_content:
-            resume_generator.generate_cover_letter(body.cover_letter_content, profile, job_data, cfg)
+        if resume:
+            resume_generator.generate_resume(resume, profile, job_data, cfg)
+        if cover_letter:
+            resume_generator.generate_cover_letter(cover_letter, profile, job_data, cfg)
     except Exception:
         logger.exception("Failed to regenerate documents after content edit")
 
+    # The stored "Check this" flags describe the text as it is now.
+    flags: dict = {}
+    try:
+        flags = fact_guard.check_documents(
+            resume, cover_letter, profile,
+            {**job_data, "location": row["location"], "description": row["description"]},
+            honesty_level if honesty_level in state.VALID_HONESTY_LEVELS
+            else (row["honesty_level"] or "honest"),
+            [f["text"] for f in await db.get_application_facts(app_id)],
+        )
+        await db.set_fact_flags(app_id, flags)
+    except Exception:
+        logger.exception("Fact check failed after content edit")
+    return flags
+
+
+@router.patch("/api/applications/{app_id}/content")
+async def update_application_content(app_id: str, body: ApplicationContentUpdate):
+    await _save_content(
+        app_id, body.resume_content or "", body.cover_letter_content or "",
+        honesty_level=body.honesty_level, instruction=(body.instruction or "").strip() or None,
+    )
     return {"message": "Content updated and documents regenerated"}
+
+
+@router.get("/api/applications/{app_id}/sections")
+async def list_sections(app_id: str, target: str = Query("resume")):
+    """The parts of the tailored resume (its headers) or cover letter (paragraphs) that an
+    AI edit can be limited to."""
+    if target not in {"resume", "cover_letter"}:
+        raise HTTPException(400, "target must be 'resume' or 'cover_letter'")
+    row = await _content_row(app_id)
+    return {"sections": section_edit.options(target, row[f"{target}_content"] or "")}
+
+
+@router.get("/api/applications/{app_id}/revisions")
+async def list_revisions(app_id: str, target: str = Query("resume")):
+    """Earlier versions of the resume or cover letter, newest first."""
+    if target not in db.REVISION_TARGETS:
+        raise HTTPException(400, "target must be 'resume' or 'cover_letter'")
+    if not await db.application_exists(app_id):
+        raise HTTPException(404, "Application not found")
+    return {"revisions": await db.get_revisions(app_id, target), "cap": db.REVISION_CAP}
+
+
+@router.post("/api/applications/{app_id}/revisions/{revision_id}/restore")
+async def restore_revision(app_id: str, revision_id: int):
+    """Put an earlier version back. The text it replaces is recorded as a revision too, so
+    a restore can itself be undone."""
+    rev = await db.get_revision(app_id, revision_id)
+    if not rev:
+        raise HTTPException(404, "Revision not found")
+    row = await _content_row(app_id)
+    resume, cover = row["resume_content"] or "", row["cover_letter_content"] or ""
+    if rev["target"] == "resume":
+        resume = rev["content"]
+    else:
+        cover = rev["content"]
+    flags = await _save_content(app_id, resume, cover, instruction="Restored an earlier version")
+    return {"target": rev["target"], "content": rev["content"], "fact_flags": flags}
+
+
+async def _content_row(app_id: str) -> dict:
+    apps_db = await db._get_db()
+    try:
+        cursor = await apps_db.execute(
+            "SELECT resume_content, cover_letter_content FROM applications WHERE id = ?", (app_id,)
+        )
+        row = await cursor.fetchone()
+    finally:
+        await apps_db.close()
+    if not row:
+        raise HTTPException(404, "Application not found")
+    return dict(row)
 
 
 @router.post("/api/applications/{app_id}/revise")
@@ -411,18 +541,40 @@ async def revise_application_content(app_id: str, body: ApplicationReviseRequest
         if honesty_level not in state.VALID_HONESTY_LEVELS:
             honesty_level = "honest"
 
-    if body.target == "resume":
-        current = row.get("resume_content") or ""
-        if not current:
-            raise HTTPException(400, "No tailored resume exists yet for this application")
-        revised = await ai_engine.revise_tailored_resume(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level)
-    else:
-        current = row.get("cover_letter_content") or ""
-        if not current:
-            raise HTTPException(400, "No cover letter exists yet for this application")
-        revised = await ai_engine.revise_cover_letter(current, instructions, job_data, profile, cfg, tier=tier, honesty_level=honesty_level)
+    app_facts = [f["text"] for f in await db.get_application_facts(app_id)]
 
-    return {"revised_content": revised, "model_tier": tier, "honesty_level": honesty_level}
+    current = row.get(f"{body.target}_content") or ""
+    if not current:
+        raise HTTPException(400, "No tailored resume exists yet for this application" if body.target == "resume"
+                            else "No cover letter exists yet for this application")
+
+    # Optionally limit the edit to one section: only it is rewritten, the rest is
+    # read-only context, and the answer is spliced back so the rest stays byte-identical.
+    chunks, index, section = None, 0, None
+    if (body.section or "").strip().lower() not in ("", section_edit.WHOLE):
+        found = section_edit.find(body.target, current, body.section)
+        if not found:
+            valid = [o["id"] for o in section_edit.options(body.target, current)]
+            raise HTTPException(400, f"section must be 'whole' or one of: {valid}")
+        chunks, index = found
+        section = (chunks[index].label or chunks[index].id, section_edit.read_only_context(chunks, index))
+    text_in = chunks[index].text if chunks else current
+
+    revise = ai_engine.revise_tailored_resume if body.target == "resume" else ai_engine.revise_cover_letter
+    kwargs = {"app_facts": app_facts, **({"section": section} if section else {})}
+    revised = await revise(text_in, instructions, job_data, profile, cfg, tier=tier,
+                           honesty_level=honesty_level, **kwargs)
+    new_part = revised
+    if chunks:
+        new_part = section_edit.fit(body.target, chunks[index], revised)
+        revised = section_edit.splice(body.target, chunks, index, revised)
+
+    # Only what the edit wrote is checked when just one section changed.
+    unverified = fact_guard.check(
+        new_part, profile, job_data, honesty_level, app_facts, extra=[instructions]
+    )
+    return {"revised_content": revised, "model_tier": tier, "honesty_level": honesty_level,
+            "unverified": unverified, "section": body.section if chunks else None}
 
 
 @router.patch("/api/applications/{application_id}/outcome")

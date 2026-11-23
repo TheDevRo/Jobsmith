@@ -25,6 +25,12 @@ async function loadSettings() {
         document.getElementById('cfg-country').value = cfg.profile?.country || 'United States';
         document.getElementById('cfg-summary').value = cfg.profile?.summary || '';
         document.getElementById('cfg-skills').value = (cfg.profile?.skills || []).join(', ');
+        mountFactsEditor(document.getElementById('profile-facts'), {
+            path: '/api/profile/facts',
+            label: 'Facts about me',
+            hint: "True things you want the AI to know. They're used the next time the AI writes or rewrites something.",
+            placeholder: 'e.g. I prefer remote roles; I led the migration at my last job',
+        });
 
         renderExperience(cfg.profile?.experience || []);
         renderEducation(cfg.profile?.education || []);

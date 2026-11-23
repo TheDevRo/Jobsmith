@@ -15,6 +15,7 @@ from typing import Optional
 from . import app_state as state
 from . import database as db
 from . import ai_engine
+from . import fact_guard
 from . import salary_estimator
 from . import resume_generator
 from . import auto_apply
@@ -197,13 +198,18 @@ async def _bg_tailor_job(job_id: str):
 
         # Generate resume (required). Cover letter is attempted separately so a
         # CL failure doesn't prevent the resume from being saved.
+        # Facts kept on the draft this re-tailor replaces carry over to the new one.
+        app_facts = await db.get_job_pending_facts(job_id)
+        previous_draft = await db.get_job_pending_content(job_id)
         resume_text = await ai_engine.generate_tailored_resume(
-            job, profile, cfg, honesty_level, match_report=match_report
+            job, profile, cfg, honesty_level, match_report=match_report, app_facts=app_facts
         )
 
         cover_letter_text = ""
         try:
-            cover_letter_text = await ai_engine.generate_cover_letter(job, profile, cfg, honesty_level)
+            cover_letter_text = await ai_engine.generate_cover_letter(
+                job, profile, cfg, honesty_level, app_facts=app_facts
+            )
         except Exception:
             logger.exception("Cover letter generation failed for job %s — saving resume only", job_id)
 
@@ -224,7 +230,7 @@ async def _bg_tailor_job(job_id: str):
         # A re-tailor replaces the previous un-reviewed draft instead of adding
         # a second one to the review queue. Other statuses are left untouched.
         await db.delete_pending_applications_for_job(job_id)
-        await db.create_application(
+        new_app_id = await db.create_application(
             job_id=job_id,
             resume_content=resume_text,
             cover_letter_content=cover_letter_text,
@@ -232,6 +238,10 @@ async def _bg_tailor_job(job_id: str):
             cover_letter_path=cl_path,
             honesty_level=honesty_level,
         )
+        await db.add_application_facts(new_app_id, app_facts)
+        await db.record_retailor_revisions(new_app_id, previous_draft)
+        await db.set_fact_flags(new_app_id, fact_guard.check_documents(
+            resume_text, cover_letter_text, profile, job, honesty_level, app_facts))
 
         # Always generate embellishment log — even if CL is empty (e.g. generation failed).
         try:
@@ -327,16 +337,21 @@ async def _bg_tailor_batch(min_score: float):
                 job_id = job["id"]
                 if score >= min_score:
                     try:
+                        app_facts = await db.get_job_pending_facts(job_id)
+                        previous_draft = await db.get_job_pending_content(job_id)
                         resume_text = await ai_engine.generate_tailored_resume(
-                            job, profile, cfg, honesty_level, match_report=match_report
+                            job, profile, cfg, honesty_level, match_report=match_report,
+                            app_facts=app_facts,
                         )
-                        cl_text = await ai_engine.generate_cover_letter(job, profile, cfg, honesty_level)
+                        cl_text = await ai_engine.generate_cover_letter(
+                            job, profile, cfg, honesty_level, app_facts=app_facts
+                        )
                         resume_path = resume_generator.generate_resume(resume_text, profile, job, cfg)
                         cl_path = resume_generator.generate_cover_letter(cl_text, profile, job, cfg)
 
                         # Same supersede rule as the single-job path.
                         await db.delete_pending_applications_for_job(job_id)
-                        await db.create_application(
+                        new_app_id = await db.create_application(
                             job_id=job_id,
                             resume_content=resume_text,
                             cover_letter_content=cl_text,
@@ -344,6 +359,10 @@ async def _bg_tailor_batch(min_score: float):
                             cover_letter_path=cl_path,
                             honesty_level=honesty_level,
                         )
+                        await db.add_application_facts(new_app_id, app_facts)
+                        await db.record_retailor_revisions(new_app_id, previous_draft)
+                        await db.set_fact_flags(new_app_id, fact_guard.check_documents(
+                            resume_text, cl_text, profile, job, honesty_level, app_facts))
 
                         emb_log = await ai_engine.generate_embellishment_log(
                             profile, resume_text, cl_text, honesty_level, cfg

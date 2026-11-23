@@ -24,8 +24,9 @@ from openai import (
 )
 
 from . import apple_bridge
-from . import nli
+from . import coverage, nli
 from . import prompt_registry
+from .facts import facts_block, profile_facts
 
 logger = logging.getLogger(__name__)
 
@@ -660,7 +661,10 @@ async def _score_job_fit_nli(job: dict, profile: dict, config: dict):
     if result is None:
         return None
     score, reasoning, report = result
-    return score, reasoning, _tagged(_sanitize_match_report(report), "local_model", t0)
+    clean = _sanitize_match_report(report)
+    if clean and report.get("coverage"):
+        clean["coverage"] = report["coverage"]  # stored in its own column by update_job_score
+    return score, reasoning, _tagged(clean, "local_model", t0)
 
 
 async def _score_job_fit_llm(
@@ -692,7 +696,7 @@ async def _score_job_fit_llm(
             model=_model(config, tier),
             messages=[{"role": "user", "content": prompt}],
             temperature=ai_cfg.get("temperature", 0.7),
-            max_tokens=1200,
+            max_tokens=1800,
         )
         text = response.choices[0].message.content.strip()
         logger.debug("Score response: %s", text)
@@ -705,6 +709,10 @@ async def _score_job_fit_llm(
                     "score_job_fit: strict JSON parse failed, used %s fallback. "
                     "Response snippet: %s", method, text[:200],
                 )
+            # Requirement coverage rides along in the report; a prompt override that doesn't ask for
+            # "requirements" simply yields none.
+            if cov := coverage.parse_requirements(text):
+                report = {**(report or {}), "coverage": cov}
             return score, reasoning, report
         logger.error(
             "score_job_fit: Could not parse score from AI response: %s", text[:200]
@@ -888,6 +896,7 @@ async def generate_tailored_resume(
     config: dict,
     honesty_level: str = "honest",
     match_report: Optional[dict] = None,
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Generate a tailored resume text for a specific job.
 
@@ -914,6 +923,7 @@ async def generate_tailored_resume(
         job_description=job.get("description", "")[:5000],
         profile_summary=_profile_summary(profile, selected_experiences),
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await _llm_create_with_retry(
@@ -952,7 +962,8 @@ def _tone_instruction(tone: str) -> str:
 
 
 async def generate_cover_letter(
-    job: dict, profile: dict, config: dict, honesty_level: str = "honest"
+    job: dict, profile: dict, config: dict, honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
 ) -> str:
     """Generate a tailored cover letter for a specific job.
 
@@ -980,6 +991,7 @@ async def generate_cover_letter(
         job_description=job.get("description", "")[:5000],
         profile_summary=_profile_summary(profile, selected_experiences),
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
 
     try:
         response = await _llm_create_with_retry(
@@ -997,6 +1009,24 @@ async def generate_cover_letter(
         raise
 
 
+def _section_block(kind: str, section: tuple[str, str]) -> str:
+    """Appended in code (not in the template) when only one section is being rewritten.
+
+    `section` is (label, read-only rest of the document). Whatever the template
+    says about the output, this comes last and narrows it to the one section.
+    """
+    label, context = section
+    header = " Include its header line." if kind == "resume" else ""
+    return (
+        f"\nSECTION EDIT (overrides any instruction above about what to output)\n"
+        f"The {kind} text given above is ONE section only ({label}). Apply the user's "
+        f"instruction to that section and output only the revised section.{header} "
+        f"Do not output the rest of the {kind} and add no commentary.\n"
+        f"The rest of the {kind} is below as READ-ONLY CONTEXT so the section fits it. "
+        f"Never repeat or change it.\n--- READ-ONLY CONTEXT ---\n{context}\n--- END CONTEXT ---\n"
+    )
+
+
 async def revise_tailored_resume(
     current_resume_text: str,
     user_instructions: str,
@@ -1005,6 +1035,8 @@ async def revise_tailored_resume(
     config: dict,
     tier: str = "strong",
     honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
+    section: Optional[tuple[str, str]] = None,
 ) -> str:
     """Revise an already-tailored resume according to user instructions.
 
@@ -1031,6 +1063,9 @@ async def revise_tailored_resume(
         user_instructions=user_instructions,
         current_resume=current_resume_text,
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
+    if section:
+        prompt += _section_block("resume", section)
 
     try:
         response = await client.chat.completions.create(
@@ -1055,6 +1090,8 @@ async def revise_cover_letter(
     config: dict,
     tier: str = "strong",
     honesty_level: str = "honest",
+    app_facts: Optional[list[str]] = None,
+    section: Optional[tuple[str, str]] = None,
 ) -> str:
     """Revise an already-generated cover letter according to user instructions.
 
@@ -1081,6 +1118,9 @@ async def revise_cover_letter(
         user_instructions=user_instructions,
         current_letter=current_letter_text,
     )
+    prompt += facts_block(profile_facts(profile), app_facts, honesty_level)
+    if section:
+        prompt += _section_block("cover letter", section)
 
     try:
         response = await client.chat.completions.create(
