@@ -78,6 +78,27 @@ web-ext sign --channel=unlisted --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_J
 
 ## Use
 
+### Remote Docker / self-hosted instance
+
+Set `JOBSMITH_EXTERNAL_URL` on the backend to its HTTPS origin, for example
+`https://jobs.example.com` (no path). Keep dashboard authentication enabled and
+configure your reverse proxy to preserve that Host header. Download the Chrome
+or Firefox ZIP from that instance's `/api/extension/download/{chrome,firefox}`
+endpoint and load it as described above. Older signed Firefox builds do not
+include this remote support; use the current ZIP until a new build is signed.
+
+In the extension popup, set **Backend URL** to that same HTTPS origin and click
+**Save**. Grant access when the browser asks; only that backend host is requested.
+Then click **Apply Assist** from a tailored job in the authenticated dashboard,
+using the same browser. The extension reads the launch page's temporary setup
+token and pairs automatically, so you do not need to expose the loopback-only
+token endpoint or copy a token manually. A saved token is reused only at its
+exact origin; changing host, scheme, or port pairs using the new setup token.
+Other websites cannot initiate remote pairing. Local desktop pairing continues
+to work without this configuration.
+
+### Application form
+
 - Click the toolbar icon → **Open panel** (Chrome) or open the sidebar (Firefox).
 - Navigate to a job application page.
 - Enter the **Job ID** (from the Jobsmith UI) and click **Load**. This

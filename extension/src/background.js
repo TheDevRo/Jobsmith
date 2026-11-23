@@ -355,6 +355,20 @@ async function performAssistHandshake(launchUrl, sessionId, tabId) {
   // checkin so a slow backend doesn't delay the panel.
   await tryOpenSidePanel(tabId);
 
+  if (!["localhost", "127.0.0.1"].includes(new URL(origin).hostname)) {
+    // The remote launch page requires the dashboard cookie. Read its setup
+    // token in the authenticated tab instead of fetching it in the worker.
+    try {
+      await api.scripting.executeScript({ target: { tabId }, files: [
+        "common/storage.js", "common/handshake.js", "assist_handshake.js",
+      ] });
+    } catch (e) {
+      await forget();
+      console.warn("[Jobsmith handshake]", "remote injection failed", e);
+    }
+    return;
+  }
+
   let setupToken;
   try {
     const metaResp = await fetch(
@@ -377,24 +391,39 @@ async function performAssistHandshake(launchUrl, sessionId, tabId) {
   if (!out.ok) await forget();
 }
 
-function maybeHandle(url, tabId) {
+async function maybeHandle(url, tabId) {
   if (!url) return;
   const m = LAUNCH_RE.exec(url);
-  if (!m) return;
-  performAssistHandshake(url, m[1], tabId);
+  if (m) {
+    await performAssistHandshake(url, m[1], tabId);
+    return true;
+  }
+  // Only the explicitly saved remote origin may initiate a handoff. No broad
+  // HTTPS content script or hard-coded deployment hostname is necessary.
+  try {
+    const stored = await Storage.get(["backendUrl"]);
+    const configured = new URL(stored.backendUrl);
+    const target = new URL(url);
+    const session = /^\/assist\/launch\/([A-Za-z0-9_-]+)$/.exec(target.pathname);
+    if (configured.protocol === "https:" && target.origin === configured.origin && session) {
+      await performAssistHandshake(url, session[1], tabId);
+      return true;
+    }
+  } catch (_) { /* no configured remote backend or invalid URL */ }
 }
 
 if (api.tabs && api.tabs.onUpdated) {
   api.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.url) maybeHandle(changeInfo.url, tabId);
-    else if (changeInfo.status === "complete" && tab && tab.url) maybeHandle(tab.url, tabId);
+    let handled = false;
+    if (changeInfo.url) handled = await maybeHandle(changeInfo.url, tabId);
+    else if (changeInfo.status === "complete" && tab && tab.url) handled = await maybeHandle(tab.url, tabId);
     // Docked panel: (re)mount on every completed navigation of an assist
     // tab once it has left the launch page.
     if (
       changeInfo.status === "complete" &&
       tab && tab.url &&
       /^https?:/.test(tab.url) &&
-      !LAUNCH_RE.test(tab.url)
+      !handled
     ) {
       await hydrate();
       if (assistTabs.has(tabId)) injectAssistOverlay(tabId, tab.url);
