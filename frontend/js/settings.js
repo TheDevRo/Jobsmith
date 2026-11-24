@@ -83,7 +83,12 @@ async function loadSettings() {
         refreshOnDeviceUI();
         loadNliStatus();
         const scoringTierSel = document.getElementById('cfg-scoring-tier');
-        if (scoringTierSel) scoringTierSel.value = cfg.ai?.scoring_tier || 'strong';
+        // Quick match is its own switch; the dropdown keeps the non-Quick tier
+        // (the one Quick match falls back to when switched off).
+        const savedTier = cfg.ai?.scoring_tier || 'strong';
+        const quickCb = document.getElementById('cfg-quick-match');
+        if (quickCb) quickCb.checked = savedTier === AI_LOCAL_MATCH;
+        if (scoringTierSel && savedTier !== AI_LOCAL_MATCH) scoringTierSel.value = savedTier;
         const refineCb = document.getElementById('cfg-triage-refine');
         if (refineCb) refineCb.checked = !!cfg.ai?.triage_refine;
         scoringTierChanged();
@@ -861,7 +866,7 @@ async function saveSettings() {
         ai: {
             base_url: document.getElementById('cfg-ai-url').value,
             api_key: document.getElementById('cfg-ai-api-key').value.trim(),
-            scoring_tier: document.getElementById('cfg-scoring-tier').value || 'strong',
+            scoring_tier: scoringTierValue(),
             triage_refine: !!document.getElementById('cfg-triage-refine')?.checked,
             models: {
                 fast: { model: onDeviceTierModel('fast') },
@@ -1434,6 +1439,8 @@ async function deleteTriageModel() {
         if (s.scoring_tier_reset) {
             const sel = document.getElementById('cfg-scoring-tier');
             if (sel) sel.value = 'strong';
+            const cb = document.getElementById('cfg-quick-match');
+            if (cb) cb.checked = false;
             scoringTierChanged();
             toast('Quick match deleted. Job scoring now uses your AI model.', 'success');
         } else {
@@ -1442,14 +1449,25 @@ async function deleteTriageModel() {
     } catch (e) { toast('Could not delete the model: ' + e.message, 'error'); }
 }
 
-// Show the Quick match block when it is picked. Only Save (or the setup
-// wizard's exit) starts the download — changing the dropdown never does.
+// The ai.scoring_tier to save: Quick match when its switch is on, otherwise the
+// dropdown's tier (which is also what switching Quick match off restores).
+function scoringTierValue() {
+    if (document.getElementById('cfg-quick-match')?.checked) return AI_LOCAL_MATCH;
+    return document.getElementById('cfg-scoring-tier')?.value || 'strong';
+}
+
+// Show the Quick match block when its switch is on. Only Save (or the setup
+// wizard's exit) starts the download — flipping the switch never does.
 function scoringTierChanged() {
-    const on = document.getElementById('cfg-scoring-tier')?.value === AI_LOCAL_MATCH;
+    const on = !!document.getElementById('cfg-quick-match')?.checked;
     const block = document.getElementById('ai-triage-block');
     if (block) block.style.display = on ? '' : 'none';
+    const note = document.getElementById('ai-quick-note');
+    if (note) note.style.display = on ? '' : 'none';
     if (on) loadTriageStatus();
 }
+
+function quickMatchChanged() { scoringTierChanged(); }
 
 async function loadAiModels({ preselect = {}, persistConnection = false } = {}) {
     // When triggered from the Load Models button, persist the URL + API key
