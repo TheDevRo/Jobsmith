@@ -309,6 +309,7 @@
                             <option value="date_discovered-asc">Oldest First</option>
                             <option value="fit_score-desc">Highest Score</option>
                             <option value="fit_score-asc">Lowest Score</option>
+                            <option value="best_coverage-desc">Best Coverage</option>
                             <option value="applied_at-desc">Recently Applied</option>
                             <option value="salary_min-desc">Highest Salary</option>
                             <option value="quality_score-desc">Best Quality</option>
@@ -524,6 +525,7 @@
                             <div class="form-group"><label>Portfolio / Website</label><input type="text" id="cfg-portfolio" placeholder="https://you.dev (optional)"></div>
                             <div class="form-group"><label>Summary</label><textarea id="cfg-summary" rows="4"></textarea></div>
                             <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="cfg-skills"></div>
+                            <div class="form-group" id="profile-facts"></div>
                         </div>
                         <div class="section-card settings-basic">
                             <h2>Experience</h2>
@@ -711,6 +713,11 @@
                             <div class="form-group"><label>API Key</label><input type="password" id="cfg-usajobs-key" placeholder="Your USAJobs API key" autocomplete="off"></div>
                             <div class="btn-row"><button type="button" class="btn btn-secondary btn-sm" onclick="testSourceKey('usajobs')">Test key</button></div>
                             <div id="usajobs-test-status" class="ai-status" style="margin-top:8px"></div>
+                        </div>
+                        <div class="section-card" id="portals-card" style="display:none">
+                            <h2>Job portals</h2>
+                            <p class="section-hint"><strong>Off by default.</strong> Free remote-job APIs described by JSON files, each limited to the hosts it lists. Tick the ones you want in your fetches; each credits its source and has a minimum time between fetches. See <code>docs/portals.md</code> to add your own.</p>
+                            <div id="portals-list"></div>
                         </div>
                         <div class="section-card">
                             <h2>Data Management</h2>
@@ -1514,8 +1521,9 @@
          before its consumers (jobs.js, review.js, deck.js) render anything. -->
     <script src="js/job-actions.js?v=1"></script>
     <script src="js/jobs.js?v=51"></script>
-    <script src="js/review.js?v=43"></script>
-    <script src="js/settings.js?v=49"></script>
+    <script src="js/facts.js?v=1"></script>
+    <script src="js/review.js?v=46"></script>
+    <script src="js/settings.js?v=50"></script>
     <script src="js/prompts.js?v=2"></script>
     <script src="js/sessions.js?v=34"></script>
     <script src="js/jobs-actions.js?v=42"></script>

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiosqlite
+from . import coverage
 from .paths import project_root
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,36 @@ SCHEMA_MIGRATIONS: list[tuple[int, str]] = [
                 updated_at      TEXT
             )"""),
     (29, "CREATE INDEX IF NOT EXISTS idx_ats_accounts_provider ON ats_accounts(provider)"),
+    # Short true statements the candidate keeps for one application; they ride
+    # along with every AI write/edit of it (see backend/facts.py). Local only —
+    # not part of the sync contract.
+    (30, """CREATE TABLE IF NOT EXISTS application_facts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+                text           TEXT NOT NULL,
+                created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"""),
+    (31, "CREATE INDEX IF NOT EXISTS idx_application_facts_app ON application_facts(application_id)"),
+    # Terms the fact guard couldn't back, as JSON {"resume": [...], "cover_letter": [...]}.
+    # A warning only; local, not synced.
+    (32, "ALTER TABLE applications ADD COLUMN fact_flags TEXT"),
+    # Previous versions of resume_content / cover_letter_content, for Undo. Local
+    # only (not synced); capped per application and target (REVISION_CAP).
+    (33, """CREATE TABLE IF NOT EXISTS application_revisions (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+                target         TEXT NOT NULL,
+                content        TEXT NOT NULL,
+                instruction    TEXT,
+                created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"""),
+    (34, "CREATE INDEX IF NOT EXISTS idx_application_revisions_app ON application_revisions(application_id, target)"),
+    # Requirement coverage (JSON, see coverage.py): "covers N of M requirements" next to the fit score.
+    (35, "ALTER TABLE jobs ADD COLUMN coverage TEXT"),
 ]
+
+REVISION_CAP = 30
+REVISION_TARGETS = ("resume", "cover_letter")
 
 
 async def _run_migrations(db: aiosqlite.Connection) -> None:
@@ -644,6 +674,9 @@ async def get_jobs(
                 "ORDER BY (TRIM(COALESCE(j.company, '')) = '') ASC, "
                 f"LOWER(j.company) {direction}, j.date_discovered DESC"
             )
+        elif sort_by == "best_coverage":
+            # Share of requirements covered, then fewer missing must-haves, then fit score (see coverage.py).
+            order_clause = f"ORDER BY {coverage.sort_key_sql()}, j.date_discovered DESC"
         elif sort_by == "fit_score":
             # bestMatch parity: unscored (NULL) and 0-score jobs sink below scored
             # ones. COALESCE(NULL,-1) drops NULLs under 0; tie-break newest first.
@@ -805,6 +838,11 @@ async def purge_deleted_jobs(job_ids: list[str] | None = None) -> int:
         # application_events has no ON DELETE CASCADE — clear children first.
         await db.execute(
             f"""DELETE FROM application_events WHERE application_id IN (
+                    SELECT id FROM applications WHERE job_id IN ({scope}))""",
+            params,
+        )
+        await db.execute(
+            f"""DELETE FROM application_facts WHERE application_id IN (
                     SELECT id FROM applications WHERE job_id IN ({scope}))""",
             params,
         )
@@ -1029,15 +1067,39 @@ async def update_job_score(
     """Set the AI fit score, reasoning, and match report for a job.
 
     A None match_report clears any stored report — a stale breakdown from a
-    previous scoring run must not sit next to a fresh score.
+    previous scoring run must not sit next to a fresh score. A "coverage" key in
+    the report (see coverage.py) is stored in its own column, and cleared the same way.
     """
+    report = {k: v for k, v in (match_report or {}).items() if k != "coverage"}
+    cov = (match_report or {}).get("coverage")
     db = await _get_db()
     try:
         await db.execute(
-            "UPDATE jobs SET fit_score = ?, fit_reasoning = ?, match_report = ? WHERE id = ?",
-            (score, reasoning, json.dumps(match_report) if match_report else None, job_id),
+            "UPDATE jobs SET fit_score = ?, fit_reasoning = ?, match_report = ?, coverage = ? WHERE id = ?",
+            (score, reasoning, json.dumps(report) if report else None,
+             json.dumps(cov) if cov else None, job_id),
         )
         await db.commit()
+    finally:
+        await db.close()
+
+
+async def dismiss_job_requirement(job_id: str, text: str) -> Optional[dict]:
+    """Mark an unmet requirement as a known gap ("I don't have this"). Returns the updated coverage,
+    or None when the job has no such unmet requirement."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT coverage FROM jobs WHERE id = ?", (job_id,))
+        row = await cursor.fetchone()
+        try:
+            cov = json.loads(row["coverage"]) if row and row["coverage"] else None
+        except (TypeError, ValueError):
+            cov = None
+        if not isinstance(cov, dict) or not coverage.dismiss(cov, text):
+            return None
+        await db.execute("UPDATE jobs SET coverage = ? WHERE id = ?", (json.dumps(cov), job_id))
+        await db.commit()
+        return cov
     finally:
         await db.close()
 
@@ -1695,16 +1757,225 @@ async def get_apply_attempts(app_id: str) -> int:
         await db.close()
 
 
-async def update_application_content(app_id: str, resume_content: str, cover_letter_content: str) -> bool:
-    """Update the resume/cover letter content for an application (manual edits)."""
+async def _record_revision(db, app_id: str, target: str, content: str, instruction: Optional[str]) -> None:
+    """Keep `content` (the version being replaced) as an undo point; prune past REVISION_CAP."""
+    await db.execute(
+        "INSERT INTO application_revisions (application_id, target, content, instruction, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (app_id, target, content, instruction, datetime.now(timezone.utc).isoformat()),
+    )
+    await db.execute(
+        """DELETE FROM application_revisions
+           WHERE application_id = ? AND target = ? AND id NOT IN (
+               SELECT id FROM application_revisions WHERE application_id = ? AND target = ?
+               ORDER BY id DESC LIMIT ?)""",
+        (app_id, target, app_id, target, REVISION_CAP),
+    )
+
+
+async def update_application_content(
+    app_id: str, resume_content: str, cover_letter_content: str,
+    instruction: Optional[str] = None,
+) -> bool:
+    """Update the resume/cover letter content for an application (manual edits, accepted
+    AI edits, restores). Each text that actually changes has its previous version recorded
+    in application_revisions; `instruction` is the AI instruction behind the change, if any."""
     db = await _get_db()
     try:
         cursor = await db.execute(
+            "SELECT resume_content, cover_letter_content FROM applications WHERE id = ?", (app_id,)
+        )
+        old = await cursor.fetchone()
+        if old is None:
+            return False
+        for target, previous, new in (
+            ("resume", old["resume_content"], resume_content),
+            ("cover_letter", old["cover_letter_content"], cover_letter_content),
+        ):
+            if previous and previous != new:
+                await _record_revision(db, app_id, target, previous, instruction)
+        await db.execute(
             "UPDATE applications SET resume_content = ?, cover_letter_content = ? WHERE id = ?",
             (resume_content, cover_letter_content, app_id),
         )
         await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def get_revisions(app_id: str, target: str) -> list[dict]:
+    """Saved previous versions of one document, newest first (content omitted, previewed)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id, target, instruction, created_at, LENGTH(content) AS chars,
+                      SUBSTR(content, 1, 160) AS preview
+               FROM application_revisions WHERE application_id = ? AND target = ?
+               ORDER BY id DESC""",
+            (app_id, target),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def get_revision(app_id: str, revision_id: int) -> Optional[dict]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, target, content, instruction, created_at FROM application_revisions "
+            "WHERE id = ? AND application_id = ?",
+            (revision_id, app_id),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_job_pending_content(job_id: str) -> Optional[dict]:
+    """Resume/cover text of the job's newest un-reviewed draft (the one a re-tailor replaces)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT resume_content, cover_letter_content FROM applications "
+            "WHERE job_id = ? AND status = 'pending_review' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (job_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def record_retailor_revisions(app_id: str, previous: Optional[dict]) -> None:
+    """Keep the text a re-tailor replaced as the first undo point of the new draft."""
+    if not previous:
+        return
+    db = await _get_db()
+    try:
+        for target, key in (("resume", "resume_content"), ("cover_letter", "cover_letter_content")):
+            if previous.get(key):
+                await _record_revision(db, app_id, target, previous[key], "Before re-tailoring")
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def set_fact_flags(app_id: str, flags: dict) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            "UPDATE applications SET fact_flags = ? WHERE id = ?", (json.dumps(flags), app_id)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def application_exists(app_id: str) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT 1 FROM applications WHERE id = ?", (app_id,))
+        return await cursor.fetchone() is not None
+    finally:
+        await db.close()
+
+
+async def get_application_facts(app_id: str) -> list[dict]:
+    """The candidate's facts for one application, oldest first."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, text FROM application_facts WHERE application_id = ? ORDER BY id",
+            (app_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def add_application_fact(app_id: str, text: str) -> dict:
+    """Add one fact (already validated). ValueError when the cap is reached."""
+    from . import facts as facts_mod
+
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS n FROM application_facts WHERE application_id = ?", (app_id,)
+        )
+        facts_mod.check_new_count((await cursor.fetchone())["n"])
+        cursor = await db.execute(
+            "INSERT INTO application_facts (application_id, text) VALUES (?, ?)", (app_id, text)
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "text": text}
+    finally:
+        await db.close()
+
+
+async def update_application_fact(app_id: str, fact_id: int, text: str) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE application_facts SET text = ? WHERE id = ? AND application_id = ?",
+            (text, fact_id, app_id),
+        )
+        await db.commit()
         return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def delete_application_fact(app_id: str, fact_id: int) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM application_facts WHERE id = ? AND application_id = ?",
+            (fact_id, app_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_job_pending_facts(job_id: str) -> list[str]:
+    """Fact texts on the job's un-reviewed drafts. A re-tailor replaces the
+    draft, so tailoring reads these first and copies them to the new one."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT f.text FROM application_facts f
+               JOIN applications a ON a.id = f.application_id
+               WHERE a.job_id = ? AND a.status = 'pending_review'
+               ORDER BY f.id""",
+            (job_id,),
+        )
+        seen: list[str] = []
+        for r in await cursor.fetchall():
+            if r["text"] not in seen:
+                seen.append(r["text"])
+        return seen[:50]
+    finally:
+        await db.close()
+
+
+async def add_application_facts(app_id: str, texts: list[str]) -> None:
+    for t in texts:
+        await add_application_fact(app_id, t)
+
+
+async def get_latest_application_id(job_id: str) -> Optional[str]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM applications WHERE job_id = ? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1", (job_id,),
+        )
+        row = await cursor.fetchone()
+        return row["id"] if row else None
     finally:
         await db.close()
 
@@ -1721,7 +1992,7 @@ async def get_pending_reviews(limit: int = 20) -> list[dict]:
     try:
         cursor = await db.execute(
             """SELECT a.*, j.title, j.company, j.location, j.url, j.description,
-                      j.fit_score, j.fit_reasoning, j.match_report, j.tags, j.source
+                      j.fit_score, j.fit_reasoning, j.match_report, j.coverage, j.tags, j.source
                FROM applications a
                JOIN jobs j ON j.id = a.job_id
                WHERE a.status IN ('pending_review', 'paused')

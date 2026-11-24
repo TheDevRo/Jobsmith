@@ -89,9 +89,9 @@ checks.push(["no pane is orphaned (no tab points at it)",
 checks.push(["exactly one pane starts active",
   settings.querySelectorAll(".settings-tab-panel.active").length === 1]);
 
-// ---- 3. all 34 section-cards survived the move ----
+// ---- 3. all 35 section-cards survived the move ----
 const cards = Array.from(settings.querySelectorAll(".settings-tab-panel .section-card"));
-checks.push(["all 34 settings cards are present", cards.length === 34]);
+checks.push(["all 35 settings cards are present", cards.length === 35]);
 
 // ---- 4. Basic mode allowlist ----
 const title = c => (c.querySelector("h2") || {}).textContent || "?";

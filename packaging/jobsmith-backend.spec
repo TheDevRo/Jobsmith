@@ -27,6 +27,8 @@ datas = [
     (str(repo_root / "backend" / "fonts"), "backend/fonts"),
     # Setup-wizard provider presets, read __file__-relative by routers/settings.py.
     (str(repo_root / "backend" / "ai_providers.json"), "backend"),
+    # Bundled job-portal definitions, read __file__-relative by job_sources/portals.py.
+    (str(repo_root / "backend" / "job_sources" / "portals"), "backend/job_sources/portals"),
 ]
 datas += collect_data_files("playwright_stealth")
 datas += collect_data_files("playwright")

@@ -17,6 +17,7 @@ from .. import app_state as state
 from .. import database as db
 from .. import ai_engine
 from .. import apple_bridge
+from .. import facts as facts_mod
 from .. import nli
 from .. import resume_generator
 from .. import resume_parser
@@ -358,6 +359,7 @@ async def get_config(
         "profile": {
             "full_name": cfg.get("profile", {}).get("full_name", ""),
             "middle_name": cfg.get("profile", {}).get("middle_name", ""),
+            "facts": facts_mod.profile_facts(cfg.get("profile")),
             "email": cfg.get("profile", {}).get("email", ""),
             "phone": cfg.get("profile", {}).get("phone", ""),
             "location": cfg.get("profile", {}).get("location", ""),
@@ -428,6 +430,11 @@ async def update_config(body: ConfigUpdate):
     body.api_keys = _strip_masked(body.api_keys)
     if body.salary_estimator and isinstance(body.salary_estimator.get("bls"), dict):
         body.salary_estimator["bls"] = _strip_masked(body.salary_estimator["bls"])
+    if body.profile and "facts" in body.profile:
+        try:
+            body.profile["facts"] = facts_mod.clean_fact_list(body.profile["facts"])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
     if body.profile:
         cfg["profile"] = {**cfg.get("profile", {}), **body.profile}
     if body.search:
@@ -472,6 +479,76 @@ async def update_config(body: ConfigUpdate):
             cfg["inbox"] = {**(cfg.get("inbox") or {}), **allowed}
     state.save_config(cfg)
     return {"message": "Config updated"}
+
+
+# ---------------------------------------------------------------------------
+# "Facts about me" — profile-wide facts sent with every AI write/edit. Stored as
+# a list of strings in config.yaml under profile.facts; the id is the position.
+# ---------------------------------------------------------------------------
+class ProfileFactBody(BaseModel):
+    text: str
+
+
+def _profile_facts_payload(facts: list[str]) -> dict:
+    return {
+        "facts": [{"id": i, "text": t} for i, t in enumerate(facts)],
+        "max_facts": facts_mod.MAX_FACTS,
+        "max_chars": facts_mod.MAX_FACT_CHARS,
+    }
+
+
+def _clean_or_400(text: str) -> str:
+    try:
+        return facts_mod.clean_fact(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _save_profile_facts(cfg: dict, facts: list[str]) -> None:
+    cfg["profile"] = {**(cfg.get("profile") or {}), "facts": facts}
+    state.save_config(cfg)
+
+
+@router.get("/api/profile/facts")
+async def list_profile_facts():
+    return _profile_facts_payload(facts_mod.profile_facts(state.load_config().get("profile")))
+
+
+@router.post("/api/profile/facts", status_code=201)
+async def add_profile_fact(body: ProfileFactBody):
+    text = _clean_or_400(body.text)
+    cfg = state.load_config()
+    facts = facts_mod.profile_facts(cfg.get("profile"))
+    try:
+        facts_mod.check_new_count(len(facts))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    facts.append(text)
+    _save_profile_facts(cfg, facts)
+    return {"id": len(facts) - 1, "text": text}
+
+
+@router.patch("/api/profile/facts/{fact_id}")
+async def update_profile_fact(fact_id: int, body: ProfileFactBody):
+    text = _clean_or_400(body.text)
+    cfg = state.load_config()
+    facts = facts_mod.profile_facts(cfg.get("profile"))
+    if not 0 <= fact_id < len(facts):
+        raise HTTPException(404, "Fact not found")
+    facts[fact_id] = text
+    _save_profile_facts(cfg, facts)
+    return {"id": fact_id, "text": text}
+
+
+@router.delete("/api/profile/facts/{fact_id}")
+async def delete_profile_fact(fact_id: int):
+    cfg = state.load_config()
+    facts = facts_mod.profile_facts(cfg.get("profile"))
+    if not 0 <= fact_id < len(facts):
+        raise HTTPException(404, "Fact not found")
+    del facts[fact_id]
+    _save_profile_facts(cfg, facts)
+    return {"ok": True}
 
 
 # Keep in lockstep with settings_registry inbox.sort enum_values + JobSort (iOS).
