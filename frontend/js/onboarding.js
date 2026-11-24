@@ -1304,7 +1304,7 @@ const TOUR_STEPS = [
         hash: '#jobs',
         selector: '.jobs-toolbar',
         title: 'Two ways to work the Inbox',
-        body: 'Card view (the default) deals you one job at a time to triage fast — shortlist, pass, or open. "List view" here (or the L key) switches to the list + detail pane, where you spend most of your time: pick a job on the left → click "Tailor Resume" → wait for it to generate → click "Apply Assist" to open the posting with the extension sidebar → submit on the live ATS → hit "Mark Applied" when done. Same jobs, same actions — pick whichever fits the moment.',
+        body: 'Card view (the default) deals you one job at a time to triage fast — shortlist, pass, or open. "List view" here (or the L key) switches to the list + detail pane, where you spend most of your time: pick a job on the left → click "Tailor Resume" → wait for it to generate → click "Apply Assist" to open the posting with the extension sidebar → submit on the live ATS → hit "Mark Applied" when done. Same jobs, same actions — pick whichever fits the moment. "Flush inbox…" clears jobs you never decided on (shortlisted, passed, applied, and started jobs are kept).',
     },
     {
         hash: '#review',

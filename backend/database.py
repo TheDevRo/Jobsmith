@@ -811,6 +811,24 @@ async def restore_job(job_id: str) -> bool:
         await db.close()
 
 
+async def _hard_delete_jobs(db, scope: str, params: list) -> None:
+    """Hard-delete the jobs selected by `scope` (a `SELECT id FROM jobs ...`
+    subquery) plus their application children. Caller commits."""
+    # application_events has no ON DELETE CASCADE — clear children first.
+    await db.execute(
+        f"""DELETE FROM application_events WHERE application_id IN (
+                SELECT id FROM applications WHERE job_id IN ({scope}))""",
+        params,
+    )
+    await db.execute(
+        f"""DELETE FROM application_facts WHERE application_id IN (
+                SELECT id FROM applications WHERE job_id IN ({scope}))""",
+        params,
+    )
+    await db.execute(f"DELETE FROM applications WHERE job_id IN ({scope})", params)
+    await db.execute(f"DELETE FROM jobs WHERE id IN ({scope})", params)
+
+
 async def purge_deleted_jobs(job_ids: list[str] | None = None) -> int:
     """Empty the recycle bin: hard-delete soft-deleted jobs (all of them, or
     just `job_ids` if given) along with their application rows and events.
@@ -835,21 +853,58 @@ async def purge_deleted_jobs(job_ids: list[str] | None = None) -> int:
             params = list(job_ids)
         cursor = await db.execute(f"SELECT COUNT(*) AS n FROM ({scope})", params)
         count = (await cursor.fetchone())["n"]
-        # application_events has no ON DELETE CASCADE — clear children first.
-        await db.execute(
-            f"""DELETE FROM application_events WHERE application_id IN (
-                    SELECT id FROM applications WHERE job_id IN ({scope}))""",
-            params,
-        )
-        await db.execute(
-            f"""DELETE FROM application_facts WHERE application_id IN (
-                    SELECT id FROM applications WHERE job_id IN ({scope}))""",
-            params,
-        )
-        await db.execute(
-            f"DELETE FROM applications WHERE job_id IN ({scope})", params
-        )
-        await db.execute(f"DELETE FROM jobs WHERE id IN ({scope})", params)
+        await _hard_delete_jobs(db, scope, params)
+        await db.commit()
+        return count
+    finally:
+        await db.close()
+
+
+def _flushable_scope(older_than_days: int | None) -> tuple[str, list]:
+    """SELECT of flushable Inbox job ids: undecided (status='discovered'), no
+    application row, no dismissed coverage gap, optionally found more than N
+    days ago. `date_discovered` is either SQLite CURRENT_TIMESTAMP or a Python
+    ISO string ('T', microseconds, '+00:00'); julianday() parses both."""
+    scope = (
+        "SELECT j.id FROM jobs j WHERE j.status = 'discovered'"
+        " AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)"
+        " AND NOT EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(j.coverage)"
+        "   THEN j.coverage ELSE '{}' END, '$.requirements') r"
+        "   WHERE json_extract(r.value, '$.dismissed') = 1)"
+    )
+    params: list = []
+    if older_than_days is not None:
+        scope += " AND julianday(j.date_discovered) < julianday('now', ?)"
+        params.append(f"-{int(older_than_days)} days")
+    return scope, params
+
+
+async def count_flushable(older_than_days: int | None = None) -> int:
+    """How many Inbox jobs `flush_inbox` would remove (preview)."""
+    db = await _get_db()
+    try:
+        scope, params = _flushable_scope(older_than_days)
+        cursor = await db.execute(f"SELECT COUNT(*) AS n FROM ({scope})", params)
+        return (await cursor.fetchone())["n"]
+    finally:
+        await db.close()
+
+
+async def flush_inbox(older_than_days: int | None = None) -> int:
+    """Dump undecided Inbox jobs (optionally only those found more than
+    `older_than_days` ago) with a HARD delete, like `purge_deleted_jobs`: a
+    later search that still finds the posting inserts it fresh, and the sync
+    exporter emits `job` tombstones so other devices drop them too. Shortlisted,
+    decided, applied, soft-deleted, and started-work jobs are never touched.
+
+    Returns the number of jobs removed.
+    """
+    db = await _get_db()
+    try:
+        scope, params = _flushable_scope(older_than_days)
+        cursor = await db.execute(f"SELECT COUNT(*) AS n FROM ({scope})", params)
+        count = (await cursor.fetchone())["n"]
+        await _hard_delete_jobs(db, scope, params)
         await db.commit()
         return count
     finally:

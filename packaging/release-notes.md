@@ -33,6 +33,10 @@ more job sources, and an easier setup.
 
 **Finding jobs**
 
+- **Flush inbox**: after time away, clear out Inbox jobs you never decided on
+  (all of them, or only ones found more than N days ago). Shortlisted, passed,
+  applied and started jobs are kept, a flushed posting comes back if a later
+  search still finds it, and the flush syncs to your iPhone.
 - **Requirement coverage**: each scored job shows how many of its
   requirements you meet (N/M), with the full list on the job and a "Best
   coverage" sort.
@@ -40,7 +44,8 @@ more job sources, and an easier setup.
   Search & sources).
 - A **Setup Assistant** (Local / Cloud / Advanced) and sources that work
   without any setup.
-- **Quick match**: an optional on-device model that pre-sorts new postings.
+- **Quick match**: an optional on-device model (BGE-small-en-v1.5) that scores
+  new postings in a fraction of a second, with its own switch in Settings → AI.
 
 **Documents and Apply Assist**
 

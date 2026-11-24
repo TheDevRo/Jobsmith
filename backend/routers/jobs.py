@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import app_state as state
 from .. import background_tasks as bg
@@ -72,6 +72,30 @@ async def list_jobs(
         pay_floor=pay_floor, require_stated_pay=require_stated_pay,
         sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset,
     )
+
+
+class FlushInboxRequest(BaseModel):
+    older_than_days: int | None = Field(default=None, ge=0)  # None = whole Inbox
+
+
+@router.get("/api/jobs/flush-preview")
+async def flush_preview(older_than_days: int | None = Query(None, ge=0)):
+    """How many Inbox jobs a flush would remove (no changes made)."""
+    return {"count": await db.count_flushable(older_than_days)}
+
+
+@router.post("/api/jobs/flush")
+async def flush_inbox(body: Optional[FlushInboxRequest] = None):
+    """Remove undecided Inbox jobs (optionally only those found more than N days
+    ago). Shortlisted, decided, applied, and started-work jobs are kept. Flushed
+    postings come back if a later search still finds them, and the removal
+    propagates to synced devices as tombstones."""
+    days = body.older_than_days if body else None
+    count = await db.flush_inbox(days)
+    await db.log_activity(
+        "delete", f"Flushed {count} Inbox job{'s' if count != 1 else ''}"
+    )
+    return {"flushed": count, "message": f"Flushed {count} Inbox jobs"}
 
 
 @router.get("/api/jobs/{job_id}")

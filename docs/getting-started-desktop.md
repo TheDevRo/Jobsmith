@@ -187,6 +187,12 @@ The **List view** button in the Inbox toolbar (or **L**) swaps the cards for the
 list + detail pane; the same button switches back. It is a per-screen choice
 that Jobsmith remembers — the Pipeline has its own, independent one.
 
+**Flush inbox…** in the same toolbar clears jobs you never decided on — handy
+after time away. Tick **Only jobs found more than N days ago** (default 14) to
+keep recent ones. Shortlisted, passed, applied, and started-work jobs are kept,
+a flushed posting comes back if a later search still finds it, and the removal
+syncs to your other devices.
+
 Shortlisting is the signal Jobsmith acts on: shortlisted jobs are the ones that
 get tailored documents.
 

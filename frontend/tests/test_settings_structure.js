@@ -35,7 +35,7 @@ const CFG_IDS = [
   "cfg-flaresolverr-url", "cfg-gender", "cfg-github", "cfg-greenhouse",
   "cfg-indeed-enabled", "cfg-keywords", "cfg-lever", "cfg-linkedin", "cfg-live-refresh", "cfg-locations",
   "cfg-location", "cfg-middle-name", "cfg-name", "cfg-notice-period",
-  "cfg-over-18", "cfg-phone", "cfg-portfolio", "cfg-race", "cfg-recruitee",
+  "cfg-over-18", "cfg-phone", "cfg-portfolio", "cfg-quick-match", "cfg-race", "cfg-recruitee",
   "cfg-salary", "cfg-salary-auto-ingest", "cfg-scoring-tier", "cfg-server-host",
   "cfg-skills", "cfg-sponsorship", "cfg-state", "cfg-street-address",
   "cfg-street-address-2", "cfg-summary", "cfg-sync-enabled", "cfg-sync-folder",

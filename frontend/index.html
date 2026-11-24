@@ -385,6 +385,7 @@
                         <button class="btn btn-primary btn-sm" onclick="stageFetch()" title="Fetch new jobs from your configured sources">Fetch Jobs</button>
                         <button class="btn btn-ghost btn-sm" id="toggle-select-btn" onclick="toggleSelectMode()">Select</button>
                         <button class="btn btn-ghost btn-sm inbox-view-toggle" id="inbox-view-toggle" onclick="toggleInboxView()" title="Switch the Inbox between the triage cards and the list (L)">List view</button>
+                        <button class="btn btn-ghost btn-sm" id="inbox-flush-btn" onclick="flushInbox()" title="Remove Inbox jobs you haven't decided on">Flush inbox…</button>
                     </div>
                     <div class="toolbar-right" id="select-actions" style="display:none">
                         <label class="select-all-toggle"><input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs(this.checked)"> All on Page</label>
@@ -800,6 +801,20 @@
                                     <button class="btn btn-secondary btn-sm" id="ai-nli-delete" style="display:none" onclick="deleteNliModel()">Delete model</button>
                                 </div>
                             </div>
+                            <!-- Quick match: one switch for the on-device scoring tier (ai.scoring_tier = local-match-model). -->
+                            <div id="ai-quick-block" style="margin:12px 0 4px">
+                                <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-quick-match" onchange="quickMatchChanged()"> <strong>Quick match (on-device, free)</strong></label>
+                                <div id="ai-triage-block" style="display:none;margin-top:6px">
+                                    <p class="ai-tier-hint">Quick match scores every job on this computer in a fraction of a second, from how well your profile covers each requirement line. Jobs it can't judge go to the Content model. It gives an overall score only, not a requirement checklist (N of M); refine below adds one for your top matches. Model: BGE-small-en-v1.5 (BAAI), a small text-matching model, with Jobsmith’s scoring on top. Downloads about <span id="ai-triage-size">134 MB</span>.</p>
+                                    <p class="ai-tier-hint" id="ai-triage-status" style="margin-top:4px"></p>
+                                    <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-triage-refine"> Refine top matches with the detailed model</label>
+                                    <p class="ai-tier-hint">After a scoring run, Local match re-scores the top 15% of Quick matches, more slowly and more carefully, and lists which requirements you meet. Needs Local match switched on and downloaded.</p>
+                                    <div class="btn-row" style="margin-top:6px">
+                                        <button class="btn btn-secondary btn-sm" id="ai-triage-retry" style="display:none" onclick="installTriageModel()">Retry download</button>
+                                        <button class="btn btn-secondary btn-sm" id="ai-triage-delete" style="display:none" onclick="deleteTriageModel()">Delete model</button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="ai-tier-group">
                                 <div class="ai-tier">
                                     <div class="ai-tier-header">
@@ -835,21 +850,11 @@
                             <div class="form-group" style="margin-top:8px">
                                 <label>Job scoring</label>
                                 <select id="cfg-scoring-tier" style="width:100%" onchange="scoringTierChanged()">
-                                    <option value="local-match-model">Quick match (on-device, free)</option>
                                     <option value="strong">AI model: Content (highest-quality scores)</option>
                                     <option value="utility">AI model: Utility (avoids model swap during ingestion)</option>
                                     <option value="fast">AI model: Navigator</option>
                                 </select>
-                                <div id="ai-triage-block" style="display:none;margin-top:6px">
-                                    <p class="ai-tier-hint">Quick match scores every job on this computer in a fraction of a second, from how well your profile covers each requirement line. Jobs it can't judge go to the Content model. It gives an overall score only, not a requirement checklist (N of M); refine below adds one for your top matches. Model: BGE-small-en-v1.5 (BAAI), a small text-matching model, with Jobsmith’s scoring on top. Downloads about <span id="ai-triage-size">134 MB</span>.</p>
-                                    <p class="ai-tier-hint" id="ai-triage-status" style="margin-top:4px"></p>
-                                    <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-triage-refine"> Refine top matches with the detailed model</label>
-                                    <p class="ai-tier-hint">After a scoring run, Local match re-scores the top 15% of Quick matches, more slowly and more carefully, and lists which requirements you meet. Needs Local match switched on and downloaded.</p>
-                                    <div class="btn-row" style="margin-top:6px">
-                                        <button class="btn btn-secondary btn-sm" id="ai-triage-retry" style="display:none" onclick="installTriageModel()">Retry download</button>
-                                        <button class="btn btn-secondary btn-sm" id="ai-triage-delete" style="display:none" onclick="deleteTriageModel()">Delete model</button>
-                                    </div>
-                                </div>
+                                <p class="ai-tier-hint" id="ai-quick-note" style="display:none;margin-top:4px">Quick match is on — jobs it can't judge are scored by your Content model. Switch Quick match off to pick a different scoring model here.</p>
                                 <p class="ai-tier-hint" style="margin-top:4px">What judges job fit. Quick match is free and runs on this computer; an AI model is slower but reads each posting in full. Set to <strong>Utility</strong> so scoring and the salary-estimator share one model — keeps a local AI server from swapping models on every ingested job. Switch back to <strong>Content</strong> for the most accurate scores.</p>
                             </div>
                             <div class="form-group settings-advanced" style="margin-top:8px">
