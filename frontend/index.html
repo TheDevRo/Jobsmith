@@ -793,7 +793,7 @@
                             <!-- Local match: one switch for the on-device NLI model. -->
                             <div id="ai-nli-block" style="margin:12px 0 4px">
                                 <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-ai-nli-beta" onchange="saveNliBeta()"> <strong>Local match</strong> <span class="hint">(on-device, beta)</span></label>
-                                <p class="ai-tier-hint">Fills application forms from your profile without an LLM and scores jobs when no AI endpoint is reachable. Downloads about <span id="ai-nli-size">690 MB</span>.</p>
+                                <p class="ai-tier-hint">Fills application forms from your profile without an LLM and scores jobs when no AI endpoint is reachable, including which requirements you meet (N of M). Model: DeBERTa-v3-large (MoritzLaurer’s NLI model, 8-bit), which checks whether your profile backs up each requirement line. Runs on this computer. Downloads about <span id="ai-nli-size">690 MB</span>.</p>
                                 <p class="ai-tier-hint" id="ai-nli-status" style="margin-top:4px"></p>
                                 <div class="btn-row" style="margin-top:6px">
                                     <button class="btn btn-secondary btn-sm" id="ai-nli-retry" style="display:none" onclick="installNliModel()">Retry download</button>
@@ -841,10 +841,10 @@
                                     <option value="fast">AI model: Navigator</option>
                                 </select>
                                 <div id="ai-triage-block" style="display:none;margin-top:6px">
-                                    <p class="ai-tier-hint">Quick match scores every job on this computer in a fraction of a second, from how well your profile covers each requirement line. Jobs it can't judge go to the Content model. Downloads about <span id="ai-triage-size">134 MB</span>.</p>
+                                    <p class="ai-tier-hint">Quick match scores every job on this computer in a fraction of a second, from how well your profile covers each requirement line. Jobs it can't judge go to the Content model. It gives an overall score only, not a requirement checklist (N of M); refine below adds one for your top matches. Model: BGE-small-en-v1.5 (BAAI), a small text-matching model, with Jobsmith’s scoring on top. Downloads about <span id="ai-triage-size">134 MB</span>.</p>
                                     <p class="ai-tier-hint" id="ai-triage-status" style="margin-top:4px"></p>
                                     <label class="ai-ondevice-opt"><input type="checkbox" id="cfg-triage-refine"> Refine top matches with the detailed model</label>
-                                    <p class="ai-tier-hint">After a scoring run, Local match re-scores the top 15% of Quick matches, more slowly and more carefully. Needs Local match switched on and downloaded.</p>
+                                    <p class="ai-tier-hint">After a scoring run, Local match re-scores the top 15% of Quick matches, more slowly and more carefully, and lists which requirements you meet. Needs Local match switched on and downloaded.</p>
                                     <div class="btn-row" style="margin-top:6px">
                                         <button class="btn btn-secondary btn-sm" id="ai-triage-retry" style="display:none" onclick="installTriageModel()">Retry download</button>
                                         <button class="btn btn-secondary btn-sm" id="ai-triage-delete" style="display:none" onclick="deleteTriageModel()">Delete model</button>
