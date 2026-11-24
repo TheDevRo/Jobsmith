@@ -236,6 +236,74 @@ async function emptyRecycleBin() {
     }
 }
 
+// ---- Flush inbox ----
+// Dumps undecided Inbox jobs (hard delete, like erasing from Recently Deleted):
+// shortlisted/passed/applied/started-work jobs are kept, a flushed posting comes
+// back if a later search still finds it, and the removal syncs to other devices.
+// Wording matches the iPhone app.
+function _flushQuery(onlyOld, days) {
+    return onlyOld ? `?older_than_days=${Math.max(0, Math.floor(Number(days)) || 0)}` : '';
+}
+
+async function flushInbox() {
+    const overlay = document.createElement('div');
+    overlay.className = 'app-dialog-overlay';
+    const box = document.createElement('div');
+    box.className = 'app-dialog';
+    box.innerHTML = `
+        <div class="app-dialog-message">Removes Inbox jobs you haven’t decided on. Jobs you shortlisted, passed, applied to, or started work on are kept. A flushed posting comes back if a later search still finds it. Syncs to your other devices.</div>
+        <label class="remote-toggle"><input type="checkbox" id="flush-only-old"> Only jobs found more than
+            <input type="number" id="flush-days" min="0" value="14" style="width:64px" disabled> days ago</label>
+        <div class="app-dialog-buttons">
+            <button class="btn btn-secondary btn-sm" id="flush-cancel">Cancel</button>
+            <button class="btn btn-danger btn-sm" id="flush-confirm" disabled>Flush 0 jobs</button>
+        </div>`;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const onlyOld = box.querySelector('#flush-only-old');
+    const days = box.querySelector('#flush-days');
+    const confirmBtn = box.querySelector('#flush-confirm');
+    let count = 0;
+    let seq = 0;
+    const refresh = async () => {
+        days.disabled = !onlyOld.checked;
+        const mine = ++seq;
+        confirmBtn.disabled = true;
+        try {
+            const data = await api('/api/jobs/flush-preview' + _flushQuery(onlyOld.checked, days.value));
+            if (mine !== seq) return;
+            count = data.count;
+        } catch (e) {
+            if (mine !== seq) return;
+            count = 0;
+        }
+        confirmBtn.textContent = `Flush ${count} job${count !== 1 ? 's' : ''}`;
+        confirmBtn.disabled = count === 0;
+    };
+    const close = () => { document.removeEventListener('keydown', onKey, true); overlay.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    box.querySelector('#flush-cancel').onclick = close;
+    onlyOld.onchange = refresh;
+    days.oninput = refresh;
+    confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        try {
+            const body = { older_than_days: onlyOld.checked ? Math.max(0, Math.floor(Number(days.value)) || 0) : null };
+            const data = await api('/api/jobs/flush', { method: 'POST', body: JSON.stringify(body) });
+            close();
+            toast(`Flushed ${data.flushed} job${data.flushed !== 1 ? 's' : ''}`, 'success');
+            clearDetailPane();
+            if (typeof enterInbox === 'function') enterInbox(); else loadJobs();
+        } catch (e) {
+            confirmBtn.disabled = false;
+            toast('Failed to flush Inbox', 'error');
+        }
+    };
+    refresh();
+}
+
 // ---- Utilities ----
 function escapeHtml(str) {
     if (!str) return '';

@@ -1131,6 +1131,7 @@ function _buildRegistry() {
         { group: 'Actions', label: 'Detect Easy Apply', keywords: 'apply type classify', run: () => _runIf('detectApplyTypes') },
         { group: 'Actions', label: 'Add job by URL', keywords: 'ingest manual link paste', run: paletteAddUrl },
         { group: 'Actions', label: 'Toggle theme', keywords: 'dark light appearance', run: () => _runIf('toggleTheme') },
+        { group: 'Actions', label: 'Flush inbox…', keywords: 'clear remove undecided stale inbox dump', run: () => { location.hash = 'jobs'; setTimeout(() => _runIf('flushInbox'), 0); } },
         { group: 'Actions', label: 'Toggle Inbox view (cards / list)', keywords: 'layout deck stage triage classic', run: () => { location.hash = 'jobs'; setTimeout(() => _runIf('toggleInboxView'), 0); } },
         { group: 'Actions', label: 'Toggle Pipeline view (board / table)', keywords: 'layout kanban classic tabs review', run: () => { location.hash = 'review'; setTimeout(() => _runIf('togglePipelineView'), 0); } },
         { group: 'Actions', label: 'Show running work', keywords: 'now runs progress panel rail', run: () => _runIf('toggleNowRail') },
