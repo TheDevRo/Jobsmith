@@ -4008,7 +4008,7 @@ main:has(> #jobs.tab-content.active.view-cards) {
 .kcard .kage { margin-left: auto; font-size: 10px; color: var(--text-muted); }
 .kprogress { height: 4px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
 .kprogress i { display: block; height: 100%; width: 45%; border-radius: 999px; background: linear-gradient(90deg, var(--steel), var(--accent)); animation: kbatch-slide 1.4s ease-in-out infinite; }
-.oktag { font-size: 10px; color: var(--accent-green); }
+.oktag { font-size: 10px; color: var(--accent-green); white-space: nowrap; }
 .duetag { font-size: 10px; font-weight: 650; color: var(--accent-red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Card action cluster. The ⋯ is always visible; the ✕ fades in on hover or
    keyboard focus so a full column stays calm instead of reading as a row of
@@ -4191,3 +4191,11 @@ body[data-theme="light"] .cmdk-overlay { background: rgba(30,20,12,.28); }
 #ob-model-list { width: 100%; margin-top: 6px; }
 .ob-dl-chip { cursor: default; }
 @media (max-width: 640px) { .ob-mode-cards { grid-template-columns: 1fr; } }
+
+/* "Check this" fact-guard notice. The accent orange is too faint for text on a
+   white background (2.85:1), so the light theme uses a darker orange (6:1). */
+.fact-check { color: var(--accent-orange); }
+body[data-theme="light"] .fact-check { color: #a84300; }
+@media (prefers-color-scheme: light) {
+    body:not([data-theme]) .fact-check { color: #a84300; }
+}

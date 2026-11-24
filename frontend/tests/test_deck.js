@@ -360,6 +360,12 @@ async function assertDrop(from, to, id, verify) {
   const orphanCard = window._appKcardHtml({ id: "app0", title: "Role" }, "applied");
   checks.push(["app card with no job_id has no delete button", !orphanCard.includes("kdel-btn")]);
 
+  // Ready to Review cards carry the coverage badge in their footer (job cards already do).
+  window.renderCoverageBadge = (j) => (j && j.coverage ? '<span class="cov-badge">2/3</span>' : "");
+  const pendCard = window._appKcardHtml({ id: "app8", job_id: "kj8", title: "Role", coverage: "{}" }, "pending");
+  checks.push(["Ready to Review card shows the coverage badge", pendCard.includes("cov-badge")]);
+  checks.push(["Applied card does not", !appCard.includes("cov-badge")]);
+
   // The runner: DELETE, then an undo toast whose action PATCHes the job back to
   // the status it held (so the card returns to its column, not the Inbox).
   const toasts = [];
