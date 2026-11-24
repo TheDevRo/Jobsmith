@@ -1464,6 +1464,11 @@ function scoringTierChanged() {
     if (block) block.style.display = on ? '' : 'none';
     const note = document.getElementById('ai-quick-note');
     if (note) note.style.display = on ? '' : 'none';
+    // While Quick match is on, the jobs it can't judge always go to the Content
+    // model (ai_engine), so the dropdown has no effect: grey it out. It keeps its
+    // value, which switching Quick match off restores.
+    const sel = document.getElementById('cfg-scoring-tier');
+    if (sel) sel.disabled = on;
     if (on) loadTriageStatus();
 }
 
