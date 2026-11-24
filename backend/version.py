@@ -4,4 +4,4 @@ Keep in sync with package.json (the release SSOT); scripts/release.sh
 checks they match before tagging.
 """
 
-APP_VERSION = "0.2.9"
+APP_VERSION = "0.3.0"
