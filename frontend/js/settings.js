@@ -314,7 +314,7 @@ async function renderPortalToggles() {
         const data = await api('/api/sources');
         const portals = (data.details || []).filter(d => d.kind === 'portal');
         card.style.display = portals.length ? '' : 'none';
-        list.innerHTML = portals.map(d => `<label class="remote-toggle" style="margin-bottom:8px" title="${escapeHtml(d.note || '')}"><input type="checkbox" data-portal="${escapeHtml(d.name)}"${d.default_on ? ' checked' : ''}> ${escapeHtml(d.label || d.name)}${d.note ? ` <span class="hint">— ${escapeHtml(d.note)}</span>` : ''}</label>`).join('');
+        list.innerHTML = portals.map(d => `<div style="margin-bottom:10px"><label class="remote-toggle" title="${escapeHtml(d.note || '')}"><input type="checkbox" data-portal="${escapeHtml(d.name)}"${d.default_on ? ' checked' : ''}> ${escapeHtml(d.label || d.name)}</label>${d.note ? `<span class="hint" style="display:block;margin:2px 0 0 22px">${escapeHtml(d.note)}</span>` : ''}</div>`).join('');
         window._portalsRendered = portals.length > 0;
     } catch (e) {
         console.warn('Could not load job portals', e);

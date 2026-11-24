@@ -151,6 +151,10 @@ These sources work with no API key at all:
 for people, so a fetch can take minutes and breaks when the site changes or
 blocks bots. Indeed is off by default; turn it on in **Settings → Job Search**.
 
+Three free remote-job portals — Remotive, Himalayas and Jobicy — are **off by
+default**. Tick them in the fetch picker, or turn them on in the **Job portals**
+card in **Settings → Job Search** (Advanced mode). See [portals.md](portals.md).
+
 Adzuna and USAJobs need free API keys. Until you add them (in the wizard or
 **Settings → Job Search**, each with a **Test** button) they show as "needs
 key" in the fetch picker and are skipped.
@@ -164,6 +168,11 @@ few dozen jobs.
 **Score** asks your AI server to rate each job against your profile and gives it
 a **fit score** — 0-100, how well the job matches you. Hover any score chip in
 the app for the same one-line explanation.
+
+When a posting lists requirements, scoring also counts how many your profile
+covers. That shows as an **N/M** badge next to the fit score; open the job to
+see the list. Click **I don't have this** on a gap you already know about, and
+choose **Best Coverage** in the Inbox sort to see the closest fits first.
 
 Then triage in the **Inbox**. The default **card view** shows one job at a time:
 
@@ -201,8 +210,19 @@ The default is `honest`. Set the global default in **Settings → AI**, and
 override it per edit in the AI Edit panel. Anything above `tailored` can produce
 false statements — you are responsible for what you submit.
 
+**Facts about me** (**Settings → Profile**) are short true statements — "I led
+the billing migration" — that go into every resume, cover letter and edit.
+
 Generated documents land in the **Pipeline**, under **Ready to Review**. Review
-them there; **AI Edit** lets you revise with natural-language instructions.
+them there; **AI Edit** lets you revise with natural-language instructions:
+
+- Pick a **Section** to rewrite just that part and leave the rest exactly as it is.
+- Add **Facts for this application**, or use **Keep this for future edits** to
+  save an instruction as one.
+- **History** keeps earlier versions: **Undo last change** or **Go back to this**.
+- **Check this** lists names, numbers or credentials in the AI's text that your
+  profile, the posting and your facts don't back. It's a warning, not a block —
+  verify them before you apply.
 
 ## 6. Install the browser extension
 
