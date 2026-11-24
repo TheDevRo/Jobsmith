@@ -8,7 +8,7 @@ const DEFAULT_BACKEND = "http://localhost:8888";
 const jobsmithStore = globalThis.JobsmithStorage;
 
 async function jobsmithGetConfig() {
-  const out = await jobsmithStore.get(["backendUrl", "token", "deepScan", "autoScan", "autoFill"]);
+  const out = await jobsmithStore.get(["backendUrl", "token", "deepScan", "autoScan", "autoFill", "preferPdf"]);
   return {
     backendUrl: (out.backendUrl || DEFAULT_BACKEND).replace(/\/+$/, ""),
     token: out.token || "",
@@ -24,16 +24,20 @@ async function jobsmithGetConfig() {
     // autoFill: fill immediately after a successful auto-scan (once per
     // page URL). Default off — hands-off mode is opt-in.
     autoFill: out.autoFill === true,
+    // preferPdf: ask the backend for PDF resume/cover-letter files (it renders
+    // them on demand). Default on; off asks for the DOCX.
+    preferPdf: out.preferPdf !== false,
   };
 }
 
-async function jobsmithSetConfig({ backendUrl, token, deepScan, autoScan, autoFill }) {
+async function jobsmithSetConfig({ backendUrl, token, deepScan, autoScan, autoFill, preferPdf }) {
   const patch = {};
   if (backendUrl !== undefined) patch.backendUrl = backendUrl;
   if (token !== undefined) patch.token = token;
   if (deepScan !== undefined) patch.deepScan = !!deepScan;
   if (autoScan !== undefined) patch.autoScan = !!autoScan;
   if (autoFill !== undefined) patch.autoFill = !!autoFill;
+  if (preferPdf !== undefined) patch.preferPdf = !!preferPdf;
   await jobsmithStore.set(patch);
 }
 
@@ -129,11 +133,23 @@ async function jobsmithFetch(path, { method = "GET", body, signal, raw = false }
   return ct.includes("application/json") ? resp.json() : resp;
 }
 
+const JOBSMITH_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// The backend decides the real format (a PDF can be served for a request that
+// named a .docx), so name the file from the response's Content-Type rather than
+// trusting the extension the caller guessed.
+function jobsmithFileName(filename, contentType) {
+  const ext = /application\/pdf/i.test(contentType) ? "pdf"
+    : /wordprocessingml\.document/i.test(contentType) ? "docx" : null;
+  return ext ? filename.replace(/\.[^./\\]+$/, "") + "." + ext : filename;
+}
+
 async function jobsmithFetchFile(path, filename) {
   const resp = await jobsmithFetch(path, { raw: true });
   const blob = await resp.blob();
-  return new File([blob], filename, {
-    type: blob.type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  const type = resp.headers.get("content-type") || blob.type || JOBSMITH_DOCX_MIME;
+  return new File([blob], jobsmithFileName(filename, type), {
+    type: type.split(";")[0].trim(),
     lastModified: Date.now(),
   });
 }

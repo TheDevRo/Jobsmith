@@ -257,12 +257,12 @@ def _build_sidebar_script(backend_url: str) -> str:
     sp(t, 'left', '0');
     sp(t, 'right', '0');
     sp(t, 'padding', '14px 20px');
-    sp(t, 'background', '#313244');
-    sp(t, 'color', '#cdd6f4');
+    sp(t, 'background', '#1c1c1f');
+    sp(t, 'color', '#eae9ec');
     sp(t, 'font-size', '14px');
     sp(t, 'font-family', '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif');
     sp(t, 'z-index', '2147483646');
-    sp(t, 'border-bottom', '2px solid #89b4fa');
+    sp(t, 'border-bottom', '2px solid #f0863a');
     sp(t, 'cursor', 'pointer');
     sp(t, 'text-align', 'center');
     document.body.appendChild(t);
@@ -291,9 +291,9 @@ def _build_sidebar_script(backend_url: str) -> str:
     style.id = '__assist-hl__';
     style.textContent = fields.map(f => {{
       if (!f.selector) return '';
-      const color = f.status === 'filled' ? '#a6e3a1'
-                  : f.status === 'low_confidence' ? '#f9e2af'
-                  : '#f38ba8';
+      const color = f.status === 'filled' ? '#4caf7d'
+                  : f.status === 'low_confidence' ? '#f5a623'
+                  : '#e74c3c';
       return f.selector + ' {{ outline: 2px solid ' + color + ' !important; outline-offset: 2px !important; }}';
     }}).filter(Boolean).join('\\n');
     document.head.appendChild(style);

@@ -930,7 +930,7 @@ async def preview_resume_style(
 @router.get("/api/settings/document-format")
 async def get_document_format():
     cfg = state.load_config()
-    fmt = cfg.get("application_honesty", {}).get("document_format", "docx")
+    fmt = cfg.get("application_honesty", {}).get("document_format", "pdf")
     return {"document_format": fmt}
 
 

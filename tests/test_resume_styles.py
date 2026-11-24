@@ -290,3 +290,30 @@ def test_preview_sample_exercises_every_section_the_styles_render():
     assert len(entries) >= 2                      # entry spacing is visible
     assert all(e["bullets"] for e in entries)     # bullet markers are visible
     assert all(e["dates"] for e in entries)       # right-aligned dates are visible
+
+
+# ---------------------------------------------------------------------------
+# Document format default: PDF unless the config explicitly says docx
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("config", [None, {}, {"application_honesty": {}}])
+def test_document_format_defaults_to_pdf(config):
+    assert rg._document_format(config) == "pdf"
+
+
+def test_document_format_keeps_explicit_docx():
+    assert rg._document_format(_cfg(fmt="docx")) == "docx"
+    assert rg._document_format(_cfg(fmt="pdf")) == "pdf"
+
+
+def test_generate_resume_without_format_key_returns_pdf_and_keeps_docx(tmp_path, monkeypatch):
+    monkeypatch.setattr(rg, "RESUMES_DIR", tmp_path)
+    path = rg.generate_resume(RESUME_CONTENT, PROFILE, JOB, {"application_honesty": {}})
+    assert path.endswith("t1_resume.pdf")
+    assert (tmp_path / "t1_resume.docx").exists()
+
+
+def test_generate_resume_explicit_docx_writes_no_pdf(tmp_path, monkeypatch):
+    monkeypatch.setattr(rg, "RESUMES_DIR", tmp_path)
+    path = rg.generate_resume(RESUME_CONTENT, PROFILE, JOB, _cfg(fmt="docx"))
+    assert path.endswith("t1_resume.docx")
+    assert not (tmp_path / "t1_resume.pdf").exists()

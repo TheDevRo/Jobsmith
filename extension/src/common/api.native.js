@@ -13,7 +13,7 @@ const jobsmithBrowser = (typeof browser !== "undefined") ? browser : chrome;
 
 async function jobsmithGetConfig() {
   const out = await new Promise((resolve) => {
-    jobsmithBrowser.storage.local.get(["deepScan", "autoScan", "autoFill"], resolve);
+    jobsmithBrowser.storage.local.get(["deepScan", "autoScan", "autoFill", "preferPdf"], resolve);
   });
   return {
     // No backend/token in standalone mode — kept for call-site compatibility.
@@ -22,14 +22,17 @@ async function jobsmithGetConfig() {
     deepScan: out.deepScan === true,
     autoScan: out.autoScan !== false,
     autoFill: out.autoFill === true,
+    // Accepted for call-site parity; the native app picks the file format.
+    preferPdf: out.preferPdf !== false,
   };
 }
 
-async function jobsmithSetConfig({ deepScan, autoScan, autoFill }) {
+async function jobsmithSetConfig({ deepScan, autoScan, autoFill, preferPdf }) {
   const patch = {};
   if (deepScan !== undefined) patch.deepScan = !!deepScan;
   if (autoScan !== undefined) patch.autoScan = !!autoScan;
   if (autoFill !== undefined) patch.autoFill = !!autoFill;
+  if (preferPdf !== undefined) patch.preferPdf = !!preferPdf;
   await new Promise((resolve) => {
     jobsmithBrowser.storage.local.set(patch, resolve);
   });
@@ -94,8 +97,12 @@ async function jobsmithFetchFile(path, filename) {
     if (m) {
       const result = await jobsmithNative(route.name, { jobId: m[1] });
       const bytes = base64ToBytes(result.base64);
-      return new File([bytes], result.filename || filename, {
-        type: result.mime || "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      // The native app picks the format (it ignores the panel's ?format=), so
+      // name the file from what it actually returned, not from what we asked.
+      const mime = result.mime || "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const ext = /application\/pdf/i.test(mime) ? "pdf" : "docx";
+      return new File([bytes], result.filename || filename.replace(/\.[^./\\]+$/, "." + ext), {
+        type: mime,
         lastModified: Date.now(),
       });
     }
