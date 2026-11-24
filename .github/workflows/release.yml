@@ -1,0 +1,71 @@
+name: Release (macOS build)
+
+# Builds the release on a GitHub macOS runner instead of a local Mac, then opens
+# a DRAFT GitHub release with the same assets scripts/release.sh stages. The
+# draft is pinned to the commit that was built; its v<version> tag is created
+# only when the draft is published, and that tag push publishes the Docker
+# image (docker-publish.yml).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Guards
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ "$GITHUB_REF_NAME" = main ] || { echo "Releases are cut from main"; exit 1; }
+          VERSION=$(node -p "require('./package.json').version")
+          scripts/bump_version.sh "$VERSION" --check
+          NOTES_FOR=$(sed -n 's/^<!-- notes-updated-for: \(.*\) -->$/\1/p' packaging/release-notes.md)
+          [ "$NOTES_FOR" = "$VERSION" ] || { echo "release-notes.md is for $NOTES_FOR, not $VERSION"; exit 1; }
+          if gh release view "v$VERSION" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null; then
+            echo "v$VERSION already exists"; exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install deps
+        run: |
+          # build_desktop.sh sources ~/.cargo/env, which this runner's Rust setup leaves unusable.
+          mkdir -p ~/.cargo && rm -rf ~/.cargo/env && echo 'export PATH="$HOME/.cargo/bin:$PATH"' > ~/.cargo/env
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements.lock pyinstaller
+          npm ci
+      - name: Build
+        run: scripts/build_desktop.sh
+      - name: Stage assets
+        run: |
+          EXT_VERSION=$(node -p "require('./extension/src/manifest.chrome.json').version")
+          STAGE=build/release-assets
+          BUNDLE=src-tauri/target/release/bundle
+          mkdir -p "$STAGE"
+          cp "$BUNDLE/dmg/Jobsmith_${VERSION}_aarch64.dmg" "$STAGE/"
+          # tar (not zip) keeps execute bits and the ad-hoc signature.
+          tar -czf "$STAGE/Jobsmith_${VERSION}_aarch64.app.tar.gz" -C "$BUNDLE/macos" Jobsmith.app
+          cp extension/dist/jobsmith-chrome.zip "$STAGE/jobsmith-extension-chrome-v${EXT_VERSION}.zip"
+          cp extension/dist/jobsmith-firefox.zip "$STAGE/jobsmith-extension-firefox-v${EXT_VERSION}.zip"
+          (cd "$STAGE" && shasum -a 256 -- * > SHA256SUMS)
+          sed -e "s/__VERSION__/${VERSION}/g" -e "s/__EXT_VERSION__/${EXT_VERSION}/g" \
+            packaging/release-notes.md > build/release-notes.md
+          ls -lh "$STAGE"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" --draft --target "$GITHUB_SHA" \
+            --title "Jobsmith v$VERSION" --notes-file build/release-notes.md \
+            build/release-assets/*
+          echo "Draft v$VERSION created from $GITHUB_SHA. Publish it to tag the commit and publish the Docker image."

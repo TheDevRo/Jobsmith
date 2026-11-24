@@ -1,4 +1,4 @@
-<!-- notes-updated-for: 0.2.9 -->
+<!-- notes-updated-for: 0.3.0 -->
 <!--
   Template for scripts/release.sh. __VERSION__ / __EXT_VERSION__ are substituted
   at render time. Before every release: rewrite the "What's new" section, then
@@ -14,41 +14,52 @@ Docker image — all built from the same tag.
 
 ## What's new in __VERSION__
 
-A security and reliability release. No new features; everyone on 0.2.8
-should update.
+A feature release: AI writing you can steer and trust, requirement coverage,
+more job sources, and an easier setup.
 
-**Security**
+**AI writing**
 
-- The apply-assist launch page no longer runs script from a malicious job
-  posting's apply URL (only http/https URLs are accepted, and the embedded
-  data is escaped).
-- Pages served from other localhost ports (another dev server, a local tool)
-  can no longer make state-changing requests to Jobsmith.
-- The on-device AI bridge rejects DNS-rebinding requests and oversized
-  bodies.
-- The access token and the daily database backups are now readable only by
-  your user account.
+- **Facts about me**: short facts (certifications, clearances, numbers you're
+  proud of) that every resume, cover letter and AI edit can draw on. You can
+  also add facts to a single application.
+- **AI Edit by section**: rewrite one section of a resume or cover letter, and
+  tick "Keep this for future edits" to have an instruction applied to every
+  later edit.
+- **Revision history with Undo** for resumes and cover letters.
+- **Check this**: Jobsmith flags names, numbers and credentials in AI-written
+  text that your profile, the posting and your facts don't back up.
+- Job posting text is now treated as untrusted in every prompt, so a posting
+  can't steer the AI with hidden instructions.
 
-**Sync**
+**Finding jobs**
 
-- A newly-added device can no longer overwrite your real profile and
-  settings with its blank defaults on its first sync.
-- iOS won't sync if its database failed to open.
+- **Requirement coverage**: each scored job shows how many of its
+  requirements you meet (N/M), with the full list on the job and a "Best
+  coverage" sort.
+- **Job portals**: Remotive, Himalayas and Jobicy, off by default (Settings →
+  Search & sources).
+- A **Setup Assistant** (Local / Cloud / Advanced) and sources that work
+  without any setup.
+- **Quick match**: an optional on-device model that pre-sorts new postings.
 
-**macOS app**
+**Documents and Apply Assist**
 
-- Cmd+Q asks before quitting while a search or scoring run is active.
-- Clicking the Dock icon brings the window back when Jobsmith is hidden in
-  the menu bar.
-- Force-quitting or crashing no longer leaves the backend running and
-  holding port 8888.
-- Old Playwright browser downloads are cleaned up (saves ~150 MB per
-  upgrade).
+- Resumes and cover letters default to **PDF** (Settings → AI). Existing
+  installs keep their current setting.
+- The extension has a "Prefer PDF documents" switch, and "Clear" is now
+  "Clear Highlights".
+- Apply Assist works with a remote HTTPS backend (thanks @salehihassen).
+- The Apply Assist pages match the app's look.
 
-**Docker**
+**Fixes**
 
-- LAN, Tailscale and reverse-proxy hostnames work again (they were rejected
-  with a 400). The token hint now points at `data/extension_token.txt`.
+- Manually applied jobs show up in the Applied pipeline again (thanks
+  @salehihassen).
+- Docker Compose passes `JOBSMITH_EXTERNAL_URL` through and explains a bad
+  value.
+- Dependency security updates throughout.
+
+The iOS app now lives in its own repo and ships through TestFlight.
 
 ## macOS app (Apple Silicon)
 
