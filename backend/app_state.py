@@ -60,7 +60,7 @@ VALID_AI_EDIT_TIERS = {"fast", "strong"}
 
 
 # Env vars that override config.yaml keys, mainly so the Docker image can be
-# pointed at LM Studio/FlareSolverr without editing the mounted config.
+# pointed at an AI server/FlareSolverr without editing the mounted config.
 # Maps env var → (section, key) in the config dict.
 _ENV_OVERRIDES = {
     "JOBSMITH_AI_BASE_URL": ("ai", "base_url"),

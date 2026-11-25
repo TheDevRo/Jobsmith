@@ -1,9 +1,9 @@
 """
-auto_apply/llm_client.py — Local LM Studio HTTP client.
+auto_apply/llm_client.py — OpenAI-compatible AI server HTTP client.
 
 NEVER calls external AI providers.  All requests go to the host:port
 configured under ai.base_url in config.yaml (default http://localhost:1234/v1),
-which is where LM Studio listens with its OpenAI-compatible API.
+which is where your OpenAI-compatible AI server listens.
 
 Public helpers
 --------------
@@ -44,7 +44,7 @@ _NON_RESUME_UPLOAD_TOKENS = (
 
 class LLMClient:
     """
-    Thin async wrapper around the LM Studio OpenAI-compatible chat/completions
+    Thin async wrapper around the AI server's OpenAI-compatible chat/completions
     endpoint.  Reads all settings from the project config dict.
     """
 
@@ -59,7 +59,7 @@ class LLMClient:
         if not self.model:
             logger.warning(
                 "LLMClient: ai.models.fast.model is empty — no fast model configured. "
-                "LM Studio will use whatever model is currently loaded."
+                "The AI server will use whatever model is currently loaded."
             )
         self.temperature = float(ai.get("temperature", 0.3))
         self.max_tokens  = int(ai.get("max_tokens", 4096))
@@ -108,7 +108,7 @@ class LLMClient:
                 last_exc = exc
                 if attempt < max_retries:
                     # Exponential backoff: 1 s, 2 s, 4 s — prevents hammering a
-                    # slow LM Studio instance (pattern from AIHawk's rate-limit handler)
+                    # slow AI server (pattern from AIHawk's rate-limit handler)
                     wait = 2 ** (attempt - 1)
                     logger.warning(
                         "LLMClient.complete attempt %d/%d failed, retrying in %ds: %s",
@@ -132,7 +132,7 @@ class LLMClient:
         max_retries: int = 3,
     ) -> list | dict:
         """
-        Call LM Studio and parse the response as JSON.
+        Call the AI server and parse the response as JSON.
 
         Strips markdown code fences if present and retries on parse failure.
         """

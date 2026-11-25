@@ -2,7 +2,7 @@
 browser_use_agent.py — Browser-Use Agent wrapper for autonomous job applications.
 
 Wraps browser-use's Agent class to:
-  - Reuse the existing LM Studio LLM configuration
+  - Reuse the existing AI server configuration
   - Share a persistent browser context across applications
   - Handle resume file upload, multi-step forms, and CAPTCHA/MFA detection
   - Provide structured logging and screenshot-on-failure
@@ -146,11 +146,11 @@ def _clear_stale_browser_state():
 
 
 # ---------------------------------------------------------------------------
-# LLM setup — reuses existing LM Studio config
+# LLM setup — reuses existing AI server config
 # ---------------------------------------------------------------------------
 
 def _get_browser_use_llm(config: dict) -> ChatOpenAI:
-    """Create a Browser-Use ChatOpenAI pointed at the same LM Studio endpoint.
+    """Create a Browser-Use ChatOpenAI pointed at the same AI server endpoint.
 
     Uses the 'fast' tier model by default (same as ai_navigator), falling back
     to the top-level ai.model config.

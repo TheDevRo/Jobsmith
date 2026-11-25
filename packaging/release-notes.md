@@ -95,9 +95,9 @@ Jobsmith shows the install status (with a retry) until it's ready. App data
 
 **AI prerequisite:** on macOS 26+ with Apple Intelligence enabled, scoring
 works out of the box on the built-in on-device model. For document generation
-(and for older Macs), point Jobsmith at an OpenAI-compatible server —
-[LM Studio](https://lmstudio.ai) on `http://localhost:1234` by default, or
-Ollama / a hosted provider with an API key (configurable in Settings). The app
+(and for older Macs), point Jobsmith at any OpenAI-compatible server —
+one you run yourself (Ollama, LM Studio, vLLM, …) or a hosted provider with an
+API key (configurable in Settings). The app
 starts and browses jobs fine without any of it.
 
 If port 8888 is busy (e.g. a Docker Jobsmith is running), the app picks

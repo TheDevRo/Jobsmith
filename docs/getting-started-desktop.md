@@ -81,7 +81,7 @@ wizard writes every answer into it.
   list and pick one **Writing model**; Jobsmith ships no default model names.
   Scoring and quick helper tasks use the same model unless you open **Use
   different models for scoring**. **Custom** takes any OpenAI-compatible server,
-  including one you run yourself (LM Studio, Ollama, vLLM, llama.cpp, LiteLLM);
+  including one you run yourself (Ollama, LM Studio, vLLM, llama.cpp, LiteLLM);
   its API key is optional. If a server can't list its models you can type the
   model ID instead.
 - **Advanced** — the full form: any server, a different model per tier (with

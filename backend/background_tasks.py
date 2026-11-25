@@ -289,7 +289,7 @@ async def _bg_tailor_batch(min_score: float):
             logger.info("Batch tailoring %d discovered jobs (processed so far: %d, threshold: %.0f)", len(jobs), processed, min_score)
 
             # Phase 1 — score every job in the batch using the configured
-            # scoring tier. Keeping scoring contiguous means LM Studio only
+            # scoring tier. Keeping scoring contiguous means the AI server only
             # loads the scoring model once per batch instead of once per job.
             scored: list[tuple[dict, float, Optional[dict]]] = []
             for job in jobs:
@@ -533,7 +533,7 @@ async def _bg_score_batch(limit: Optional[int] = None, rescore: bool = False,
                 if state.cancel_score.is_set():
                     break
 
-        # Surface transient failures so a silent LM Studio outage doesn't read as
+        # Surface transient failures so a silent AI server outage doesn't read as
         # "all done" — those jobs were left unscored and will retry next run.
         suffix = f" ({failed} failed)" if failed else ""
         if state.cancel_score.is_set():

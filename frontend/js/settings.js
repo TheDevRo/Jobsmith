@@ -1513,7 +1513,7 @@ async function loadAiModels({ preselect = {}, persistConnection = false } = {}) 
         });
 
         // Restore saved or pre-selected values; if the saved model isn't in the
-        // list (e.g. not currently loaded in LM Studio), add it as an option so
+        // list (e.g. not currently loaded on the AI server), add it as an option so
         // the user can see what's configured and decide whether to change it.
         const pairs = [[fastSel, curFast], [strongSel, curStrong]];
         if (utilitySel) pairs.push([utilitySel, curUtility]);
@@ -1597,14 +1597,14 @@ async function applyContextWindow() {
             statusEl.className = 'ai-status connected';
         } else {
             const errs = (data.errors || []).map(e => e.error).join(' | ');
-            // Check whether the error is the known "remote LM Studio doesn't support reload" case
+            // Check whether the error is the known "server can't reload remotely" case
             const isRemoteApiLimit = errs.includes('does not support programmatic reload');
             if (isRemoteApiLimit) {
                 statusEl.innerHTML =
                     `<strong>Context saved to ${ctx.toLocaleString()} tokens.</strong> ` +
-                    `LM Studio's REST API doesn't support remote reload on this version.<br>` +
-                    `<strong>To apply now:</strong> open LM Studio on your homelab → ` +
-                    `click the loaded model → change <em>Context Length</em> to <strong>${ctx.toLocaleString()}</strong> → click <em>Reload</em>.`;
+                    `Your AI server doesn't support reloading the model remotely.<br>` +
+                    `<strong>To apply now:</strong> on the machine running your AI server, set the model's ` +
+                    `context length to <strong>${ctx.toLocaleString()}</strong> and reload it.`;
             } else {
                 statusEl.textContent = `Reload failed: ${errs}`;
             }

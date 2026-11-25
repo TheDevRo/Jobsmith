@@ -152,11 +152,11 @@ async def lifespan(app: FastAPI):
     try:
         ai_status = await asyncio.wait_for(ai_engine.test_connection(cfg), timeout=5)
         if ai_status["connected"]:
-            logger.info("LM Studio connected — models: %s", ai_status["models"])
+            logger.info("AI server connected — models: %s", ai_status["models"])
         else:
-            logger.warning("LM Studio not reachable: %s", ai_status.get("error"))
+            logger.warning("AI server not reachable: %s", ai_status.get("error"))
     except asyncio.TimeoutError:
-        logger.warning("LM Studio connection timed out — server starting without AI")
+        logger.warning("AI server connection timed out — server starting without AI")
 
     reset_count = await db.reset_stuck_applications()
     if reset_count:

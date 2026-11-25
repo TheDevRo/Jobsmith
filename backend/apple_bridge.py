@@ -53,7 +53,7 @@ class BridgeUnavailable(Exception):
     """The on-device bridge could not be started or reached.
 
     Raised instead of quietly falling back to the configured endpoint: an
-    on-device tier NEVER silently becomes a cloud/LM Studio call (the iOS
+    on-device tier NEVER silently becomes a cloud/self-hosted server call (the iOS
     EngineRouter rule — a silent fallback once sent "private, on-device" work
     to a remote server without the user ever being told).
     """

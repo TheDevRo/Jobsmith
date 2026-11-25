@@ -128,8 +128,8 @@ network.
 OpenAI-compatible endpoint. What that means for your privacy depends entirely on
 what you point it at:
 
-- If you point it at **an AI server you run yourself** — for example LM Studio
-  or Ollama on your own computer on your home network — then your text goes to
+- If you point it at **an AI server you run yourself** — for example Ollama, LM
+  Studio or vLLM on your own computer on your home network — then your text goes to
   your own machine and no further. This is the default configuration Jobsmith
   ships with (a local address).
 - If you point it at **a third-party cloud AI provider** — for example OpenAI,

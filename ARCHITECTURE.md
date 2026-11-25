@@ -11,12 +11,12 @@
 Jobsmith is a **self-hosted, fully automated job application pipeline** running on a single Python/FastAPI backend with a vanilla-JS frontend. It:
 
 1. Scrapes job listings from multiple sources (LinkedIn, Indeed, Greenhouse, Adzuna, etc.)
-2. Scores each job against your resume using a **local LLM** (LM Studio, never cloud AI)
+2. Scores each job against your resume using **the AI server you choose** (any OpenAI-compatible endpoint)
 3. Generates tailored resumes and cover letters at a configurable honesty level
 4. Attempts to auto-apply to jobs using Playwright browser automation
 5. Falls back to a sidebar "Applicant Assist" overlay when automation fails
 
-All AI calls stay on your local network — the LM Studio instance at `config.yaml → ai.base_url`.
+All AI calls go to the AI server you configure at `config.yaml → ai.base_url` (self-hosted for fully local use, or a hosted provider).
 
 ---
 
@@ -27,7 +27,7 @@ All AI calls stay on your local network — the LM Studio instance at `config.ya
 | Backend server | FastAPI (Python 3.11+), uvicorn, `--reload` in dev |
 | Database | SQLite via `aiosqlite` (WAL mode) |
 | Browser automation | Playwright (async, Chromium only) |
-| Local AI | LM Studio → OpenAI-compatible API (`openai` Python SDK + raw `httpx`) |
+| AI | Any OpenAI-compatible server → OpenAI-compatible API (`openai` Python SDK + raw `httpx`) |
 | Resume generation | `python-docx` |
 | Frontend | Vanilla HTML/CSS/JS (no build step, single-page hash routing) |
 | Configuration | `config.yaml` (YAML, read on every request) |
@@ -45,7 +45,7 @@ jobsmith/
 │   ├── routers/                # One APIRouter per area: jobs, applications, pipeline,
 │   │                           #   settings, sessions, system, assist, extension, answer_bank
 │   ├── database.py             # SQLite layer (aiosqlite)
-│   ├── ai_engine.py            # LM Studio: scoring, resume gen, cover letters
+│   ├── ai_engine.py            # AI server calls: scoring, resume gen, cover letters
 │   ├── resume_generator.py     # DOCX file generation (python-docx)
 │   ├── applicant_assist.py     # Sidebar overlay for manual-assist mode
 │   ├── session_manager.py      # Playwright session helpers (login flows)
@@ -69,7 +69,7 @@ jobsmith/
 │   │   ├── __init__.py         # Public facade: auto_apply_job(), has_linkedin_session()
 │   │   ├── orchestrator.py     # Central coordinator: rate limits, mode, adapter dispatch
 │   │   ├── browser_controller.py # Playwright wrapper: launch, navigate, fill, snapshot
-│   │   ├── llm_client.py       # LM Studio client: map_fields_to_values(), generate_answer()
+│   │   ├── llm_client.py       # AI server client: map_fields_to_values(), generate_answer()
 │   │   ├── answer_bank.py      # Persistent Q&A snippets (data/answer_bank.json)
 │   │   ├── models.py           # Pydantic models: UserProfile, FieldDescriptor, ApplyResult, etc.
 │   │   ├── logger.py           # Structured JSONL logger for apply attempts
@@ -261,7 +261,7 @@ All LLM calls go through this class. Never uses cloud AI.
 
 **`map_fields_to_values(profile, job, fields, answer_bank)`:**
 1. First pass: check `AnswerBank` for keyword matches (skips LLM entirely if all fields resolve)
-2. Second pass: send remaining fields to LM Studio in a single batch
+2. Second pass: send remaining fields to the AI server in a single batch
 3. Returns `list[FieldValue]` with `confidence` scores
 
 The LLM response is JSON-extracted with multiple fallback strategies (`json.loads` → `ast.literal_eval`) to handle local model quirks.
@@ -276,9 +276,9 @@ Handles the higher-level AI tasks (resume tailoring, scoring):
 - `generate_tailored_resume(job, profile, cfg, honesty_level)` → markdown text
 - `generate_cover_letter(job, profile, cfg, honesty_level)` → text
 - `generate_embellishment_log(profile, resume, cl, level, cfg)` → `EmbellishmentLog`
-- `test_connection(cfg)` → checks LM Studio is reachable on startup
+- `test_connection(cfg)` → checks the AI server is reachable on startup
 
-Uses `openai.AsyncOpenAI` with `base_url` pointing at local LM Studio. Supports tiered models (`ai.models.fast` / `ai.models.strong`).
+Uses `openai.AsyncOpenAI` with `base_url` pointing at the configured AI server. Supports tiered models (`ai.models.fast` / `ai.models.strong`).
 
 **Writing safety.** Four additions sit around every prompt that writes or edits a document; they live in code, not in
 the user-overridable templates, so a saved override can't drop them.
@@ -440,7 +440,7 @@ POST /api/config                  # Update config.yaml (partial)
 POST /api/onboarding/parse-resume    # Résumé file/text → partial profile (review only, no persist)
 POST /api/onboarding/import-linkedin # Scrape own LinkedIn profile → partial profile (review only)
 POST /api/config/honesty-level    # Update honesty level
-GET  /api/ai/status               # Check LM Studio connection
+GET  /api/ai/status               # Check AI server connection
 
 # Answer bank
 GET  /api/answer-bank             # All snippets
@@ -533,7 +533,7 @@ Top-level sections:
 ```yaml
 profile:          # Candidate info: name, address, experience, skills, etc.
 search:           # Job search params: keywords, locations, exclude_keywords, min_salary
-ai:               # LM Studio URL, model names (fast/strong), temperature, max_tokens
+ai:               # AI server URL, model names (fast/strong), temperature, max_tokens
 api_keys:         # Adzuna, USAJobs API keys
 auto_apply:       # enabled, auto_approve, headless, max_daily, mode, submit_whitelist
 server:           # host, port (default 8888)
