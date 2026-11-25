@@ -143,7 +143,7 @@ steps separately.)
 
 These sources work with no API key at all:
 
-- LinkedIn, RemoteOK, WeWorkRemotely, Arbeitnow
+- LinkedIn, Arbeitnow
 - Per-company ATS boards: Greenhouse, Lever, Ashby, Workable, Recruitee (for
   the companies you follow)
 

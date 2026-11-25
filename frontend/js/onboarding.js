@@ -911,7 +911,7 @@ function obEnterSources() {
 async function obRenderReadySources() {
     const el = document.getElementById('ob-ready-sources');
     if (!el) return;
-    let names = ['linkedin', 'remoteok', 'weworkremotely', 'arbeitnow'];
+    let names = ['linkedin', 'arbeitnow'];
     try {
         const r = await api('/api/sources');
         if (r.details) names = r.details.filter(d => d.kind === 'feed').map(d => d.name);

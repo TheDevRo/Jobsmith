@@ -219,7 +219,7 @@ def test_enabled_sources_fold_round_trips_sorted():
     assert folded == sorted(folded)          # stable / hash-safe
     assert "indeed" in folded                # explicitly on
     assert "greenhouse" not in folded        # explicitly off
-    assert "remoteok" in folded              # defaults on
+    assert "arbeitnow" in folded             # defaults on
 
     dest = {}
     sr.apply_setting(dest, "search.enabled_sources", folded)

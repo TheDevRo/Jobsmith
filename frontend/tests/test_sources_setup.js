@@ -29,7 +29,7 @@ const { window } = dom;
 const doc = window.document;
 
 const DETAILS = [
-  { name: "remoteok", kind: "feed", configured: true, default_on: true, note: "" },
+  { name: "arbeitnow", kind: "feed", configured: true, default_on: true, note: "" },
   { name: "adzuna", kind: "keyed", configured: false, default_on: false, note: "" },
   { name: "greenhouse", kind: "watchlist", configured: false, default_on: true, note: "" },
   { name: "linkedin", kind: "feed", configured: true, default_on: true, note: "Slow and brittle" },
@@ -86,25 +86,25 @@ const checks = [];
 
   // ---- 1. fetch picker defaults ----
   await window.loadSources();
-  checks.push(["keyless feed ticked", box("remoteok").checked && !box("remoteok").disabled]);
+  checks.push(["keyless feed ticked", box("arbeitnow").checked && !box("arbeitnow").disabled]);
   checks.push(["Indeed unticked by default (opt-in)", !box("indeed").checked && !box("indeed").disabled]);
   checks.push(["keyed source without keys is locked", box("adzuna").disabled && !box("adzuna").checked]);
   checks.push(["keyed source with keys is ticked", box("usajobs").checked && !box("usajobs").disabled]);
   checks.push(["LinkedIn and Indeed tagged slow", /slow/.test(box("linkedin").parentElement.textContent)
     && /slow/.test(box("indeed").parentElement.textContent)]);
   checks.push(["selection excludes Indeed and locked sources",
-    JSON.stringify(window.getSelectedSources()) === '["remoteok","greenhouse","linkedin","usajobs"]']);
+    JSON.stringify(window.getSelectedSources()) === '["arbeitnow","greenhouse","linkedin","usajobs"]']);
   checks.push(["portal listed by its label, off, and not tagged slow", !!box("remotive") && !box("remotive").checked
     && /Remotive/.test(box("remotive").parentElement.textContent) && !/slow/.test(box("remotive").parentElement.textContent)]);
   window.toggleAllSources(true);
   checks.push(["All never ticks a locked source", !box("adzuna").checked && box("indeed").checked]);
 
   box("indeed").checked = true;
-  box("remoteok").checked = false;
+  box("arbeitnow").checked = false;
   // Keys got added in Settings meanwhile: adzuna unlocks and takes its default.
   sourcesReply = { sources: sourcesReply.sources, details: DETAILS.map(d => d.name === "adzuna" ? { ...d, configured: true, default_on: true } : d) };
   await window.loadSources();
-  checks.push(["re-render keeps this session's ticks", box("indeed").checked && !box("remoteok").checked]);
+  checks.push(["re-render keeps this session's ticks", box("indeed").checked && !box("arbeitnow").checked]);
   checks.push(["newly keyed source unlocks ticked", box("adzuna").checked && !box("adzuna").disabled]);
 
   $("source-checkboxes").innerHTML = "";
@@ -140,7 +140,7 @@ const checks = [];
   window.obGoto(4);
   await tick();
   checks.push(["stepper label is Sources", doc.querySelector('.ob-step[data-step="4"] .ob-step-label').textContent === "Sources"]);
-  checks.push(["ready sources list the keyless feeds", /RemoteOK/.test($("ob-ready-sources").textContent)
+  checks.push(["ready sources list the keyless feeds", /Arbeitnow/.test($("ob-ready-sources").textContent)
     && /LinkedIn/.test($("ob-ready-sources").textContent) && !/Adzuna/.test($("ob-ready-sources").textContent)]);
   checks.push(["no AI: suggester not called", posts("/api/sources/suggest-companies").length === 0]);
   checks.push(["no AI: says where to add companies", /Settings/.test($("ob-companies").textContent)]);

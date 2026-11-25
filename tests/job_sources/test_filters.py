@@ -115,7 +115,7 @@ class TestParsePostedDate:
 
 def _job(**overrides) -> dict:
     base = {
-        "source": "remoteok",
+        "source": "arbeitnow",
         "title": "Security Engineer",
         "company": "Acme",
         "location": "Remote",
@@ -205,8 +205,8 @@ class TestGlobalFilters:
 
     def test_keyword_gate_keeps_match_on_any_unioned_field(self):
         cfg = {"search": dict(_CONFIG["search"], keywords=["python"])}
-        # Tags-only match (RemoteOK semantics) survives — haystack unions tags.
-        job = _job(title="Engineer", tags=["python"], description="", source="remoteok")
+        # Tags-only match survives — haystack unions tags.
+        job = _job(title="Engineer", tags=["python"], description="", source="arbeitnow")
         assert _passes_global_filters(job, cfg)
 
     def test_keyword_gate_skips_server_side_search_sources(self):

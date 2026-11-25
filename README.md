@@ -34,7 +34,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 
 ## Features
 
-- **Multi-source job aggregation** — LinkedIn, Adzuna, RemoteOK, WeWorkRemotely, USAJobs, Arbeitnow, Indeed (Playwright-based, no API key), plus per-company ATS watchlists (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions
+- **Multi-source job aggregation** — LinkedIn, Adzuna, USAJobs, Arbeitnow, Indeed (Playwright-based, no API key), plus per-company ATS watchlists (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions
 - **Single-URL ingestion** — Paste any job URL to add it directly; per-source parsers for known boards plus a generic fallback
 - **AI-powered tailoring** — Your AI server scores job fit and generates tailored resumes and cover letters
 - **Bring your own AI** — Any OpenAI-compatible endpoint works: a self-hosted server (Ollama, LM Studio, vLLM, llama.cpp…) for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
@@ -81,8 +81,8 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 | Job Sources |--------->|   FastAPI       |<-------->|  SQLite  |
 | - LinkedIn  |          |   Backend       |          |    DB    |
 | - Adzuna    |          |  (port 8888)    |          +----------+
-| - RemoteOK  |          +---+--------+----+
-| - WWR       |              |        |
+| - USAJobs   |          +---+--------+----+
+| - Arbeitnow |              |        |
 | - Greenhouse|          +---v--+ +---v--------+
 | - Lever     |          | REST | | Static     |
 +-------------+          | API  | | Frontend   |
@@ -593,7 +593,7 @@ jobsmith/
 │   ├── auto_apply/                # Legacy auto-apply: field mapping, LLM client, answer bank
 │   ├── routers/                   # One APIRouter per area (jobs, pipeline, settings,
 │   │                              #   prompts, applications, assist, extension, …)
-│   └── job_sources/               # adzuna, remoteok, weworkremotely, usajobs, arbeitnow,
+│   └── job_sources/               # adzuna, usajobs, arbeitnow,
 │                                  #   indeed, linkedin, greenhouse, lever, ashby, workable,
 │                                  #   recruitee, manual (paste-a-URL), _generic fallback
 ├── frontend/

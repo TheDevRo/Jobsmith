@@ -178,6 +178,6 @@ async def test_swift_emitted_settings_import_into_desktop(tool, tmp_path, monkey
     # enabled_sources unfolded to per-source bools; linkedin folded in from the flag.
     from backend.sync import settings_registry as sr
     folded = sr.fold_enabled_sources(cfg)
-    assert set(folded) >= {"greenhouse", "remoteok", "linkedin"}
+    assert set(folded) >= {"greenhouse", "arbeitnow", "linkedin"}
     # A folder-strip secret (adzuna) is not a registry row, so it never travelled.
     assert "adzuna_app_key" not in cfg.get("api_keys", {})

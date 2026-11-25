@@ -98,7 +98,7 @@ case "emit-settings":
         "search": .object([
             "keywords": .array([.string("swift"), .string("ios")]),
             "minSalary": .null,                          // explicit null travels
-            "enabledSources": .array([.string("greenhouse"), .string("remoteok")]),
+            "enabledSources": .array([.string("greenhouse"), .string("arbeitnow")]),
             "linkedInEnabled": .bool(true),              // folds in as "linkedin"
         ]),
         "ai": .object([

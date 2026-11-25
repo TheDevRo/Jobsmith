@@ -372,7 +372,7 @@ def category_for_path(path: str) -> Optional[str]:
 # separate `linkedInEnabled` — the mappers fold both into/out of this same list.
 SOURCE_IDS: tuple[str, ...] = (
     "adzuna", "arbeitnow", "ashby", "greenhouse", "indeed", "linkedin",
-    "recruitee", "remoteok", "usajobs", "weworkremotely", "workable",
+    "recruitee", "usajobs", "workable",
 )
 # indeed is the one source that is opt-in; every other source is on unless the
 # user turned it off. Keep in sync with job_sources.SOURCES defaults.
