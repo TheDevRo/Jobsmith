@@ -55,7 +55,7 @@ class ATSAdapter(Protocol):
         ctrl   : BrowserController — Playwright wrapper
         profile: UserProfile       — Candidate data
         job    : JobApplicationRequest — The job being applied to
-        llm    : LLMClient         — Local LM Studio client (for text gen / field mapping)
+        llm    : LLMClient         — AI server client (for text gen / field mapping)
         mode   : ApplyMode         — AUTOFILL or SUBMIT
         log    : AutoApplyLogger   — Structured logger for this attempt
 

@@ -244,12 +244,12 @@ async def main():
     print("="*60)
     nav_model = config.get("ai", {}).get("models", {}).get("fast", {}).get("model", "?")
     print(f"  Navigator model: {nav_model}")
-    print(f"  LM Studio URL:  {config.get('ai', {}).get('base_url', '?')}")
+    print(f"  AI server URL:  {config.get('ai', {}).get('base_url', '?')}")
 
     from backend.ai_engine import test_connection
     conn = await test_connection(config)
     if not conn.get("connected"):
-        print(f"\n  ERROR: Cannot connect to LM Studio: {conn.get('error')}")
+        print(f"\n  ERROR: Cannot connect to the AI server: {conn.get('error')}")
         return
     print(f"  Connected! Models: {conn.get('models')}")
 

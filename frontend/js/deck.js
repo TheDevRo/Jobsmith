@@ -1140,7 +1140,7 @@ function _buildRegistry() {
         // card inside a tab — the old per-topic tabs people still search for.
         { group: 'Settings', label: 'Profile', keywords: 'name resume experience education eeo references', run: () => paletteGoSettings('stab-profile') },
         { group: 'Settings', label: 'Job Search', keywords: 'keywords locations watchlist sources adzuna usajobs linkedin api', run: () => paletteGoSettings('stab-search') },
-        { group: 'Settings', label: 'AI', keywords: 'integrations model lm studio honesty prompts resume style', run: () => paletteGoSettings('stab-integrations') },
+        { group: 'Settings', label: 'AI', keywords: 'integrations model ai server endpoint honesty prompts resume style', run: () => paletteGoSettings('stab-integrations') },
         { group: 'Settings', label: 'Apply', keywords: 'apply assist autofill answers extension workday ats', run: () => paletteGoSettings('stab-assist') },
         { group: 'Settings', label: 'App', keywords: 'sync folder device phone appearance network logs tour', run: () => paletteGoSettings('stab-sync') },
         { group: 'Settings', label: 'Facts about me', keywords: 'true statements ai know remember profile', run: () => paletteGoSettings('stab-profile', 'profile-facts') },

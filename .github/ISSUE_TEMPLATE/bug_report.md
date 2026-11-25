@@ -22,7 +22,7 @@ A clear description of the bug and what you expected instead.
 Jobsmith version:
 
 **AI server** (if relevant)
-e.g. LM Studio / Ollama / OpenRouter, and the model.
+e.g. Ollama / LM Studio / OpenRouter, and the model.
 
 **Logs**
 Desktop logs live in `data/logs/shell.log` — paste the relevant lines (scrub any

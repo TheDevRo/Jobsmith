@@ -1,5 +1,5 @@
 """
-routers/system.py — Health, notifications, LM Studio model management,
+routers/system.py — Health, notifications, AI model management,
 debug diagnostics, and generated-document downloads.
 """
 
@@ -94,7 +94,7 @@ async def health_live():
 
     Deliberately does NOT probe the AI engine — the Docker HEALTHCHECK and the
     desktop shell's readiness probe both poll this, and they must not report the
-    container as unhealthy just because LM Studio happens to be down. Unauthenticated
+    container as unhealthy just because the AI server happens to be down. Unauthenticated
     (see routers/_auth._EXEMPT_PREFIXES); it exposes nothing.
     """
     return {"status": "ok", "version": APP_VERSION}
@@ -165,13 +165,13 @@ class LoadModelRequest(BaseModel):
 
 @router.post("/api/ai/load-model")
 async def load_model(body: LoadModelRequest):
-    """Load a specific model in LM Studio with the given context window.
+    """Load a specific model on the AI server with the given context window.
 
     Unlike /api/ai/reload-context this does NOT require a model to already be
-    loaded — it is the first step when LM Studio is idle.
+    loaded — it is the first step when the server is idle.
 
-    Strategy (in order):
-    1. Try LM Studio REST API  (POST /api/v1/models/load)
+    Only works on servers that expose a model-management API. Strategy (in order):
+    1. Try the server's REST load endpoint  (POST /api/v1/models/load)
     2. Fall back to `lms load --context-length N -y <model>` CLI (local only).
     """
     import shutil
@@ -192,7 +192,7 @@ async def load_model(body: LoadModelRequest):
     _lms_host = _parsed.hostname or ""
     _is_local = _lms_host in ("localhost", "127.0.0.1", "::1", "")
 
-    # ── Step 1: LM Studio REST API ────────────────────────────────────────
+    # ── Step 1: server REST load endpoint ─────────────────────────────────
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=180.0)) as client:
         try:
             r = await client.post(
@@ -212,13 +212,13 @@ async def load_model(body: LoadModelRequest):
     if not _is_local:
         raise HTTPException(502, detail=(
             f"Could not load model via REST API: {rest_error}. "
-            f"The lms CLI cannot control a remote LM Studio instance. "
-            f"Open LM Studio on your homelab and load '{body.model}' manually."
+            f"The model can't be loaded from here on a remote server. "
+            f"Load '{body.model}' on the machine running your AI server."
         ))
     if not Path(lms_bin).exists():
         raise HTTPException(502, detail=(
             f"Could not load model via REST API: {rest_error}. "
-            f"lms CLI not found at {lms_bin}. Load '{body.model}' in LM Studio manually."
+            f"Load '{body.model}' on your AI server manually."
         ))
 
     try:
@@ -241,12 +241,12 @@ async def load_model(body: LoadModelRequest):
 
 @router.post("/api/ai/reload-context")
 async def reload_context_window(body: ReloadContextRequest):
-    """Reload currently-loaded LM Studio model(s) with a new context window.
+    """Reload the AI server's loaded model(s) with a new context window.
 
-    Strategy (in order):
-    1. Try LM Studio REST API  (POST /api/v0/models/load) — only works on newer builds.
-    2. Fall back to `lms load --context-length N -y <model>` CLI — works wherever
-       the lms CLI is installed and connected to the LM Studio instance.
+    Only works on servers that expose a model-management API. Strategy (in order):
+    1. Try the server's REST load endpoint  (POST /api/v1/models/load).
+    2. Fall back to the `lms load --context-length N -y <model>` CLI when it is
+       installed on this machine and the server is local.
     Also saves the preference to config.yaml.
     """
     import shutil
@@ -275,13 +275,17 @@ async def reload_context_window(body: ReloadContextRequest):
             resp.raise_for_status()
             loaded_models = [m for m in resp.json().get("data", []) if m.get("state") == "loaded"]
         except Exception as e:
-            raise HTTPException(502, detail=f"Could not reach LM Studio at {lms_root}: {e}")
+            raise HTTPException(502, detail=(
+                f"Could not list loaded models at {lms_root}: {e}. The context length "
+                f"was saved. If your AI server can't reload models remotely, set it "
+                f"on the server and reload the model there."
+            ))
 
     if not loaded_models:
-        raise HTTPException(404, detail="No loaded models found in LM Studio — load a model first")
+        raise HTTPException(404, detail="No loaded models found on your AI server — load a model first")
 
-    # Determine whether LM Studio is local or remote.
-    # The lms CLI only controls the LM Studio instance on *this* machine, so
+    # Determine whether the AI server is local or remote.
+    # The lms CLI only controls a server on *this* machine, so
     # it must never be used when base_url points to a remote host.
     from urllib.parse import urlparse as _urlparse
     _parsed_url = _urlparse(base_url)
@@ -292,7 +296,7 @@ async def reload_context_window(body: ReloadContextRequest):
     lms_bin = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms")
     lms_available = _is_local and Path(lms_bin).exists()
 
-    # Group instances by base model id (strip ":N" suffix added by LM Studio
+    # Group instances by base model id (strip ":N" suffix some servers add
     # when multiple instances of the same model are loaded simultaneously).
     import re as _re
     base_model_instances: dict[str, list[str]] = {}
@@ -335,9 +339,9 @@ async def reload_context_window(body: ReloadContextRequest):
             errors.append({
                 "model": base_id,
                 "error": (
-                    f"LM Studio REST API reload failed. "
-                    f"In LM Studio on {_lms_host}: click the loaded model → "
-                    f"change Context Length to {context_window} → Reload."
+                    f"Your AI server does not support programmatic reload. "
+                    f"On {_lms_host}, set the model's context length to "
+                    f"{context_window} and reload it."
                 ),
             })
             continue

@@ -17,7 +17,7 @@ What it does
 2. Resolves which adapter would be selected
 3. Launches a browser (non-headless by default for visual debugging)
 4. Navigates to the URL and takes a DOM snapshot
-5. Sends the snapshot to LM Studio and prints the field mapping
+5. Sends the snapshot to the AI server and prints the field mapping
 6. Fills the form in autofill mode (does NOT submit)
 7. Dumps a JSON report of all fields, LLM confidence scores, and actions taken
 
@@ -145,7 +145,7 @@ async def run_debug(url: str, mode: str, headless: bool) -> None:
                   f"label={f.label!r:30s} required={f.required}")
 
         # ── LLM field mapping ──────────────────────────────────────────────
-        print(f"\n[*] Sending {len(fields)} fields to LM Studio for mapping ...")
+        print(f"\n[*] Sending {len(fields)} fields to the AI server for mapping ...")
         llm = LLMClient(config)
         bank = get_answer_bank()
         bank_dict = {k: v for k, v in bank.all_snippets().items()

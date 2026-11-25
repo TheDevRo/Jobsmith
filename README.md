@@ -4,7 +4,7 @@
 
 # Jobsmith
 
-A self-hosted job application copilot that uses any OpenAI-compatible AI server (LM Studio by default) for job scoring, resume tailoring, and assisted submission via a browser extension (**Apply Assist**). Features a modern web dashboard for managing your entire job search pipeline — from discovery through application.
+A self-hosted job application copilot that uses any OpenAI-compatible AI server for job scoring, resume tailoring, and assisted submission via a browser extension (**Apply Assist**). Features a modern web dashboard for managing your entire job search pipeline — from discovery through application.
 
 > **Note:** The fully autonomous `auto_apply` form-filler is on the back burner; the primary workflow is **Apply Assist** — a browser-extension sidebar that injects your tailored resume, cover letter, and pre-filled answers into the live ATS form so you click Submit yourself. The auto-apply code remains in the repo but is no longer the recommended path.
 
@@ -28,8 +28,8 @@ First time here? [**Getting started (desktop)**](docs/getting-started-desktop.md
 takes you from install to your first submitted application. There is no config
 file to edit — a setup wizard runs on first launch.
 
-AI features need an OpenAI-compatible server — [LM Studio](https://lmstudio.ai)
-running locally (recommended, fully private), Ollama, or a hosted provider like
+AI features need an OpenAI-compatible server: one you run yourself (Ollama,
+LM Studio, vLLM, llama.cpp, …; fully private) or a hosted provider like
 OpenRouter or OpenAI with an API key. Everything else works without one.
 
 ## Features
@@ -37,7 +37,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 - **Multi-source job aggregation** — LinkedIn, Adzuna, RemoteOK, WeWorkRemotely, USAJobs, Arbeitnow, Indeed (Playwright-based, no API key), plus per-company ATS watchlists (Greenhouse, Lever, Ashby, Workable, Recruitee) with a board finder and AI company suggestions
 - **Single-URL ingestion** — Paste any job URL to add it directly; per-source parsers for known boards plus a generic fallback
 - **AI-powered tailoring** — Your AI server scores job fit and generates tailored resumes and cover letters
-- **Bring your own AI** — Any OpenAI-compatible endpoint works: LM Studio or Ollama for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
+- **Bring your own AI** — Any OpenAI-compatible endpoint works: a self-hosted server (Ollama, LM Studio, vLLM, llama.cpp…) for fully local/private inference, or hosted providers (OpenRouter, OpenAI, Groq…) with an API key
 - **Apple Intelligence (on-device)** — On macOS 26+ Apple Silicon, run scoring and short helper tasks on the Mac's built-in model with zero setup; document generation stays on your endpoint
 - **Local match (beta)** — Optional on-device model that fills application forms from your profile without an LLM and scores jobs when no AI server is reachable
 - **Honesty levels** — Choose how much latitude the AI takes per job: `honest` / `tailored` / `embellished` / `fabricated`
@@ -73,8 +73,8 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 ```
                         +--------------------+
                         |     AI Server      |
-                        | (OpenAI-compatible |
-                        |  e.g. LM Studio)   |
+                        | (OpenAI-compatible)|
+                        |                    |
                         +--------+-----------+
                                  |
 +-------------+          +-------v--------+          +----------+
@@ -99,7 +99,7 @@ OpenRouter or OpenAI with an API key. Everything else works without one.
 ## Prerequisites
 
 - **Python 3.11+**
-- **An OpenAI-compatible AI server** — [LM Studio](https://lmstudio.ai) (recommended, local), Ollama, or a hosted provider (OpenRouter, OpenAI, …) with an API key
+- **An OpenAI-compatible AI server** — self-hosted (Ollama, LM Studio, vLLM, llama.cpp, …) or a hosted provider (OpenRouter, OpenAI, …) with an API key
 - **n8n** (optional) — for scheduled automation workflows
 - **FlareSolverr** (optional) — for bypassing Cloudflare-protected job boards
 
@@ -132,7 +132,7 @@ Open **http://localhost:8888** in your browser.
 **There is no config file to edit.** The first time the dashboard loads it opens
 a setup wizard that walks you through:
 
-1. **AI server** — point Jobsmith at LM Studio, Ollama, or a hosted provider, test the connection, and pick your fast/strong models from the server's own list
+1. **AI server** — point Jobsmith at any OpenAI-compatible server or hosted provider, test the connection, and pick your fast/strong models from the server's own list
 2. **Profile** — upload or paste your resume and let the AI fill in your details, or type them in
 3. **Job search** — keywords, locations, and salary floor
 
@@ -148,16 +148,17 @@ the browser extension, and Apply Assist.
 
 ### 4. Start your AI server
 
-For the default LM Studio setup:
+Any OpenAI-compatible server works (Ollama, LM Studio, vLLM, llama.cpp,
+LiteLLM, …):
 
-1. Open LM Studio and download a model (Mistral 7B or Qwen 3.5 recommended)
-2. Go to the **Local Server** tab, load your model, click **Start Server**
-3. Server runs at `http://localhost:1234` by default
+1. Start the server and load a model (a 7–8B instruct model is a good start)
+2. Note its OpenAI-compatible URL, e.g. `http://localhost:11434/v1` for Ollama
+3. Enter that URL in Jobsmith's settings or setup wizard
 
-If LM Studio is on a separate machine (e.g., a homelab server), use its IP: `http://192.168.x.x:1234/v1`
+If the server is on a separate machine, use its LAN IP instead of `localhost`, e.g. `http://192.168.x.x:11434/v1`
 
 Using a hosted provider instead? Skip this step — just set the server URL and
-API key in **Settings → Job Search** (or in the wizard's first step) and pick
+API key in **Settings → AI** (or in the wizard's first step) and pick
 your models from the dropdowns.
 
 The app boots fine with no AI server configured; only the AI features — scoring,
@@ -269,7 +270,7 @@ editable in the app under **Settings → AI → AI Connection**.
 
 ```yaml
 ai:
-  base_url: http://localhost:1234/v1   # LM Studio URL (use machine IP if on homelab)
+  base_url: http://localhost:1234/v1   # Your AI server's URL (use the machine's IP if it's elsewhere)
   api_key: lm-studio                   # Bearer token — local servers ignore it;
                                        # set a real key for hosted providers
   temperature: 0.7
@@ -285,8 +286,8 @@ Example endpoints:
 
 | Provider | `base_url` | `api_key` |
 |---|---|---|
-| LM Studio (default) | `http://localhost:1234/v1` | not needed |
 | Ollama | `http://localhost:11434/v1` | not needed |
+| LM Studio | `http://localhost:1234/v1` | not needed |
 | OpenRouter | `https://openrouter.ai/api/v1` | your OpenRouter key |
 | OpenAI | `https://api.openai.com/v1` | your OpenAI key |
 
@@ -428,8 +429,8 @@ docker compose up -d   # builds the image locally, then seeds
 ```
 
 Open **http://localhost:8888**, then go to **Settings → AI** and set
-your AI endpoint. If LM Studio (or Ollama) is running on the same machine as
-Docker, use `http://host.docker.internal:1234/v1` — from inside the container,
+your AI endpoint. If your AI server is running on the same machine as
+Docker, use `http://host.docker.internal:<port>/v1` (e.g. `:11434` for Ollama) — from inside the container,
 plain `localhost` means the container itself, not your host.
 
 The app boots fine with no LLM configured (the healthcheck doesn't touch AI);
@@ -508,7 +509,7 @@ The Browser-Use agent clears stale browser lock files and kills orphaned Chromiu
 Toggle headless in the **Settings tab** — this writes to `config.yaml`, which takes precedence. The `BROWSER_HEADLESS` env var in `.env` is a lower-priority fallback.
 
 **AI connection failed**
-Ensure your AI server is running with a model loaded and the URL in Settings matches (for LM Studio: Local Server tab → Start Server). For hosted providers, check the API key. Click **Test Connection** to diagnose.
+Ensure your AI server is running with a model loaded and the URL in Settings matches (it usually ends in `/v1`). For hosted providers, check the API key. Click **Test Connection** to diagnose.
 
 **No jobs found**
 Broaden search keywords, add Adzuna API keys for more results, or check that Greenhouse/Lever company slugs are correct.
@@ -577,7 +578,7 @@ jobsmith/
 │   ├── main.py                    # FastAPI app assembly; serves the frontend statically
 │   ├── app_state.py               # config.yaml load/save (single source of truth)
 │   ├── database.py                # SQLite ORM (aiosqlite)
-│   ├── ai_engine.py               # LM Studio: job scoring, tailoring, cover letters, AI Edit
+│   ├── ai_engine.py               # AI server calls: job scoring, tailoring, cover letters, AI Edit
 │   ├── prompt_registry.py         # All internal LLM prompt templates + override rendering
 │   ├── resume_parser.py           # Résumé → profile extraction (onboarding)
 │   ├── linkedin_profile_import.py # LinkedIn profile → profile extraction

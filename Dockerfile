@@ -84,7 +84,7 @@ USER pwuser
 EXPOSE 8888 6080
 
 # `restart: unless-stopped` can't tell a hung uvicorn from a healthy one, so
-# probe the AI-free liveness endpoint (/api/health does an LM Studio round-trip
+# probe the AI-free liveness endpoint (/api/health does an AI server round-trip
 # and would fail the container whenever the model server is down).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8888/api/health/live',timeout=4).status==200 else 1)"

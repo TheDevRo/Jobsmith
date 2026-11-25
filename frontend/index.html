@@ -871,9 +871,9 @@
                                         <option value="131072">128K tokens (131072)</option>
                                     </select>
                                     <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="loadNavigatorModel()">Load Model</button>
-                                    <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="applyContextWindow()">Apply to LM Studio</button>
+                                    <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="applyContextWindow()">Apply to model</button>
                                 </div>
-                                <p class="ai-tier-hint" style="margin-top:4px">Reloads the model in LM Studio with this context length. Higher values use more VRAM. Steps of 4096 (≈1 GB each).</p>
+                                <p class="ai-tier-hint" style="margin-top:4px">Saves this context length and reloads the loaded model with it, if your AI server supports remote reloads. Higher values use more VRAM. Steps of 4096 (≈1 GB each).</p>
                             </div>
                             <button class="btn btn-secondary" onclick="testAI()">Test Connection</button>
                             <div id="ai-status" class="ai-status"></div>

@@ -49,8 +49,8 @@ services:
     shm_size: "1gb"
     extra_hosts:
       # Lets the container resolve the Docker host as host.docker.internal on
-      # Linux (already supported on Mac/Win). Useful if LM Studio runs on the
-      # same host as the container. For LAN/Tailscale LM Studio, set
+      # Linux (already supported on Mac/Win). Useful if your AI server runs on the
+      # same host as the container. For a LAN/Tailscale AI server, set
       # JOBSMITH_AI_BASE_URL in .env instead.
       - "host.docker.internal:host-gateway"
     volumes:

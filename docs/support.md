@@ -12,7 +12,7 @@ resumes and cover letters, and helps you fill in application forms.
 
 It has no account and no server. Your profile, resumes, and saved jobs live on
 your device. Jobsmith uses an AI model that **you** choose — either Apple's
-on-device model, an AI server you run yourself (such as LM Studio on your own
+on-device model, an AI server you run yourself (on your own
 computer), or a cloud AI provider you configure. See the
 [Privacy Policy](privacy-policy.html) for what that means for your data.
 
@@ -44,15 +44,15 @@ write documents. Check, in order:
 1. **Which engine is selected?** Settings → AI connection. If you picked Apple's
    on-device model, it requires a device with Apple Intelligence and a recent
    iOS version. If it is unavailable there, switch to an endpoint.
-2. **Is the endpoint URL right?** For a local server such as LM Studio, the URL
-   is typically `http://<your-computer's-LAN-IP>:1234/v1` — **not**
+2. **Is the endpoint URL right?** For a server running on your computer, the URL
+   is typically `http://<your-computer's-LAN-IP>:<port>/v1` — **not**
    `localhost`. `localhost` on your iPhone means the iPhone itself, not your
    computer.
 3. **Is your phone on the same Wi-Fi as the computer?** A local AI server is
    only reachable while you are on the same network. On cellular, it will not
    be.
-4. **Is the server actually listening on the network?** LM Studio (and similar)
-   often defaults to listening only on `127.0.0.1`. Enable the option to serve
+4. **Is the server actually listening on the network?** Many local AI servers
+   default to listening only on `127.0.0.1`. Enable the option to serve
    on the local network.
 5. **Local network permission.** The first time Jobsmith contacts a server on
    your LAN, iOS asks for local network access. If you declined, re-enable it in

@@ -1,7 +1,7 @@
 """
-ai_engine.py — LM Studio integration for job scoring, resume tailoring, and cover letters.
+ai_engine.py — AI integration for job scoring, resume tailoring, and cover letters.
 
-Uses the OpenAI-compatible API exposed by LM Studio.
+Uses the OpenAI-compatible API exposed by the configured AI server.
 """
 
 import asyncio
@@ -45,7 +45,7 @@ class ScoringUnavailable(Exception):
     """Scoring could not be completed for a genuine (non-recoverable-here)
     reason — the LLM was unreachable after retries, or its response could not be
     parsed into a score. Distinct from a real low score: callers MUST NOT persist
-    a 0.0 on this, or a transient LM Studio outage becomes a permanent 0% fit
+    a 0.0 on this, or a transient AI server outage becomes a permanent 0% fit
     that `unscored_only` batches never retry. Leave fit_score NULL instead."""
 
 
@@ -54,7 +54,7 @@ async def _llm_create_with_retry(client: AsyncOpenAI, *, tiers: int = 3,
     """Call chat.completions.create with jittered exponential backoff.
 
     Retries only transient errors (connection blips, timeouts, 429s, 5xx from
-    LM Studio) up to `tiers` attempts, then re-raises the last one so callers
+    the AI server) up to `tiers` attempts, then re-raises the last one so callers
     keep their existing fallback (score→0.0, resume/cover→raise). Mirrors the
     backoff in job_sources.fetch_with_retries, which ai_engine previously lacked
     — its old "retry once, same prompt, no sleep" swallowed transient flakes.
@@ -145,8 +145,8 @@ def _resolve_endpoint(config: dict, tier: str) -> tuple[str, str]:
         return base, _ON_DEVICE_KEY
 
     default_url = ai_cfg.get("base_url", "http://localhost:1234/v1")
-    # Blank key (e.g. cleared in Settings) falls back to the LM Studio
-    # placeholder — the OpenAI SDK requires a non-empty string.
+    # Blank key (e.g. cleared in Settings) falls back to a placeholder —
+    # the OpenAI SDK requires a non-empty string; local servers ignore it.
     default_key = ai_cfg.get("api_key") or "lm-studio"
 
     models_cfg = ai_cfg.get("models", {})
@@ -162,7 +162,7 @@ def _resolve_endpoint(config: dict, tier: str) -> tuple[str, str]:
 
 
 def _get_client(config: dict, tier: str = "strong") -> AsyncOpenAI:
-    """Return a cached AsyncOpenAI client pointed at LM Studio.
+    """Return a cached AsyncOpenAI client pointed at the configured AI server.
 
     Supports tiered model config (ai.models.utility / fast / strong).
     Each tier can override base_url and api_key, otherwise inherits from
@@ -725,7 +725,7 @@ async def _score_job_fit_llm(
         raise
     except Exception as e:
         # _llm_create_with_retry already exhausted transient retries with
-        # backoff; a failure here is genuine (LM Studio down, bad request, …).
+        # backoff; a failure here is genuine (AI server down, bad request, …).
         # Do NOT return 0.0 — that would be persisted as a real 0% fit. Raise so
         # the caller can leave fit_score NULL and retry on a later batch.
         logger.exception("AI scoring failed for job %s", job.get("title", ""))

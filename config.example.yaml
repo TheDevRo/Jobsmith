@@ -93,8 +93,8 @@ search:
     himalayas: {enabled: false}
     jobicy: {enabled: false}
 ai:
-  # Any OpenAI-compatible server works: LM Studio (default), Ollama
-  # (http://localhost:11434/v1), OpenRouter, OpenAI, vLLM, etc.
+  # Any OpenAI-compatible server works, e.g. Ollama
+  # (http://localhost:11434/v1), LM Studio, vLLM, llama.cpp, OpenRouter, OpenAI.
   base_url: http://localhost:1234/v1
   # Sent as the Bearer token. Local servers ignore it; hosted providers
   # need a real key. Blank falls back to the "lm-studio" placeholder.
