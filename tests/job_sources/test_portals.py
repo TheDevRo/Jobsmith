@@ -169,11 +169,11 @@ class TestValidation:
         (user / "extra.json").write_text(json.dumps(good(id="extra", surprise=True)))
         (user / "fine.json").write_text(json.dumps(good(id="fine")))
         (user / "remotive.json").write_text(json.dumps(good(id="remotive")))  # cannot replace a bundled id
-        (user / "remoteok.json").write_text(json.dumps(good(id="remoteok")))  # nor a built-in source
-        loaded = portals.load_portals(user_dir=user, reserved={"remoteok"})
+        (user / "arbeitnow.json").write_text(json.dumps(good(id="arbeitnow")))  # nor a built-in source
+        loaded = portals.load_portals(user_dir=user, reserved={"arbeitnow"})
         assert "fine" in loaded and "extra" not in loaded
         assert loaded["remotive"]["homepage"] == "https://remotive.com/"
-        assert "remoteok" not in loaded
+        assert "arbeitnow" not in loaded
 
     def test_oversized_file_is_skipped(self, tmp_path):
         big = tmp_path / "big.json"

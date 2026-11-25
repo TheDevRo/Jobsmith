@@ -1128,6 +1128,7 @@ function promptForToken() {
 
 // ---- Sources ----
 const SOURCE_LABELS = {
+    // Retired sources keep a label so jobs already saved from them still read well.
     remoteok: 'RemoteOK',
     weworkremotely: 'WeWorkRemotely',
     adzuna: 'Adzuna',
@@ -1168,7 +1169,7 @@ async function loadSources() {
             return `<label${title ? ` title="${escapeHtml(title)}"` : ''}${locked ? ' class="source-locked"' : ''}><input type="checkbox" value="${escapeHtml(d.name)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''}> ${escapeHtml(SOURCE_LABELS[d.name] || d.label || d.name)}${tag}</label>`;
         }).join('');
     }
-    const fallback = ['linkedin', 'adzuna', 'remoteok', 'weworkremotely', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed']
+    const fallback = ['linkedin', 'adzuna', 'greenhouse', 'ashby', 'workable', 'recruitee', 'arbeitnow', 'usajobs', 'indeed']
         .map(name => ({ name, kind: 'feed', configured: true, default_on: !_SOURCE_FALLBACK_OFF.has(name), note: '' }));
     try {
         const data = await api('/api/sources');

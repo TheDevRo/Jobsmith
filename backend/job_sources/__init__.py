@@ -260,7 +260,7 @@ def parse_posted_date(value) -> datetime | None:
     """Parse the heterogeneous date_posted formats sources emit.
 
     Handles unix epochs (Arbeitnow), ISO 8601 with or without Z (LinkedIn,
-    Adzuna, Greenhouse, USAJobs, RemoteOK), and RFC 822 (WeWorkRemotely RSS).
+    Adzuna, Greenhouse, USAJobs), and RFC 822 (RSS feeds).
     Returns a timezone-aware UTC datetime, or None when unparseable (e.g.
     Indeed's "Posted 3 days ago" relative strings) — callers must treat None
     as "unknown, let it through".
@@ -293,13 +293,11 @@ def parse_posted_date(value) -> datetime | None:
 
 
 # Imported after helpers are defined so source modules can pull them in.
-from . import remoteok, weworkremotely, adzuna, greenhouse, linkedin, arbeitnow, usajobs, indeed, ashby, workable, recruitee  # noqa: E402
+from . import adzuna, greenhouse, linkedin, arbeitnow, usajobs, indeed, ashby, workable, recruitee  # noqa: E402
 from . import portals  # noqa: E402
 
 # All source modules with human-readable labels
 SOURCES = [
-    ("remoteok", remoteok),
-    ("weworkremotely", weworkremotely),
     ("adzuna", adzuna),
     ("greenhouse", greenhouse),
     ("linkedin", linkedin),
@@ -498,10 +496,6 @@ def _passes_global_filters(job: dict, config: dict) -> bool:
             if loc_clean in job_location:
                 return True
 
-        # RemoteOK and WeWorkRemotely are inherently remote — always pass
-        if job.get("source") in ("remoteok", "weworkremotely"):
-            return True
-
         # No location match
         logger.debug("Global filter: excluded '%s' — location '%s' doesn't match %s",
                      job.get("title"), job.get("location"), locations)
@@ -521,8 +515,6 @@ _SOURCE_TIMEOUTS: dict[str, int] = {
     "indeed": 600,
     "adzuna": 120,
     "greenhouse": 300,
-    "remoteok": 60,
-    "weworkremotely": 60,
     "arbeitnow": 60,
     "usajobs": 60,
     "ashby": 120,

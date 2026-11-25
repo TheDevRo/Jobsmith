@@ -26,7 +26,7 @@ def _by_name(details):
 def test_source_details_defaults_for_a_fresh_install():
     d = _by_name(job_sources.source_details({}))
     assert list(d) == job_sources.get_source_names()
-    for name in ("remoteok", "weworkremotely", "arbeitnow", "linkedin"):
+    for name in ("arbeitnow", "linkedin"):
         assert d[name]["kind"] == "feed" and d[name]["default_on"]
     for name in ("adzuna", "usajobs"):
         assert d[name]["kind"] == "keyed"

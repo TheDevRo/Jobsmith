@@ -60,8 +60,6 @@ jobsmith/
 │   │   ├── indeed.py           # Indeed scraper (Playwright + session cookies)
 │   │   ├── greenhouse.py       # Greenhouse & Lever API fetchers
 │   │   ├── adzuna.py           # Adzuna REST API
-│   │   ├── remoteok.py         # RemoteOK RSS feed
-│   │   ├── weworkremotely.py   # WeWorkRemotely RSS feed
 │   │   ├── arbeitnow.py        # Arbeitnow API
 │   │   └── usajobs.py          # USAJobs REST API (requires API key)
 │   │
@@ -362,8 +360,6 @@ Each source module exposes `async fetch_jobs(config) -> list[dict]`.
 | `indeed` | Playwright + Byparr | OR-batched keyword queries; Cloudflare solved once via Byparr, /viewjob enrichment via direct HTTP. Internal budget spans primer + search + enrichment. |
 | `greenhouse` | HTTP API | One request per board (`?content=true` returns descriptions inline); boards run concurrently. Also covers Lever boards. |
 | `adzuna` | REST API | Requires `api_keys.adzuna_app_id` + `adzuna_app_key`. Keyword × location combos run concurrently. |
-| `remoteok` | JSON API | No auth required |
-| `weworkremotely` | RSS feeds | No auth required; feeds fetched concurrently |
 | `arbeitnow` | REST API | No auth required |
 | `usajobs` | REST API | Requires `api_keys.usajobs_email` + `usajobs_api_key`. Keyword × location combos run concurrently. |
 
