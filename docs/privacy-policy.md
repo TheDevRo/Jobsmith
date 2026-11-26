@@ -4,7 +4,7 @@ title: Privacy Policy
 
 # Jobsmith Privacy Policy
 
-**Last updated: 2026-07-14**
+**Last updated: 2026-11-25**
 
 Jobsmith is a job search assistant that runs on your iPhone. It is built to be
 local-first: there is no Jobsmith account, no Jobsmith login, and no Jobsmith
@@ -88,8 +88,6 @@ with any website you visit, means it can see your IP address).
 Depending on which sources you enable and which companies you follow, Jobsmith
 may contact:
 
-- RemoteOK
-- WeWorkRemotely
 - Arbeitnow
 - Greenhouse
 - Lever
